@@ -16,9 +16,9 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-[#2d3142]">Dashboard</h1>
         <Link href="/clients/new">
-          <Button>
+          <Button className="bg-[#00a651] hover:bg-[#008f45] text-white">
             <Plus className="mr-2 h-4 w-4" />
             Novo Cliente
           </Button>
@@ -28,11 +28,21 @@ export default async function DashboardPage() {
       <StatsCards clients={clients} />
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <ClientList clients={clients} />
+        <div className="col-span-1 lg:col-span-2">
+          <div className="rounded-md border border-zinc-200 bg-white shadow-sm">
+            <h2 className="border-b px-4 py-3 font-semibold text-[#2d3142]">Lista de Clientes</h2>
+            <div className="p-4">
+              <ClientList clients={clients} />
+            </div>
+          </div>
         </div>
-        <div>
-          <RecentActivity logs={recentLogs} />
+        <div className="col-span-1">
+          <div className="rounded-md border border-zinc-200 bg-white shadow-sm">
+            <h2 className="border-b px-4 py-3 font-semibold text-[#2d3142]">Atividade Recente</h2>
+            <div className="p-4">
+              <RecentActivity logs={recentLogs} />
+            </div>
+          </div>
         </div>
       </div>
     </div>
