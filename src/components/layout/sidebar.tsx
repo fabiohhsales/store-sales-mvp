@@ -15,9 +15,10 @@ export function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r bg-zinc-950 text-zinc-100 lg:flex lg:flex-col">
-      <div className="flex h-16 items-center border-b border-zinc-800 px-6">
-        <span className="text-lg font-bold tracking-tight">Sales Tec Admin</span>
+    <aside className="hidden w-16 shrink-0 border-r border-[#3a4055] bg-[#2d3142] text-zinc-300 lg:flex lg:flex-col group hover:w-64 transition-all duration-300 z-20">
+      <div className="flex h-16 items-center justify-center border-b border-[#3a4055] px-2 group-hover:px-6 group-hover:justify-start">
+        <span className="text-xl font-bold tracking-tight text-white hidden group-hover:block">Pipedrive Clone</span>
+        <span className="text-xl font-bold tracking-tight text-white block group-hover:hidden">P</span>
       </div>
       <nav className="flex-1 space-y-1 px-3 py-4">
         {navItems.map((item) => {
@@ -30,14 +31,15 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-zinc-800 text-white'
-                  : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100'
+                  ? 'bg-[#40465c] text-white'
+                  : 'text-zinc-400 hover:bg-[#3a4055] hover:text-zinc-100'
               )}
+              title={item.label}
             >
-              <item.icon className="h-4 w-4" />
-              {item.label}
+              <item.icon className="h-5 w-5 shrink-0" />
+              <span className="hidden group-hover:block truncate">{item.label}</span>
             </Link>
           )
         })}
