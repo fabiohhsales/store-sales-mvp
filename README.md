@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Painel Admin — Sales Tec
 
-## Getting Started
+Painel administrativo para gerenciar o onboarding de clientes do chatbot de agendamento da Sales Tec.
 
-First, run the development server:
+## O que faz
+
+- **Dashboard** com visao geral dos clientes e status dos servicos
+- **Wizard de onboarding** pra criar novos clientes (dados, WhatsApp, Google Calendar, config do bot)
+- **Link publico** (`/connect/[instancia]`) pra o cliente conectar WhatsApp e Google Calendar sem precisar de login
+- **Gerenciamento completo** do cliente: editar config, pausar/ativar, reconectar servicos, apagar
+- **Health check** em tempo real das instancias WhatsApp
+
+## Stack
+
+- **Next.js 15** (App Router) + TypeScript
+- **Tailwind CSS** + shadcn/ui
+- **Supabase** (PostgreSQL + Auth)
+- Integracao com **Evolution API** (WhatsApp), **Chatwoot**, **Google Calendar**
+
+## Setup local
 
 ```bash
+# 1. Clonar e instalar
+git clone <repo-url>
+cd painel-admin
+npm install
+
+# 2. Configurar variaveis de ambiente
+cp .env.example .env.local
+# Preencher as credenciais no .env.local
+
+# 3. Rodar
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Acesse `http://localhost:3000`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Variaveis de ambiente
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Copie `.env.example` para `.env.local` e preencha:
 
-## Learn More
+| Variavel | Descricao |
+|----------|-----------|
+| `EVOLUTION_API_URL` | URL da Evolution API |
+| `EVOLUTION_API_KEY` | API key da Evolution |
+| `CHATWOOT_URL` | URL do Chatwoot |
+| `CHATWOOT_API_TOKEN` | Token de acesso do Chatwoot |
+| `NEXT_PUBLIC_SUPABASE_URL` | URL do Supabase (Kong) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Chave anonima do Supabase |
+| `SUPABASE_SERVICE_ROLE_KEY` | Chave service_role do Supabase |
+| `GOOGLE_CLIENT_ID` | OAuth Client ID (Google Cloud Console) |
+| `GOOGLE_CLIENT_SECRET` | OAuth Client Secret |
 
-To learn more about Next.js, take a look at the following resources:
+## Banco de dados
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+As migrations estao em `supabase/migrations/`. Tabelas do painel usam prefixo `panel_`:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `panel_clients` — clientes
+- `panel_whatsapp_config` — config WhatsApp por cliente
+- `panel_google_config` — tokens OAuth do Google Calendar
+- `panel_bot_config` — configuracao completa do bot/IA
+- `panel_health_checks` — log de health checks
+- `panel_audit_log` — log de acoes administrativas
 
-## Deploy on Vercel
+## Comandos
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run dev    # Dev server (porta 3000)
+npm run build  # Build de producao
+npm run lint   # ESLint
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Estrutura
+
+```
+src/
+├── app/
+│   ├── (auth)/login/          # Pagina de login
+│   ├── (dashboard)/           # Dashboard, clientes, settings
+│   ├── api/                   # API routes (WhatsApp, Google OAuth, etc)
+│   └── connect/               # Pagina publica de onboarding do cliente
+├── components/
+│   ├── bot-config/            # Secoes do formulario de config do bot
+│   ├── client-detail/         # Componentes do detalhe do cliente
+│   ├── dashboard/             # Cards, tabela, health indicator
+│   ├── layout/                # Sidebar, header, mobile nav
+│   ├── onboarding/            # Wizard de onboarding (5 etapas)
+│   └── ui/                    # shadcn/ui components
+├── lib/
+│   ├── api/                   # Wrappers: Evolution, Chatwoot, Google
+│   ├── db/                    # Helpers de query Supabase
+│   ├── supabase/              # Clientes Supabase (server, client, admin)
+│   └── validations/           # Schemas Zod
+└── types/                     # Tipos TypeScript
+```
