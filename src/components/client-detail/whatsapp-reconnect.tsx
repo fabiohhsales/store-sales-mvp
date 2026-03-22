@@ -71,10 +71,10 @@ export function WhatsAppReconnect({ instanceName }: WhatsAppReconnectProps) {
       </CardHeader>
       <CardContent>
         {connected ? (
-          <p className="text-sm text-green-600 font-medium">Conectado!</p>
+          <p className="text-sm text-success font-medium">Conectado!</p>
         ) : qrBase64 ? (
           <div className="flex flex-col items-center gap-3">
-            <div className="rounded-lg border bg-white p-3">
+            <div className="rounded-lg border border-border bg-foreground/95 p-3">
               <img
                 src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
                 alt="QR Code"

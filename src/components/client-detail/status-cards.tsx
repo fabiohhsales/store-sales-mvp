@@ -1,10 +1,3 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Smartphone, Calendar, Bot } from 'lucide-react'
 import { HealthIndicator } from '@/components/dashboard/health-indicator'
 import type { PanelClientWithRelations } from '@/types/database'
@@ -19,71 +12,71 @@ export function StatusCards({ client }: StatusCardsProps) {
 
   return (
     <div className="grid gap-4 sm:grid-cols-3">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">WhatsApp</CardTitle>
-          <Smartphone className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          {client.panel_whatsapp_config ? (
-            <div className="space-y-1">
-              <HealthIndicator
-                instanceName={client.panel_whatsapp_config.evolution_instance_name}
-                initialStatus={client.panel_whatsapp_config.connection_status}
-              />
-              <p className="text-xs text-muted-foreground">
-                {client.panel_whatsapp_config.connected_phone || client.panel_whatsapp_config.evolution_instance_name}
-              </p>
-            </div>
-          ) : (
-            <Badge variant="outline">Não configurado</Badge>
-          )}
-        </CardContent>
-      </Card>
+      <div className="glass-card p-5">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-muted-foreground">WhatsApp</span>
+          <Smartphone size={18} className="text-muted-foreground" />
+        </div>
+        {client.panel_whatsapp_config ? (
+          <div className="space-y-1">
+            <HealthIndicator
+              instanceName={client.panel_whatsapp_config.evolution_instance_name}
+              initialStatus={client.panel_whatsapp_config.connection_status}
+            />
+            <p className="text-xs text-muted-foreground">
+              {client.panel_whatsapp_config.connected_phone || client.panel_whatsapp_config.evolution_instance_name}
+            </p>
+          </div>
+        ) : (
+          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-muted-foreground/15 text-muted-foreground">
+            Não configurado
+          </span>
+        )}
+      </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Google Calendar</CardTitle>
-          <Calendar className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          {hasGoogle ? (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-green-500" />
-                <span className="text-sm font-medium">Conectado</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {client.panel_google_config!.google_email}
-              </p>
+      <div className="glass-card p-5">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-muted-foreground">Google Calendar</span>
+          <Calendar size={18} className="text-muted-foreground" />
+        </div>
+        {hasGoogle ? (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <span className="connection-dot online" />
+              <span className="text-sm font-medium text-foreground">Conectado</span>
             </div>
-          ) : (
-            <Badge variant="outline">Não conectado</Badge>
-          )}
-        </CardContent>
-      </Card>
+            <p className="text-xs text-muted-foreground">
+              {client.panel_google_config!.google_email}
+            </p>
+          </div>
+        ) : (
+          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-muted-foreground/15 text-muted-foreground">
+            Não conectado
+          </span>
+        )}
+      </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Bot</CardTitle>
-          <Bot className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          {hasBotConfig ? (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-green-500" />
-                <span className="text-sm font-medium">Configurado</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {client.panel_bot_config!.professional_name}
-              </p>
+      <div className="glass-card p-5">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-muted-foreground">Bot</span>
+          <Bot size={18} className="text-muted-foreground" />
+        </div>
+        {hasBotConfig ? (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <span className="connection-dot online" />
+              <span className="text-sm font-medium text-foreground">Configurado</span>
             </div>
-          ) : (
-            <Badge variant="outline">Não configurado</Badge>
-          )}
-        </CardContent>
-      </Card>
+            <p className="text-xs text-muted-foreground">
+              {client.panel_bot_config!.professional_name}
+            </p>
+          </div>
+        ) : (
+          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-muted-foreground/15 text-muted-foreground">
+            Não configurado
+          </span>
+        )}
+      </div>
     </div>
   )
 }

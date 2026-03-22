@@ -53,7 +53,7 @@ export default async function ClientDetailPage({
         </Link>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">{client.name}</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">{client.name}</h1>
             <p className="text-muted-foreground">
               {client.owner_name} — {client.email}
             </p>

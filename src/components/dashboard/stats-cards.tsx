@@ -1,9 +1,3 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Users, Wifi, WifiOff, Clock } from 'lucide-react'
 import type { PanelClientWithRelations } from '@/types/database'
 
@@ -20,46 +14,26 @@ export function StatsCards({ clients }: StatsCardsProps) {
   ).length
 
   const stats = [
-    {
-      title: 'Total de Clientes',
-      value: total,
-      icon: Users,
-      iconClass: 'text-muted-foreground',
-    },
-    {
-      title: 'Ativos',
-      value: active,
-      icon: Wifi,
-      iconClass: 'text-green-500',
-    },
-    {
-      title: 'Desconectados',
-      value: disconnected,
-      icon: WifiOff,
-      iconClass: 'text-destructive',
-    },
-    {
-      title: 'Pendentes',
-      value: pending,
-      icon: Clock,
-      iconClass: 'text-yellow-500',
-    },
+    { label: 'Total de Clientes', value: total, icon: Users, color: 'hsl(var(--muted-foreground))', delay: 0 },
+    { label: 'Ativos', value: active, icon: Wifi, color: 'hsl(var(--success))', delay: 80 },
+    { label: 'Desconectados', value: disconnected, icon: WifiOff, color: 'hsl(var(--destructive))', delay: 160 },
+    { label: 'Pendentes', value: pending, icon: Clock, color: 'hsl(var(--warning))', delay: 240 },
   ]
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {stats.map((stat) => (
-        <Card key={stat.title}>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {stat.title}
-            </CardTitle>
-            <stat.icon className={`h-4 w-4 ${stat.iconClass}`} />
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{stat.value}</p>
-          </CardContent>
-        </Card>
+        <div
+          key={stat.label}
+          className="stat-card opacity-0 animate-fade-in"
+          style={{ animationDelay: `${stat.delay}ms` }}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">{stat.label}</span>
+            <stat.icon size={20} style={{ color: stat.color }} />
+          </div>
+          <span className="text-3xl font-bold text-foreground tabular-nums">{stat.value}</span>
+        </div>
       ))}
     </div>
   )
