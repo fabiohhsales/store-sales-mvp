@@ -28,7 +28,7 @@ export default async function EditClientPage({
           <ArrowLeft className="h-3 w-3" />
           Voltar
         </Link>
-        <h1 className="text-2xl font-bold tracking-tight">Editar: {client.name}</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Editar: {client.name}</h1>
       </div>
 
       <EditClientForm client={client} />

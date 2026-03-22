@@ -2,25 +2,42 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Users, Settings } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { useState } from 'react'
+import {
+  LayoutDashboard,
+  Users,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  Kanban,
+} from 'lucide-react'
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/clients', label: 'Clientes', icon: Users },
+  { href: '/deals', label: 'Negócios', icon: Kanban },
   { href: '/settings', label: 'Configurações', icon: Settings },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
+  const [collapsed, setCollapsed] = useState(false)
 
   return (
-    <aside className="hidden w-16 shrink-0 border-r border-[#3a4055] bg-[#2d3142] text-zinc-300 lg:flex lg:flex-col group hover:w-64 transition-all duration-300 z-20">
-      <div className="flex h-16 items-center justify-center border-b border-[#3a4055] px-2 group-hover:px-6 group-hover:justify-start">
-        <span className="text-xl font-bold tracking-tight text-white hidden group-hover:block">Pipedrive Clone</span>
-        <span className="text-xl font-bold tracking-tight text-white block group-hover:hidden">P</span>
+    <aside
+      className="hidden h-screen flex-col border-r border-border transition-all duration-300 relative lg:flex"
+      style={{
+        width: collapsed ? 60 : 220,
+        background: 'var(--sidebar)',
+      }}
+    >
+      <div className="flex h-14 items-center justify-center border-b border-border">
+        <span className="text-lg font-bold tracking-tight text-primary">
+          {collapsed ? 'S' : 'Sales Tec'}
+        </span>
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-4">
+
+      <nav className="flex-1 py-4 px-2 flex flex-col gap-1">
         {navItems.map((item) => {
           const isActive =
             item.href === '/'
@@ -30,20 +47,22 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={cn(
-                'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-[#40465c] text-white'
-                  : 'text-zinc-400 hover:bg-[#3a4055] hover:text-zinc-100'
-              )}
-              title={item.label}
+              className={`sidebar-item ${isActive ? 'active' : ''}`}
+              title={collapsed ? item.label : undefined}
             >
-              <item.icon className="h-5 w-5 shrink-0" />
-              <span className="hidden group-hover:block truncate">{item.label}</span>
+              <item.icon size={18} />
+              {!collapsed && <span>{item.label}</span>}
             </Link>
           )
         })}
       </nav>
+
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="absolute -right-3 top-20 w-6 h-6 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+      </button>
     </aside>
   )
 }

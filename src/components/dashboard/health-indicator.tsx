@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { cn } from '@/lib/utils'
 import type { ConnectionStatus } from '@/types/database'
 
 interface HealthIndicatorProps {
@@ -10,10 +9,10 @@ interface HealthIndicatorProps {
 }
 
 const statusConfig = {
-  open: { color: 'bg-green-500', label: 'Conectado' },
-  connecting: { color: 'bg-yellow-500', label: 'Conectando' },
-  disconnected: { color: 'bg-red-500', label: 'Desconectado' },
-  error: { color: 'bg-red-500', label: 'Erro' },
+  open: { label: 'Conectado', online: true },
+  connecting: { label: 'Conectando', online: false },
+  disconnected: { label: 'Desconectado', online: false },
+  error: { label: 'Erro', online: false },
 } as const
 
 export function HealthIndicator({ instanceName, initialStatus = 'disconnected' }: HealthIndicatorProps) {
@@ -50,9 +49,9 @@ export function HealthIndicator({ instanceName, initialStatus = 'disconnected' }
   const config = statusConfig[status]
 
   return (
-    <div className="flex items-center gap-2">
-      <span className={cn('h-2 w-2 rounded-full', config.color)} />
-      <span className="text-xs text-muted-foreground">{config.label}</span>
+    <div className="flex items-center gap-1.5">
+      <span className={`connection-dot ${config.online ? 'online' : 'offline'}`} />
+      <span className="text-sm text-muted-foreground">{config.label}</span>
     </div>
   )
 }
