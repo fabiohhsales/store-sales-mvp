@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getClientById, updateClient, deleteClient } from '@/lib/db/clients'
 import { deleteInstance } from '@/lib/api/evolution'
+import { deleteChatwootAccount } from '@/lib/api/chatwoot'
 import { getWhatsAppConfigByClientId } from '@/lib/db/whatsapp-config'
 import { insertAuditLog } from '@/lib/db/audit-log'
 
@@ -81,14 +82,23 @@ export async function DELETE(
     // Busca dados antes de deletar (pra log e cleanup)
     const client = await getClientById(id)
 
-    // Tenta deletar a instância na Evolution API
     const whatsappConfig = await getWhatsAppConfigByClientId(id)
+
+    // Tenta deletar a instância na Evolution API
     if (whatsappConfig?.evolution_instance_name) {
       try {
         await deleteInstance(whatsappConfig.evolution_instance_name)
       } catch {
-        // Ignora erro se instância já não existe na Evolution
+        // Ignora — instância pode já não existir na Evolution
       }
+    }
+
+    // Tenta deletar a Account isolada no Chatwoot
+    if (whatsappConfig?.chatwoot_account_id && whatsappConfig?.chatwoot_agent_token) {
+      await deleteChatwootAccount(
+        whatsappConfig.chatwoot_account_id,
+        whatsappConfig.chatwoot_agent_token
+      )
     }
 
     // Deleta do banco (cascata manual)

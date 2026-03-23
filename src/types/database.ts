@@ -63,6 +63,8 @@ export interface PanelWhatsAppConfig {
   disconnected_at: string | null
   webhook_url: string | null
   chatwoot_inbox_id: number | null
+  chatwoot_account_id: number | null
+  chatwoot_agent_token: string | null
   created_at: string
   updated_at: string
 }

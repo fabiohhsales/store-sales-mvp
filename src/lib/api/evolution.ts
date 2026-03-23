@@ -35,7 +35,8 @@ export function getN8nWebhookUrl(): string {
 
 export async function createInstance(
   instanceName: string,
-  clientName: string
+  clientName: string,
+  chatwootConfig: { accountId: number; agentToken: string }
 ): Promise<EvolutionInstanceResponse> {
   const n8nWebhookUrl = getN8nWebhookUrl()
 
@@ -45,8 +46,8 @@ export async function createInstance(
       instanceName,
       integration: 'WHATSAPP-BAILEYS',
       qrcode: true,
-      chatwoot_account_id: process.env.CHATWOOT_ACCOUNT_ID || '1',
-      chatwoot_token: process.env.CHATWOOT_API_TOKEN,
+      chatwoot_account_id: String(chatwootConfig.accountId),
+      chatwoot_token: chatwootConfig.agentToken,
       chatwoot_url: process.env.CHATWOOT_URL,
       chatwoot_sign_msg: false,
       chatwoot_reopen_conversation: true,
@@ -59,6 +60,28 @@ export async function createInstance(
         webhook_base64: false,
         events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'QRCODE_UPDATED'],
       },
+    }),
+  })
+}
+
+export async function setChatwootIntegration(
+  instanceName: string,
+  accountId: number,
+  agentToken: string,
+  inboxName: string
+): Promise<void> {
+  await evolutionFetch(`/chatwoot/set/${instanceName}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      enabled: true,
+      accountId: String(accountId),
+      token: agentToken,
+      url: process.env.CHATWOOT_URL,
+      nameInbox: inboxName,
+      signMsg: false,
+      reopenConversation: true,
+      conversationPending: true,
+      autoCreate: true,
     }),
   })
 }

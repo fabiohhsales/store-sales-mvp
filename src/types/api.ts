@@ -55,6 +55,12 @@ export interface EvolutionFetchInstance {
 
 // --- Chatwoot API ---
 
+export interface ChatwootAccount {
+  id: number
+  name: string
+  access_token: string
+}
+
 export interface ChatwootInbox {
   id: number
   name: string
