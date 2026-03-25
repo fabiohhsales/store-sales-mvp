@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getClientById, updateClient, deleteClient } from '@/lib/db/clients'
 import { deleteInstance } from '@/lib/api/evolution'
-import { deleteChatwootAccount } from '@/lib/api/chatwoot'
+import { deleteChatwootAccount, deleteInbox } from '@/lib/api/chatwoot'
 import { getWhatsAppConfigByClientId } from '@/lib/db/whatsapp-config'
 import { insertAuditLog } from '@/lib/db/audit-log'
+
+const CHATWOOT_MAIN_ACCOUNT_ID = Number(process.env.CHATWOOT_ACCOUNT_ID || '1')
 
 export async function GET(
   _request: NextRequest,
@@ -84,28 +86,44 @@ export async function DELETE(
 
     const whatsappConfig = await getWhatsAppConfigByClientId(id)
 
-    // Tenta deletar a instância na Evolution API
+    const warnings: string[] = []
+
+    // 1. Tenta deletar a instância na Evolution API
     if (whatsappConfig?.evolution_instance_name) {
       try {
         await deleteInstance(whatsappConfig.evolution_instance_name)
       } catch {
-        // Ignora — instância pode já não existir na Evolution
+        warnings.push(`Instância Evolution "${whatsappConfig.evolution_instance_name}" não encontrada (pode já ter sido removida)`)
       }
     }
 
-    // Tenta deletar a Account isolada no Chatwoot
-    if (whatsappConfig?.chatwoot_account_id && whatsappConfig?.chatwoot_agent_token) {
-      await deleteChatwootAccount(
-        whatsappConfig.chatwoot_account_id,
-        whatsappConfig.chatwoot_agent_token
-      )
+    // 2. Tenta deletar Chatwoot (Account isolada ou inbox da Account principal)
+    if (whatsappConfig?.chatwoot_account_id) {
+      if (whatsappConfig.chatwoot_account_id === CHATWOOT_MAIN_ACCOUNT_ID) {
+        // Account principal (compartilhada) — NÃO deletar, só remove a inbox
+        if (whatsappConfig.chatwoot_inbox_id) {
+          try {
+            await deleteInbox(whatsappConfig.chatwoot_inbox_id)
+          } catch {
+            warnings.push(`Inbox #${whatsappConfig.chatwoot_inbox_id} da Account principal não foi deletada (pode já ter sido removida)`)
+          }
+        }
+      } else if (whatsappConfig.chatwoot_agent_token) {
+        // Account isolada do cliente — deleta a Account inteira
+        const chatwootResult = await deleteChatwootAccount(
+          whatsappConfig.chatwoot_account_id,
+          whatsappConfig.chatwoot_agent_token
+        )
+        if (!chatwootResult.deleted) {
+          warnings.push(`Account Chatwoot #${whatsappConfig.chatwoot_account_id} não foi deletada: ${chatwootResult.error}`)
+        }
+      }
     }
 
-    // Deleta do banco (cascata manual)
+    // 3. Deleta do banco (FK CASCADE cuida das tabelas filhas)
     await deleteClient(id)
 
-    // Log de auditoria (salva antes de deletar o audit_log do cliente)
-    // Como o audit_log do cliente já foi deletado, logamos sem client_id
+    // 4. Log de auditoria (client_id = null porque o cliente já foi deletado)
     await insertAuditLog({
       admin_email: user.email!,
       action: 'client_deleted',
@@ -113,10 +131,11 @@ export async function DELETE(
       details: {
         deleted_client_name: client.name,
         deleted_client_id: id,
+        warnings: warnings.length > 0 ? warnings : undefined,
       },
     })
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, warnings })
   } catch (error) {
     console.error('Erro ao deletar cliente:', error)
     return NextResponse.json(

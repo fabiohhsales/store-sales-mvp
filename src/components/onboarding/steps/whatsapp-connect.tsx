@@ -74,12 +74,18 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
         body: JSON.stringify({ client_id: clientId, instance_name: instanceName.trim() }),
       })
 
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Erro ao criar instância')
+      const text = await res.text()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let data: Record<string, any>
+      try {
+        data = JSON.parse(text)
+      } catch {
+        throw new Error(`Erro interno do servidor (${res.status})`)
       }
 
-      const data = await res.json()
+      if (!res.ok) {
+        throw new Error((data.error as string) || 'Erro ao criar instância')
+      }
       if (data.qrcode?.base64) {
         setQrBase64(data.qrcode.base64)
       }
@@ -96,7 +102,8 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
     try {
       const res = await fetch(`/api/whatsapp/instances/${instanceName}/qrcode`)
       if (!res.ok) throw new Error('Erro ao gerar QR')
-      const data = await res.json()
+      const text = await res.text()
+      const data = JSON.parse(text)
       if (data.base64) {
         setQrBase64(data.base64)
         toast.success('QR Code atualizado')

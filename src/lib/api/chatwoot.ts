@@ -10,6 +10,7 @@ const API_TOKEN = process.env.CHATWOOT_API_TOKEN!
 const ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1'
 const BOT_EMAIL_DOMAIN = process.env.CHATWOOT_BOT_EMAIL_DOMAIN || 'salestec.com'
 const BOT_PASSWORD = process.env.CHATWOOT_BOT_PASSWORD!
+const PLATFORM_TOKEN = process.env.CHATWOOT_PLATFORM_TOKEN || ''
 
 // --- API regular (Account 1) ---
 
@@ -48,6 +49,10 @@ export async function updateInbox(
 
 export async function listAgents(): Promise<ChatwootAgent[]> {
   return chatwootFetch<ChatwootAgent[]>('/agents')
+}
+
+export async function deleteInbox(inboxId: number): Promise<void> {
+  await chatwootFetch(`/inboxes/${inboxId}`, { method: 'DELETE' })
 }
 
 // --- Caminho B — Account isolada por cliente ---
@@ -106,16 +111,116 @@ export async function createChatwootAccount(
   }
 }
 
-// Deleta uma Account Chatwoot (best effort — ignora falha se não existir)
-export async function deleteChatwootAccount(accountId: number, accountToken: string): Promise<void> {
-  try {
-    await fetch(`${BASE_URL}/api/v1/accounts/${accountId}`, {
-      method: 'DELETE',
-      headers: { api_access_token: accountToken },
-    })
-  } catch {
-    // Ignora — conta pode já ter sido deletada manualmente
+// Deleta uma Account Chatwoot.
+// Tenta Platform API primeiro, depois fallback pra Super Admin session.
+export async function deleteChatwootAccount(accountId: number, _accountToken: string): Promise<{ deleted: boolean; error?: string }> {
+  // Tentativa 1: Platform API (funciona se a account foi criada pela Platform App)
+  if (PLATFORM_TOKEN) {
+    try {
+      const res = await fetch(`${BASE_URL}/platform/api/v1/accounts/${accountId}`, {
+        method: 'DELETE',
+        headers: { api_access_token: PLATFORM_TOKEN },
+      })
+      if (res.ok) {
+        console.log(`[Chatwoot] Account ${accountId} deletada via Platform API`)
+        return { deleted: true }
+      }
+    } catch {
+      // Segue pro fallback
+    }
   }
+
+  // Tentativa 2: Super Admin Devise session (funciona pra qualquer account)
+  const superEmail = process.env.CHATWOOT_SUPER_ADMIN_EMAIL
+  const superPassword = process.env.CHATWOOT_SUPER_ADMIN_PASSWORD
+  if (superEmail && superPassword) {
+    try {
+      return await deleteChatwootAccountViaSuperAdmin(accountId, superEmail, superPassword)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      console.error(`[Chatwoot] Super Admin delete falhou para Account ${accountId}:`, msg)
+      return { deleted: false, error: msg }
+    }
+  }
+
+  return { deleted: false, error: 'Nenhum método de deleção disponível. Configure CHATWOOT_PLATFORM_TOKEN ou CHATWOOT_SUPER_ADMIN_EMAIL/PASSWORD.' }
+}
+
+// Deleta account via Super Admin panel (Devise session + CSRF)
+async function deleteChatwootAccountViaSuperAdmin(
+  accountId: number,
+  email: string,
+  password: string
+): Promise<{ deleted: boolean; error?: string }> {
+  // 1. Buscar página de login pra pegar CSRF token e cookies
+  const loginPageRes = await fetch(`${BASE_URL}/super_admin/sign_in`, {
+    headers: { Accept: 'text/html' },
+    redirect: 'manual',
+  })
+  const loginPageHtml = await loginPageRes.text()
+
+  const csrfMatch = loginPageHtml.match(/name="authenticity_token"[^>]*value="([^"]+)"/)
+  if (!csrfMatch) {
+    return { deleted: false, error: 'Não encontrou CSRF token na página de login do Super Admin' }
+  }
+  const csrfToken = csrfMatch[1]
+
+  // Extrair cookies da resposta
+  const setCookies = loginPageRes.headers.getSetCookie?.() ?? []
+  const cookieString = setCookies.map(c => c.split(';')[0]).join('; ')
+
+  // 2. Login via Devise form
+  const loginRes = await fetch(`${BASE_URL}/super_admin/sign_in`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: cookieString,
+    },
+    body: new URLSearchParams({
+      'authenticity_token': csrfToken,
+      'user[email]': email,
+      'user[password]': password,
+    }).toString(),
+    redirect: 'manual',
+  })
+
+  // Devise redireciona (302) em caso de sucesso
+  if (loginRes.status !== 302 && loginRes.status !== 200) {
+    return { deleted: false, error: `Login Super Admin falhou: ${loginRes.status}` }
+  }
+
+  // Combinar cookies da sessão
+  const loginCookies = loginRes.headers.getSetCookie?.() ?? []
+  const allCookies = [...setCookies, ...loginCookies].map(c => c.split(';')[0]).join('; ')
+
+  // 3. Pegar CSRF token da página do super admin (pós-login)
+  const adminPageRes = await fetch(`${BASE_URL}/super_admin/accounts`, {
+    headers: { Accept: 'text/html', Cookie: allCookies },
+    redirect: 'follow',
+  })
+  const adminPageHtml = await adminPageRes.text()
+  const adminCsrfMatch = adminPageHtml.match(/name="csrf-token" content="([^"]+)"/)
+    || adminPageHtml.match(/name="authenticity_token"[^>]*value="([^"]+)"/)
+  const adminCsrf = adminCsrfMatch?.[1] || csrfToken
+
+  // 4. Deletar account via Super Admin
+  const deleteRes = await fetch(`${BASE_URL}/super_admin/accounts/${accountId}`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: allCookies,
+      'X-CSRF-Token': adminCsrf,
+    },
+    body: new URLSearchParams({ 'authenticity_token': adminCsrf }).toString(),
+    redirect: 'manual',
+  })
+
+  if (deleteRes.status === 200 || deleteRes.status === 302 || deleteRes.status === 204) {
+    console.log(`[Chatwoot] Account ${accountId} deletada via Super Admin`)
+    return { deleted: true }
+  }
+
+  return { deleted: false, error: `Super Admin delete retornou ${deleteRes.status}` }
 }
 
 // Configura webhook do Chatwoot → n8n na Account do cliente

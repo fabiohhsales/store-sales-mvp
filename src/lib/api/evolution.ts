@@ -20,7 +20,14 @@ async function evolutionFetch<T>(path: string, options: RequestInit = {}): Promi
 
   if (!res.ok) {
     const body = await res.text()
-    throw new Error(`Evolution API error ${res.status}: ${body}`)
+    const cleanBody = body.startsWith('<!') ? `(HTML response - instância pode não existir)` : body
+    throw new Error(`Evolution API error ${res.status}: ${cleanBody}`)
+  }
+
+  const contentType = res.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    const body = await res.text()
+    throw new Error(`Evolution API retornou ${contentType} em vez de JSON: ${body.slice(0, 100)}`)
   }
 
   return res.json()

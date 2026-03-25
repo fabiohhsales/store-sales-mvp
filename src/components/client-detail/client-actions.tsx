@@ -57,7 +57,14 @@ export function ClientActions({ client }: ClientActionsProps) {
       const res = await fetch(`/api/clients/${client.id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Erro ao deletar')
 
-      toast.success('Cliente deletado')
+      const data = await res.json()
+
+      if (data.warnings?.length > 0) {
+        data.warnings.forEach((w: string) => toast.warning(w, { duration: 8000 }))
+        toast.success('Cliente deletado do banco (veja os avisos acima)')
+      } else {
+        toast.success('Cliente deletado completamente')
+      }
       router.push('/clients')
     } catch {
       toast.error('Erro ao deletar cliente')
