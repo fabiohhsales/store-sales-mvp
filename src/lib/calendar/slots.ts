@@ -72,8 +72,6 @@ function slotLabel(start: Date): string {
 
 // --- Interpretação do time_window_hint via AI ---
 
-const openai = createAiClient()
-
 export async function parseTimeWindow(
   hint: string | null,
   referenceDate: Date = new Date()
@@ -84,6 +82,7 @@ export async function parseTimeWindow(
   if (!hint) return { start: referenceDate, end: defaultEnd }
 
   try {
+    const openai = createAiClient()
     const res = await openai.chat.completions.create({
       model: AI_MODEL_MINI,
       messages: [

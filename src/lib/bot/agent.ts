@@ -10,8 +10,6 @@ import type { AgentOutput } from './output-schema'
 import type { PipelineResult } from './pipeline'
 import type { BotMessage } from '@/types/bot'
 
-const openai = createAiClient()
-
 const AI_PAUSE_MINUTES = 10
 
 // --- AI Pause ---
@@ -94,6 +92,7 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
   const chatMessages = buildChatMessages(messageHistory, systemPrompt)
 
   try {
+    const openai = createAiClient()
     const completion = await openai.chat.completions.create({
       model: AI_MODEL,
       messages: chatMessages,
