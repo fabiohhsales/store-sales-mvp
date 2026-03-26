@@ -63,6 +63,10 @@ export function buildSystemPrompt(config: PanelBotConfig, contactName: string): 
   const maxDays = config.max_advance_booking_days ?? 60
   const minHours = config.min_advance_booking_hours ?? 2
   const duration = config.appointment_duration_default
+  const language = config.ai_language && config.ai_language !== 'pt-BR'
+    ? `\nIDIOMA: Responda SEMPRE em ${config.ai_language}. Não use português.`
+    : ''
+
   const customInstructions = config.ai_custom_instructions
     ? `\n\nINSTRUÇÕES ADICIONAIS DO PROFISSIONAL:\n${config.ai_custom_instructions}`
     : ''
@@ -80,6 +84,7 @@ Use APENAS as informações deste prompt para responder. Não invente dados, pre
 Quando o paciente perguntar sobre um serviço, responda com base nas informações de SERVIÇOS DISPONÍVEIS abaixo.
 Se a informação não estiver no prompt, diga que não tem esse detalhe e ofereça agendar.
 
+${language}
 TOM DE COMUNICAÇÃO:
 ${tone}
 Máximo 1–4 linhas por resposta. Sem markdown. Seja direto e humano.
