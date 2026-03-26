@@ -40,7 +40,7 @@ export function getPanelWebhookUrl(): string {
     console.warn('[Evolution] NEXT_PUBLIC_APP_URL não configurada — webhook apontará para localhost')
     return 'http://localhost:3000/api/webhooks/chatwoot'
   }
-  return `${appUrl}/api/webhooks/chatwoot`
+  return `${appUrl.replace(/\/$/, '')}/api/webhooks/chatwoot`
 }
 
 export async function createInstance(
