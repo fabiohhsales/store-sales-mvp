@@ -5,9 +5,6 @@ const nextConfig: NextConfig = {
     // Type checking é feito localmente — evita OOM no build da VPS
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
 };
 
 export default nextConfig;
