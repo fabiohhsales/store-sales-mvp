@@ -25,6 +25,9 @@ function normalizePayload(payload: ChatwootWebhookPayload): NormalizedWebhookMes
 
   const contact = payload.conversation.contact
 
+  // Ignora mensagens de grupos do WhatsApp (JID termina em @g.us)
+  if (contact.identifier?.endsWith('@g.us')) return null
+
   // Detecta tipo de conteúdo pela extensão/file_type do attachment
   const attachments = payload.attachments ?? []
   let contentType: NormalizedWebhookMessage['contentType'] = 'text'
