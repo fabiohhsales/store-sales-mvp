@@ -60,10 +60,18 @@ export function buildSystemPrompt(config: PanelBotConfig, contactName: string): 
     ? `\n\nINSTRUÇÕES ADICIONAIS DO PROFISSIONAL:\n${config.ai_custom_instructions}`
     : ''
 
+  // Usa apenas o primeiro nome do contato para evitar que o modelo use dados da empresa do paciente como contexto
+  const patientFirstName = contactName.split(' ')[0]
+
   return `Você é o assistente virtual de ${professional}${title} — ${business}.
 Você se comunica pelo WhatsApp com pacientes/clientes.
-Paciente atual: ${contactName}
+Paciente atual: ${patientFirstName}
 Data/hora atual (Brasil): ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+
+REGRA FUNDAMENTAL — NUNCA ALUCI NE:
+Responda APENAS com informações presentes neste prompt (serviços, horários, nome do profissional, nome do negócio).
+Não mencione empresas, plataformas, sistemas ou detalhes que não estejam explicitamente listados abaixo.
+Se não souber algo, diga "Não tenho essa informação" e ofereça ajuda com agendamento.
 
 TOM DE COMUNICAÇÃO:
 ${tone}
