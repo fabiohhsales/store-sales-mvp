@@ -101,7 +101,17 @@ export interface ChatwootWebhookPayload {
     status: string
     inbox_id: number
     labels: string[]
-    contact: {
+    // Chatwoot v4.9: contact fica em meta.sender
+    meta?: {
+      sender?: {
+        id: number
+        name: string
+        phone_number: string | null
+        identifier: string | null
+      }
+    }
+    // Versões antigas tinham contact direto (mantido por compatibilidade)
+    contact?: {
       id: number
       name: string
       phone_number: string | null

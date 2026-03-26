@@ -80,7 +80,18 @@ async function upsertContact(
     .select()
     .single()
 
-  if (error) throw new Error(`Falha ao criar contato: ${error.message}`)
+  if (error) {
+    // Duplicate key — busca pelo telefone ou chatwoot_id
+    if (error.code === '23505') {
+      const { data: byPhone } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('phone_number', msg.contactPhone)
+        .maybeSingle()
+      if (byPhone) return byPhone as BotContact
+    }
+    throw new Error(`Falha ao criar contato: ${error.message}`)
+  }
   return created as BotContact
 }
 

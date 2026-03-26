@@ -23,7 +23,8 @@ function normalizePayload(payload: ChatwootWebhookPayload): NormalizedWebhookMes
   // Ignora mensagens sem ID (malformed)
   if (!payload.id) return null
 
-  const contact = payload.conversation?.contact ?? (payload.conversation as unknown as Record<string, unknown>)?.meta?.sender as typeof payload.conversation.contact | undefined
+  // Chatwoot v4.9 envia o contato em meta.sender; versões antigas em .contact
+  const contact = payload.conversation.meta?.sender ?? payload.conversation.contact
 
   if (!contact) {
     console.error('[Webhook] contact não encontrado no payload')
