@@ -36,9 +36,10 @@ export async function updateSession(request: NextRequest) {
   const isPublicConnect = request.nextUrl.pathname.startsWith('/connect/')
   const isPublicQRApi = request.nextUrl.pathname.includes('/public-qr')
   const isPublicGoogleOAuth = request.nextUrl.pathname === '/api/auth/google/public'
+  const isChatwootWebhook = request.nextUrl.pathname === '/api/webhooks/chatwoot'
 
   // Allow public routes
-  if (isAuthCallback || isGoogleCallback || isHealthApi || isPublicConnect || isPublicQRApi || isPublicGoogleOAuth) {
+  if (isAuthCallback || isGoogleCallback || isHealthApi || isPublicConnect || isPublicQRApi || isPublicGoogleOAuth || isChatwootWebhook) {
     return supabaseResponse
   }
 
