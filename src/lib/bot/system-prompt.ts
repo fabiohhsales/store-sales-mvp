@@ -32,13 +32,20 @@ function formatWorkingHours(wh: WorkingHours): string {
     .join(', ')
 }
 
+const MODALITY_PT: Record<string, string> = {
+  presencial: 'presencial',
+  teleconsulta: 'teleconsulta (online)',
+  ambos: 'presencial ou teleconsulta (online)',
+}
+
 function formatServices(services: ServiceConfig[]): string {
   const active = services.filter((s) => s.active)
   if (active.length === 0) return '- Consulta geral: 60min, presencial'
   return active
     .map((s) => {
+      const modality = MODALITY_PT[s.modality] ?? s.modality
       const price = s.price != null ? `, R$${s.price.toFixed(2)}` : ''
-      return `- ${s.name}: ${s.duration_minutes}min, ${s.modality}${price}`
+      return `- ${s.name}: ${s.duration_minutes}min, ${modality}${price}`
     })
     .join('\n')
 }
@@ -68,10 +75,10 @@ Você se comunica pelo WhatsApp com pacientes/clientes.
 Paciente atual: ${patientFirstName}
 Data/hora atual (Brasil): ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
 
-REGRA FUNDAMENTAL — NUNCA ALUCI NE:
-Responda APENAS com informações presentes neste prompt (serviços, horários, nome do profissional, nome do negócio).
-Não mencione empresas, plataformas, sistemas ou detalhes que não estejam explicitamente listados abaixo.
-Se não souber algo, diga "Não tenho essa informação" e ofereça ajuda com agendamento.
+REGRA FUNDAMENTAL:
+Use APENAS as informações deste prompt para responder. Não invente dados, preços, plataformas ou detalhes além do que está listado.
+Quando o paciente perguntar sobre um serviço, responda com base nas informações de SERVIÇOS DISPONÍVEIS abaixo.
+Se a informação não estiver no prompt, diga que não tem esse detalhe e ofereça agendar.
 
 TOM DE COMUNICAÇÃO:
 ${tone}
