@@ -42,6 +42,18 @@ async function resolveClientContext(chatwootAccountId: number): Promise<ClientCo
 
   if (!wConfig) return null
 
+  // Verifica se o cliente está ativo — paused/disconnected param o bot
+  const { data: clientRow } = await supabase
+    .from('panel_clients')
+    .select('status')
+    .eq('id', wConfig.client_id)
+    .maybeSingle()
+
+  if (clientRow?.status !== 'active') {
+    console.log(`[Pipeline] client=${wConfig.client_id} status=${clientRow?.status} — bot pausado`)
+    return null
+  }
+
   const [{ data: botConfig }, { data: googleConfig }] = await Promise.all([
     supabase.from('panel_bot_config').select('*').eq('client_id', wConfig.client_id).maybeSingle(),
     supabase.from('panel_google_config').select('*').eq('client_id', wConfig.client_id).maybeSingle(),
