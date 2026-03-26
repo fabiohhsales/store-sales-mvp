@@ -23,7 +23,12 @@ function normalizePayload(payload: ChatwootWebhookPayload): NormalizedWebhookMes
   // Ignora mensagens sem ID (malformed)
   if (!payload.id) return null
 
-  const contact = payload.conversation.contact
+  const contact = payload.conversation?.contact ?? (payload.conversation as unknown as Record<string, unknown>)?.meta?.sender as typeof payload.conversation.contact | undefined
+
+  if (!contact) {
+    console.error('[Webhook] contact não encontrado no payload')
+    return null
+  }
 
   // Ignora mensagens de grupos do WhatsApp (JID termina em @g.us)
   if (contact.identifier?.endsWith('@g.us')) return null
@@ -61,6 +66,7 @@ export async function POST(req: NextRequest) {
   }
 
   console.log(`[Webhook] Recebido event=${payload.event} account=${payload.account?.id} msg_type=${payload.message_type}`)
+  console.log('[Webhook] payload.conversation:', JSON.stringify(payload.conversation))
 
   const normalized = normalizePayload(payload)
   if (!normalized) {
