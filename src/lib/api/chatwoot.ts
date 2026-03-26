@@ -223,7 +223,55 @@ async function deleteChatwootAccountViaSuperAdmin(
   return { deleted: false, error: `Super Admin delete retornou ${deleteRes.status}` }
 }
 
-// Configura webhook do Chatwoot → n8n na Account do cliente
+// --- Ações de conversa por Account isolada do cliente ---
+
+export async function updateConversationStatus(
+  accountId: number,
+  accountToken: string,
+  chatwootConversationId: number,
+  status: 'open' | 'pending' | 'resolved'
+): Promise<void> {
+  const res = await fetch(
+    `${BASE_URL}/api/v1/accounts/${accountId}/conversations/${chatwootConversationId}/toggle_status`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        api_access_token: accountToken,
+      },
+      body: JSON.stringify({ status }),
+    }
+  )
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Chatwoot toggle_status ${res.status}: ${body}`)
+  }
+}
+
+export async function updateConversationLabels(
+  accountId: number,
+  accountToken: string,
+  chatwootConversationId: number,
+  labels: string[]
+): Promise<void> {
+  const res = await fetch(
+    `${BASE_URL}/api/v1/accounts/${accountId}/conversations/${chatwootConversationId}/labels`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        api_access_token: accountToken,
+      },
+      body: JSON.stringify({ labels }),
+    }
+  )
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Chatwoot labels ${res.status}: ${body}`)
+  }
+}
+
+// Configura webhook do Chatwoot → painel na Account do cliente
 export async function configureChatwootWebhook(
   accountId: number,
   accountToken: string,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createInstance, setChatwootIntegration, getN8nWebhookUrl, deleteInstance } from '@/lib/api/evolution'
+import { createInstance, setChatwootIntegration, getPanelWebhookUrl, deleteInstance } from '@/lib/api/evolution'
 import { createChatwootAccount, findInboxByName, configureChatwootWebhook, deleteChatwootAccount } from '@/lib/api/chatwoot'
 import { createWhatsAppConfig } from '@/lib/db/whatsapp-config'
 import { updateClient, getClientById } from '@/lib/db/clients'
@@ -45,10 +45,10 @@ export async function POST(request: NextRequest) {
       chatwootAccountId = chatwootAccount.id
       chatwootToken = chatwootAccount.access_token
 
-      // Etapa 2 — Configura webhook Chatwoot → n8n
+      // Etapa 2 — Configura webhook Chatwoot → painel
       console.log(`[WhatsApp] Etapa 2: Configurando webhook Chatwoot (Account ${chatwootAccount.id})`)
-      const n8nWebhookUrl = getN8nWebhookUrl()
-      await configureChatwootWebhook(chatwootAccount.id, chatwootAccount.access_token, n8nWebhookUrl)
+      const panelWebhookUrl = getPanelWebhookUrl()
+      await configureChatwootWebhook(chatwootAccount.id, chatwootAccount.access_token, panelWebhookUrl)
 
       // Etapa 3 — Cria instância na Evolution
       console.log(`[WhatsApp] Etapa 3: Criando instância Evolution "${instance_name}"`)
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
         connected_phone: null,
         connected_at: null,
         disconnected_at: null,
-        webhook_url: n8nWebhookUrl,
+        webhook_url: panelWebhookUrl,
         chatwoot_inbox_id: chatwootInboxId,
         chatwoot_account_id: chatwootAccount.id,
         chatwoot_agent_token: chatwootAccount.access_token,

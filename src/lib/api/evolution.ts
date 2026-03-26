@@ -33,11 +33,14 @@ async function evolutionFetch<T>(path: string, options: RequestInit = {}): Promi
   return res.json()
 }
 
-// Webhook UUID do workflow principal no n8n (compartilhado por todas as instâncias)
-const N8N_WEBHOOK_ID = '253b1c3f-3b78-470f-acdc-20bc6b7ef0cc'
-
-export function getN8nWebhookUrl(): string {
-  return `${process.env.N8N_URL}/webhook/${N8N_WEBHOOK_ID}`
+// URL do webhook do painel — recebe eventos do Chatwoot e processa com o bot engine
+export function getPanelWebhookUrl(): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (!appUrl) {
+    console.warn('[Evolution] NEXT_PUBLIC_APP_URL não configurada — webhook apontará para localhost')
+    return 'http://localhost:3000/api/webhooks/chatwoot'
+  }
+  return `${appUrl}/api/webhooks/chatwoot`
 }
 
 export async function createInstance(
@@ -45,8 +48,6 @@ export async function createInstance(
   clientName: string,
   chatwootConfig: { accountId: number; agentToken: string }
 ): Promise<EvolutionInstanceResponse> {
-  const n8nWebhookUrl = getN8nWebhookUrl()
-
   return evolutionFetch<EvolutionInstanceResponse>('/instance/create', {
     method: 'POST',
     body: JSON.stringify({
@@ -61,12 +62,6 @@ export async function createInstance(
       chatwoot_conversation_pending: true,
       chatwoot_name_inbox: clientName,
       chatwoot_auto_create: true,
-      webhook: {
-        url: n8nWebhookUrl,
-        webhook_by_events: false,
-        webhook_base64: false,
-        events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'QRCODE_UPDATED'],
-      },
     }),
   })
 }
@@ -116,6 +111,17 @@ export async function fetchInstances(): Promise<EvolutionFetchInstance[]> {
 export async function deleteInstance(instanceName: string): Promise<void> {
   await evolutionFetch(`/instance/delete/${instanceName}`, {
     method: 'DELETE',
+  })
+}
+
+export async function sendTextMessage(
+  instanceName: string,
+  remoteJid: string,
+  text: string
+): Promise<void> {
+  await evolutionFetch(`/message/sendText/${instanceName}`, {
+    method: 'POST',
+    body: JSON.stringify({ number: remoteJid, text }),
   })
 }
 

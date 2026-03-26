@@ -68,11 +68,15 @@ export default function SettingsPage() {
           <Separator className="bg-border" />
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-foreground">n8n</p>
-              <p className="text-xs text-muted-foreground">{process.env.N8N_URL}</p>
+              <p className="text-sm font-medium text-foreground">AI Engine</p>
+              <p className="text-xs text-muted-foreground">
+                {process.env.OPENAI_API_KEY ? 'OpenAI' : process.env.GROQ_API_KEY ? 'Groq' : 'Não configurado'}
+                {' · '}
+                {process.env.OPENAI_MODEL ?? 'gpt-4o'}
+              </p>
             </div>
-            <span className={`text-xs font-medium ${process.env.N8N_API_KEY ? 'text-success' : 'text-warning'}`}>
-              {process.env.N8N_API_KEY ? 'Configurado' : 'API Key pendente'}
+            <span className={`text-xs font-medium ${(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY) ? 'text-success' : 'text-warning'}`}>
+              {(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY) ? 'Configurado' : 'API Key pendente'}
             </span>
           </div>
         </div>
