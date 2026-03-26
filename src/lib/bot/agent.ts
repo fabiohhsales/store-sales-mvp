@@ -26,6 +26,11 @@ async function isAiPaused(conversationId: string): Promise<boolean> {
   return new Date(data.paused_until) > new Date()
 }
 
+export async function clearAiPause(conversationId: string): Promise<void> {
+  const supabase = createAdminClient()
+  await supabase.from('ai_pauses').delete().eq('conversation_id', conversationId)
+}
+
 async function setAiPause(conversationId: string): Promise<void> {
   const supabase = createAdminClient()
   const pausedUntil = new Date(Date.now() + AI_PAUSE_MINUTES * 60 * 1000).toISOString()

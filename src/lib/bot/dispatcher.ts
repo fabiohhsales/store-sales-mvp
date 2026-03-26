@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
 import { updateConversationStatus, updateConversationLabels } from '@/lib/api/chatwoot'
 import { handleAgendaCheck, handleAgendaCreate } from './calendar-agent'
+import { clearAiPause } from './agent'
 import type { AgentOutput } from './output-schema'
 import type { PipelineResult } from './pipeline'
 
@@ -69,6 +70,9 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
   if (output.actions.agenda_create.should_create) {
     await handleAgendaCreate(result, output)
   }
+
+  // --- 5. Libera trava de IA para próximas mensagens ---
+  await clearAiPause(conversation.id)
 }
 
 // Salva a mensagem de resposta da IA na tabela messages
