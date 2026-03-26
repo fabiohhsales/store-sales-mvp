@@ -14,7 +14,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Pause, Play, Pencil, Trash2 } from 'lucide-react'
+import { Pause, Play, Pencil, Trash2, RotateCcw } from 'lucide-react'
 import type { PanelClient } from '@/types/database'
 
 interface ClientActionsProps {
@@ -25,6 +25,7 @@ export function ClientActions({ client }: ClientActionsProps) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [resetting, setResetting] = useState(false)
 
   const isActive = client.status === 'active'
   const isPaused = client.status === 'paused'
@@ -48,6 +49,21 @@ export function ClientActions({ client }: ClientActionsProps) {
       toast.error('Erro ao atualizar status')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResetHistory = async () => {
+    setResetting(true)
+    try {
+      const res = await fetch(`/api/clients/${client.id}/history`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Erro ao resetar')
+      const data = await res.json()
+      toast.success(`Histórico apagado — ${data.deleted} conversa(s) removida(s)`)
+      router.refresh()
+    } catch {
+      toast.error('Erro ao resetar histórico')
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -121,6 +137,30 @@ export function ClientActions({ client }: ClientActionsProps) {
           </DialogContent>
         </Dialog>
       )}
+
+      <Dialog>
+        <DialogTrigger className="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent">
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Resetar histórico
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Resetar histórico de conversas?</DialogTitle>
+            <DialogDescription>
+              Apaga todas as mensagens e conversas de <strong>{client.name}</strong> do banco.
+              O bot começa do zero sem contexto anterior. Útil para testes.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent">
+              Cancelar
+            </DialogClose>
+            <Button onClick={handleResetHistory} disabled={resetting}>
+              {resetting ? 'Apagando...' : 'Resetar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog>
         <DialogTrigger className="inline-flex items-center justify-center rounded-md border border-destructive/30 bg-background px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10">
