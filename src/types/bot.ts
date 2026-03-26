@@ -82,7 +82,7 @@ export interface ChatwootWebhookPayload {
   id?: number
   content?: string | null
   content_type?: string
-  message_type?: number   // 0=incoming, 1=outgoing, 2=activity, 3=template
+  message_type?: number | string   // 0/'incoming', 1/'outgoing', 2/'activity', 3/'template'
   private?: boolean
   created_at?: string | number
   sender?: {

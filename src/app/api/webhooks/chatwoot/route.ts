@@ -12,8 +12,10 @@ import { dispatch } from '@/lib/bot/dispatcher'
 function normalizePayload(payload: ChatwootWebhookPayload): NormalizedWebhookMessage | null {
   if (payload.event !== 'message_created') return null
 
-  // message_type: 0=incoming (paciente), 1=outgoing (agente/bot)
-  if (payload.message_type !== 0) return null
+  // message_type: 0/'incoming' (paciente), 1/'outgoing' (agente/bot)
+  const mt = payload.message_type
+  const isIncoming = mt === 0 || mt === 'incoming'
+  if (!isIncoming) return null
 
   // Ignora notas internas
   if (payload.private) return null
