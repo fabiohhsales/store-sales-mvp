@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, LayoutDashboard, Users, Settings, Kanban } from 'lucide-react'
+import { Menu, LayoutDashboard, Users, Settings, Kanban, Shield } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -17,6 +17,7 @@ const navItems = [
   { href: '/clients', label: 'Clientes', icon: Users },
   { href: '/deals', label: 'Negócios', icon: Kanban },
   { href: '/settings', label: 'Configurações', icon: Settings },
+  { href: '/soc', label: 'SOC', icon: Shield },
 ]
 
 export function MobileNav() {

@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Kanban,
+  Shield,
 } from 'lucide-react'
 
 const navItems = [
@@ -17,6 +18,7 @@ const navItems = [
   { href: '/clients', label: 'Clientes', icon: Users },
   { href: '/deals', label: 'Negócios', icon: Kanban },
   { href: '/settings', label: 'Configurações', icon: Settings },
+  { href: '/soc', label: 'SOC', icon: Shield },
 ]
 
 export function Sidebar() {
