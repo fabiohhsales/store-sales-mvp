@@ -14,65 +14,71 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
   const { clientContext, contact, conversation } = result
   const { whatsappConfig } = clientContext
 
-  // --- 1. Envia resposta WhatsApp (se houver reply e não for handoff) ---
-  if (output.reply && !output.handoff.needs_human) {
-    const identifier = contact.identifier ?? contact.phone_number
-    if (identifier && whatsappConfig.evolution_instance_name) {
+  try {
+    // --- 1. Envia resposta WhatsApp (se houver reply e não for handoff) ---
+    if (output.reply && !output.handoff.needs_human) {
+      const identifier = contact.identifier ?? contact.phone_number
+      if (identifier && whatsappConfig.evolution_instance_name) {
+        try {
+          await sendTextMessage(
+            whatsappConfig.evolution_instance_name,
+            identifier,
+            output.reply
+          )
+          await saveAiMessage(conversation.id, conversation.chatwoot_conversation_id, output.reply)
+        } catch (err) {
+          console.error('[Dispatcher] Falha ao enviar WhatsApp:', err)
+        }
+      }
+    }
+
+    // --- 2. Atualiza status e labels no Chatwoot (Account isolada do cliente) ---
+    const accountId = whatsappConfig.chatwoot_account_id
+    const accountToken = whatsappConfig.chatwoot_agent_token
+
+    if (accountId && accountToken) {
       try {
-        await sendTextMessage(
-          whatsappConfig.evolution_instance_name,
-          identifier,
-          output.reply
-        )
-        await saveAiMessage(conversation.id, conversation.chatwoot_conversation_id, output.reply)
+        if (output.status_next !== 'pending') {
+          await updateConversationStatus(
+            accountId,
+            accountToken,
+            conversation.chatwoot_conversation_id,
+            output.status_next
+          )
+        }
+
+        if (output.labels_next.length > 0) {
+          await updateConversationLabels(
+            accountId,
+            accountToken,
+            conversation.chatwoot_conversation_id,
+            output.labels_next
+          )
+        }
       } catch (err) {
-        console.error('[Dispatcher] Falha ao enviar WhatsApp:', err)
+        console.error('[Dispatcher] Falha ao atualizar Chatwoot:', err)
       }
     }
-  }
 
-  // --- 2. Atualiza status e labels no Chatwoot (Account isolada do cliente) ---
-  const accountId = whatsappConfig.chatwoot_account_id
-  const accountToken = whatsappConfig.chatwoot_agent_token
-
-  if (accountId && accountToken) {
+    // --- 3. Atualiza conversa no Supabase ---
     try {
-      if (output.status_next !== 'pending') {
-        await updateConversationStatus(
-          accountId,
-          accountToken,
-          conversation.chatwoot_conversation_id,
-          output.status_next
-        )
-      }
-
-      if (output.labels_next.length > 0) {
-        await updateConversationLabels(
-          accountId,
-          accountToken,
-          conversation.chatwoot_conversation_id,
-          output.labels_next
-        )
-      }
+      await updateConversationRecord(conversation.id, output)
     } catch (err) {
-      console.error('[Dispatcher] Falha ao atualizar Chatwoot:', err)
+      console.error('[Dispatcher] Falha ao atualizar conversa:', err)
     }
+
+    // --- 4. Agenda ---
+    if (output.actions.agenda_check.should_check) {
+      await handleAgendaCheck(result, output)
+    }
+
+    if (output.actions.agenda_create.should_create) {
+      await handleAgendaCreate(result, output)
+    }
+  } finally {
+    // Libera trava SEMPRE — mesmo que qualquer etapa acima falhe
+    await clearAiPause(conversation.id)
   }
-
-  // --- 3. Atualiza conversa no Supabase ---
-  await updateConversationRecord(conversation.id, output)
-
-  // --- 4. Agenda ---
-  if (output.actions.agenda_check.should_check) {
-    await handleAgendaCheck(result, output)
-  }
-
-  if (output.actions.agenda_create.should_create) {
-    await handleAgendaCreate(result, output)
-  }
-
-  // --- 5. Libera trava de IA para próximas mensagens ---
-  await clearAiPause(conversation.id)
 }
 
 // Salva a mensagem de resposta da IA na tabela messages
