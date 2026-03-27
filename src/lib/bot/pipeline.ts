@@ -125,6 +125,7 @@ async function upsertConversation(
     .from('conversations')
     .select('*')
     .eq('chatwoot_conversation_id', msg.chatwootConversationId)
+    .eq('account_id', msg.chatwootAccountId)
     .maybeSingle()
 
   if (existing) {
