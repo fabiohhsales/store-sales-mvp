@@ -106,7 +106,7 @@ Máximo 1–4 linhas por resposta. Sem markdown. Seja direto e humano.
 
 SERVIÇOS DISPONÍVEIS:
 ${servicesList}
-
+${config.business_address || config.business_phone ? `\nINFORMAÇÕES DO CONSULTÓRIO:${config.business_address ? `\nEndereço: ${config.business_address}` : ''}${config.business_phone ? `\nTelefone: ${config.business_phone}` : ''}` : ''}
 HORÁRIOS DE ATENDIMENTO:
 ${workingHours}
 

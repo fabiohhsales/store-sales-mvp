@@ -65,6 +65,19 @@ export async function handleAgendaCheck(
     )
 
     const message = formatSlotsMessage(slots, botConfig.professional_name, language)
+
+    // Persiste os slots para extração confiável quando o paciente selecionar
+    if (slots.length > 0) {
+      const supabase = createAdminClient()
+      await supabase
+        .from('conversations')
+        .update({
+          pending_slots: slots.map((s) => ({ label: s.label, startISO: s.startISO, endISO: s.endISO })),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', conversation.id)
+    }
+
     await sendAndSave(whatsappConfig, contact, conversation, message)
 
     console.log(`[CalendarAgent] check concluído para conv=${conversation.id}: ${slots.length} slots`)
@@ -157,13 +170,14 @@ export async function handleAgendaCreate(
 
     await sendAndSave(whatsappConfig, contact, conversation, confirmMsg)
 
-    // Atualiza status da conversa para etapa_agendado
+    // Atualiza status da conversa para etapa_agendado e limpa slots pendentes
     const supabase = createAdminClient()
     await supabase
       .from('conversations')
       .update({
         labels: ['etapa_agendado'],
         appointment_status: 'scheduled',
+        pending_slots: null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', conversation.id)
@@ -193,6 +207,16 @@ async function sendAndSave(
   await sendTextMessage(whatsappConfig.evolution_instance_name, identifier, message)
 
   const supabase = createAdminClient()
+
+  await supabase
+    .from('conversations')
+    .update({
+      last_outgoing_by: 'ai',
+      last_outgoing_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', conversation.id)
+
   await supabase.from('messages').insert({
     id: crypto.randomUUID(),
     chatwoot_message_id: 0,

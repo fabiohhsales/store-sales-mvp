@@ -51,11 +51,21 @@ async function setAiPause(conversationId: string): Promise<void> {
 
 function buildChatMessages(
   history: BotMessage[],
-  systemPrompt: string
+  systemPrompt: string,
+  pendingSlots?: Array<{ label: string; startISO: string; endISO: string }> | null
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
   ]
+
+  // Injeta os slots salvos como contexto de sistema para extração confiável
+  if (pendingSlots && pendingSlots.length > 0) {
+    const slotLines = pendingSlots.map((s, i) => `${i + 1}. ${s.label}`).join('\n')
+    messages.push({
+      role: 'system',
+      content: `HORÁRIOS PENDENTES (aguardando seleção do paciente):\n${slotLines}\n\nQuando o paciente informar um número, use os ISOs desta lista diretamente para agenda_create. Não tente extrair do histórico de mensagens.`,
+    })
+  }
 
   for (const msg of history) {
     if (!msg.content) continue
@@ -97,7 +107,7 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
     && conversation.last_outgoing_by !== 'ai'
   console.log(`[Agent] conv=${conversation.id} isFirstTurn=${isFirstTurn} historyLen=${messageHistory.length}`)
   const systemPrompt = buildSystemPrompt(clientContext.botConfig, contact.name ?? 'Paciente', isFirstTurn)
-  const chatMessages = buildChatMessages(messageHistory, systemPrompt)
+  const chatMessages = buildChatMessages(messageHistory, systemPrompt, conversation.pending_slots)
 
   try {
     const openai = createAiClient()

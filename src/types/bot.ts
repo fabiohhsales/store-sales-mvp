@@ -27,6 +27,7 @@ export interface BotConversation {
   appointment_status: string | null
   followup_cadence: string | null
   last_followup_at: string | null
+  pending_slots: Array<{ label: string; startISO: string; endISO: string }> | null
 }
 
 export interface BotMessage {
