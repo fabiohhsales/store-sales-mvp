@@ -3,7 +3,16 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, XCircle, Info, CheckCircle, RefreshCw } from 'lucide-react'
-import type { SOCAlert } from '@/app/api/soc/route'
+
+interface SOCAlert {
+  id: string
+  client_id: string
+  client_name: string
+  severity: 'critical' | 'warning' | 'info'
+  type: string
+  message: string
+  action_url: string
+}
 
 const SEVERITY = {
   critical: {
