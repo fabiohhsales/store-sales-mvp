@@ -14,20 +14,34 @@ export async function POST(
   const body = await request.json()
   const { google_email, calendar_id } = body
 
-  const { error } = await supabase
+  // Check if record already exists
+  const { data: existing } = await supabase
     .from('panel_google_config')
-    .upsert(
-      {
+    .select('id')
+    .eq('client_id', id)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase
+      .from('panel_google_config')
+      .update({
+        google_email: google_email || null,
+        calendar_id: calendar_id || 'primary',
+      })
+      .eq('client_id', id)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  } else {
+    const { error } = await supabase
+      .from('panel_google_config')
+      .insert({
+        id: crypto.randomUUID(),
         client_id: id,
         google_email: google_email || null,
         calendar_id: calendar_id || 'primary',
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'client_id' }
-    )
+      })
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

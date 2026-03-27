@@ -29,11 +29,13 @@ export async function handleAgendaCheck(
 
   if (!botConfig) {
     console.warn('[CalendarAgent] Sem panel_bot_config para client:', clientContext.clientId)
+    await sendAndSave(whatsappConfig, contact, conversation, 'Não foi possível verificar a agenda no momento. Nossa equipe entrará em contato.')
     return
   }
 
   if (!process.env.GOOGLE_REFRESH_TOKEN) {
     console.warn('[CalendarAgent] GOOGLE_REFRESH_TOKEN não configurado')
+    await sendAndSave(whatsappConfig, contact, conversation, 'O agendamento online ainda não está disponível. Entre em contato diretamente para marcar seu horário.')
     return
   }
 
@@ -79,16 +81,19 @@ export async function handleAgendaCreate(
 
   if (!botConfig) {
     console.warn('[CalendarAgent] Sem panel_bot_config para client:', clientContext.clientId)
+    await sendAndSave(whatsappConfig, contact, conversation, 'Não foi possível confirmar o agendamento. Nossa equipe entrará em contato.')
     return
   }
 
   if (!process.env.GOOGLE_REFRESH_TOKEN) {
     console.warn('[CalendarAgent] GOOGLE_REFRESH_TOKEN não configurado')
+    await sendAndSave(whatsappConfig, contact, conversation, 'O agendamento online ainda não está disponível. Entre em contato diretamente para confirmar seu horário.')
     return
   }
 
   if (!agenda_create.start_iso || !agenda_create.end_iso) {
     console.warn('[CalendarAgent] start_iso/end_iso ausentes para conv:', conversation.id)
+    await sendAndSave(whatsappConfig, contact, conversation, 'Não consegui identificar o horário. Pode confirmar novamente a data e hora desejada?')
     return
   }
 
