@@ -22,6 +22,8 @@ export interface CreateEventParams {
   contactId: string
   patientName: string
   patientPhone: string | null
+  patientEmail?: string | null
+  clientEmail?: string | null
   startISO: string
   endISO: string
   config: PanelBotConfig
@@ -54,12 +56,19 @@ export async function createAppointment(
     }
   )
 
+  const attendees: { email: string }[] = []
+  if (params.clientEmail) attendees.push({ email: params.clientEmail })
+  if (params.config.calendar_send_invite_to_patient && params.patientEmail) {
+    attendees.push({ email: params.patientEmail })
+  }
+
   const eventBody: {
     summary: string
     description: string
     start: { dateTime: string; timeZone: string }
     end: { dateTime: string; timeZone: string }
     colorId?: string
+    attendees?: { email: string }[]
     conferenceData?: { createRequest: { requestId: string } }
   } = {
     summary: title,
@@ -67,6 +76,7 @@ export async function createAppointment(
     start: { dateTime: params.startISO, timeZone: TIMEZONE },
     end: { dateTime: params.endISO, timeZone: TIMEZONE },
     colorId: params.config.calendar_color_id ?? undefined,
+    ...(attendees.length > 0 ? { attendees } : {}),
   }
 
   if (params.config.calendar_create_meet_link) {

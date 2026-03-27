@@ -31,15 +31,13 @@ export async function updateSession(request: NextRequest) {
 
   const isLoginPage = request.nextUrl.pathname === '/login'
   const isAuthCallback = request.nextUrl.pathname === '/api/auth/callback'
-  const isGoogleCallback = request.nextUrl.pathname === '/api/auth/google/callback'
   const isHealthApi = request.nextUrl.pathname.startsWith('/api/health/')
   const isPublicConnect = request.nextUrl.pathname.startsWith('/connect/')
   const isPublicQRApi = request.nextUrl.pathname.includes('/public-qr')
-  const isPublicGoogleOAuth = request.nextUrl.pathname === '/api/auth/google/public'
   const isChatwootWebhook = request.nextUrl.pathname === '/api/webhooks/chatwoot'
 
   // Allow public routes
-  if (isAuthCallback || isGoogleCallback || isHealthApi || isPublicConnect || isPublicQRApi || isPublicGoogleOAuth || isChatwootWebhook) {
+  if (isAuthCallback || isHealthApi || isPublicConnect || isPublicQRApi || isChatwootWebhook) {
     return supabaseResponse
   }
 

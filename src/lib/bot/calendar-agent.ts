@@ -1,5 +1,6 @@
 // Calendar Agent: orquestra operações de agenda (check, create, update).
 // Chamado pelo dispatcher quando o AI Agent sinaliza intenção de agendamento.
+// Usa conta Google central da Sales Tec — sem OAuth por cliente.
 
 import { getCalendarClient } from '@/lib/calendar/client'
 import {
@@ -26,19 +27,26 @@ export async function handleAgendaCheck(
   const { clientContext, contact, conversation } = result
   const { botConfig, googleConfig, whatsappConfig } = clientContext
 
-  if (!botConfig || !googleConfig?.refresh_token || !googleConfig.calendar_id) {
-    console.warn('[CalendarAgent] Configuração de calendário incompleta para client:', clientContext.clientId)
+  if (!botConfig) {
+    console.warn('[CalendarAgent] Sem panel_bot_config para client:', clientContext.clientId)
     return
   }
 
+  if (!process.env.GOOGLE_REFRESH_TOKEN) {
+    console.warn('[CalendarAgent] GOOGLE_REFRESH_TOKEN não configurado')
+    return
+  }
+
+  const calendarId = googleConfig?.calendar_id ?? 'primary'
+
   try {
-    const calendar = getCalendarClient(googleConfig)
+    const calendar = getCalendarClient()
     const hint = output.actions.agenda_check.time_window_hint
     const dateRange = await parseTimeWindow(hint)
 
     const slots = await getAvailableSlots(
       calendar,
-      googleConfig.calendar_id,
+      calendarId,
       dateRange,
       botConfig.working_hours,
       botConfig.appointment_duration_default,
@@ -69,8 +77,13 @@ export async function handleAgendaCreate(
   const { botConfig, googleConfig, whatsappConfig } = clientContext
   const { agenda_create, agenda_update } = output.actions
 
-  if (!botConfig || !googleConfig?.refresh_token || !googleConfig.calendar_id) {
-    console.warn('[CalendarAgent] Configuração de calendário incompleta para client:', clientContext.clientId)
+  if (!botConfig) {
+    console.warn('[CalendarAgent] Sem panel_bot_config para client:', clientContext.clientId)
+    return
+  }
+
+  if (!process.env.GOOGLE_REFRESH_TOKEN) {
+    console.warn('[CalendarAgent] GOOGLE_REFRESH_TOKEN não configurado')
     return
   }
 
@@ -79,25 +92,29 @@ export async function handleAgendaCreate(
     return
   }
 
+  const calendarId = googleConfig?.calendar_id ?? 'primary'
+  const clientEmail = googleConfig?.google_email ?? null
+
   try {
-    const calendar = getCalendarClient(googleConfig)
+    const calendar = getCalendarClient()
 
     // Se é reagendamento: cancela o evento anterior antes de criar o novo
     if (agenda_update.should_update && agenda_update.google_event_id) {
       const existing = await getAppointmentByEventId(agenda_update.google_event_id)
       if (existing) {
-        await deleteAppointmentEvent(calendar, googleConfig.calendar_id, agenda_update.google_event_id)
+        await deleteAppointmentEvent(calendar, calendarId, agenda_update.google_event_id)
         console.log(`[CalendarAgent] Evento anterior ${agenda_update.google_event_id} cancelado (reagendamento)`)
       }
     }
 
-    // Cria novo evento
+    // Cria novo evento com convite ao profissional
     const { appointment, meetLink } = await createAppointment(calendar, {
-      calendarId: googleConfig.calendar_id,
+      calendarId,
       conversationId: conversation.id,
       contactId: contact.id,
       patientName: contact.name ?? 'Paciente',
       patientPhone: contact.phone_number,
+      clientEmail,
       startISO: agenda_create.start_iso,
       endISO: agenda_create.end_iso,
       config: botConfig,

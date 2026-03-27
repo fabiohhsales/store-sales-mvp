@@ -13,7 +13,7 @@ import type { PanelBotConfig } from '@/types/database'
 const STEPS = [
   { label: 'Dados', description: 'Dados do negócio' },
   { label: 'WhatsApp', description: 'Conectar WhatsApp' },
-  { label: 'Google', description: 'Google Calendar' },
+  { label: 'Agenda', description: 'Config. de Agenda' },
   { label: 'Configuração', description: 'Configurar bot' },
   { label: 'Revisão', description: 'Revisar e ativar' },
 ]
@@ -57,7 +57,7 @@ export function WizardShell() {
     [goToStep]
   )
 
-  const handleGoogleConnected = useCallback(() => {
+  const handleCalendarSetup = useCallback(() => {
     goToStep(4)
   }, [goToStep])
 
@@ -75,7 +75,7 @@ export function WizardShell() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <StepIndicator currentStep={currentStep} steps={STEPS} />
+      <StepIndicator currentStep={currentStep} steps={STEPS} onStepClick={goToStep} />
 
       {currentStep === 1 && (
         <BusinessDataStep onComplete={handleClientCreated} />
@@ -90,7 +90,7 @@ export function WizardShell() {
       {currentStep === 3 && (
         <GoogleConnectStep
           clientId={clientId}
-          onComplete={handleGoogleConnected}
+          onComplete={handleCalendarSetup}
           onSkip={() => goToStep(4)}
         />
       )}
