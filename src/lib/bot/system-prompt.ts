@@ -50,7 +50,15 @@ function formatServices(services: ServiceConfig[]): string {
     .join('\n')
 }
 
-export function buildSystemPrompt(config: PanelBotConfig, contactName: string): string {
+function interpolateVars(template: string, professional: string, business: string): string {
+  return template
+    .replace(/\{professional_name\}/gi, professional)
+    .replace(/\{professional\}/gi, professional)
+    .replace(/\{business_name\}/gi, business)
+    .replace(/\{business\}/gi, business)
+}
+
+export function buildSystemPrompt(config: PanelBotConfig, contactName: string, isFirstTurn = true): string {
   const professional = config.professional_name
   const title = config.professional_title ? ` (${config.professional_title})` : ''
   const business = config.business_name ?? professional
@@ -142,11 +150,9 @@ STATUS:
 - "resolved": conversa encerrada
 
 MENSAGENS PADRÃO:
-- Boas-vindas (use SOMENTE se for a primeira mensagem do histórico, sem interações anteriores): "${config.ai_greeting_message ?? `Olá! Sou o assistente virtual de ${professional}. Como posso ajudar?`}"
+${isFirstTurn ? `- Boas-vindas (PRIMEIRA mensagem — use APENAS neste turno): "${interpolateVars(config.ai_greeting_message ?? `Olá! Sou o assistente virtual de ${professional}. Como posso ajudar?`, professional, business)}"` : `- ATENÇÃO: NÃO é o primeiro contato. NÃO use mensagem de boas-vindas. Responda diretamente ao que o paciente escreveu.`}
 - Não entendeu: "${config.ai_fallback_message ?? 'Não consegui entender. Posso ajudar com agendamento, reagendamento ou cancelamento.'}"
 - Fora do horário: "${config.msg_outside_hours ?? `Nosso horário de atendimento é: ${workingHours}. Retornaremos assim que possível.`}"
-
-REGRA CRÍTICA: Se já existe histórico de conversa (mensagens anteriores), NUNCA repita a mensagem de boas-vindas. Responda diretamente ao conteúdo da última mensagem do paciente.
 ${customInstructions}
 
 FORMATO DE SAÍDA OBRIGATÓRIO (responda APENAS este JSON, sem markdown):

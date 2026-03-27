@@ -195,10 +195,10 @@ async function getMessageHistory(
     .from('messages')
     .select('*')
     .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(limit)
 
-  return (data ?? []) as BotMessage[]
+  return ((data ?? []) as BotMessage[]).reverse()
 }
 
 // --- Entry point público ---

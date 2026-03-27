@@ -93,7 +93,10 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
   // Seta a trava antes de processar (evita execução dupla)
   await setAiPause(conversation.id)
 
-  const systemPrompt = buildSystemPrompt(clientContext.botConfig, contact.name ?? 'Paciente')
+  const isFirstTurn = !messageHistory.some((m) => m.from_who === 'ai')
+    && conversation.last_outgoing_by !== 'ai'
+  console.log(`[Agent] conv=${conversation.id} isFirstTurn=${isFirstTurn} historyLen=${messageHistory.length}`)
+  const systemPrompt = buildSystemPrompt(clientContext.botConfig, contact.name ?? 'Paciente', isFirstTurn)
   const chatMessages = buildChatMessages(messageHistory, systemPrompt)
 
   try {
