@@ -1,6 +1,7 @@
 import { StatsCards } from '@/components/dashboard/stats-cards'
 import { ClientList } from '@/components/dashboard/client-list'
 import { RecentActivity } from '@/components/dashboard/recent-activity'
+import { SOCPanel } from '@/components/dashboard/soc-panel'
 import { listClients } from '@/lib/db/clients'
 import { listRecentAuditLogs } from '@/lib/db/audit-log'
 
@@ -13,6 +14,8 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold tracking-tight text-foreground">Dashboard</h1>
+
+      <SOCPanel />
 
       <StatsCards clients={clients} />
 

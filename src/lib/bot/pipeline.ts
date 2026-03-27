@@ -93,14 +93,23 @@ async function upsertContact(
     .single()
 
   if (error) {
-    // Duplicate key — busca pelo telefone ou chatwoot_id
+    // Duplicate key — tenta por chatwoot_id (mais específico) ou telefone
     if (error.code === '23505') {
-      const { data: byPhone } = await supabase
+      const { data: byChatwootId } = await supabase
         .from('contacts')
         .select('*')
-        .eq('phone_number', msg.contactPhone)
+        .eq('chatwoot_id', msg.chatwootContactId)
         .maybeSingle()
-      if (byPhone) return byPhone as BotContact
+      if (byChatwootId) return byChatwootId as BotContact
+
+      if (msg.contactPhone) {
+        const { data: byPhone } = await supabase
+          .from('contacts')
+          .select('*')
+          .eq('phone_number', msg.contactPhone)
+          .limit(1)
+        if (byPhone && byPhone.length > 0) return byPhone[0] as BotContact
+      }
     }
     throw new Error(`Falha ao criar contato: ${error.message}`)
   }
@@ -196,10 +205,7 @@ async function getMessageHistory(
 
 export async function runBasePipeline(msg: NormalizedWebhookMessage): Promise<PipelineResult | null> {
   const clientContext = await resolveClientContext(msg.chatwootAccountId)
-  if (!clientContext) {
-    console.warn(`[Pipeline] Nenhum cliente encontrado para chatwoot_account_id=${msg.chatwootAccountId}`)
-    return null
-  }
+  if (!clientContext) return null
 
   const supabase = createAdminClient()
   const contact = await upsertContact(supabase, msg)
