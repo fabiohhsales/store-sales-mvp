@@ -39,7 +39,12 @@ export async function handleAgendaCheck(
     return
   }
 
-  const calendarId = googleConfig?.calendar_id ?? 'primary'
+  const calendarId = googleConfig?.calendar_id
+  if (!calendarId) {
+    console.warn('[CalendarAgent] calendar_id não configurado para client:', clientContext.clientId)
+    await sendAndSave(whatsappConfig, contact, conversation, 'O calendário ainda não foi configurado para este profissional. Entre em contato diretamente para marcar seu horário.')
+    return
+  }
 
   try {
     const calendar = getCalendarClient()
@@ -55,7 +60,8 @@ export async function handleAgendaCheck(
       botConfig.appointment_duration_default,
       botConfig.appointment_buffer_minutes ?? 15,
       6,
-      language
+      language,
+      botConfig.min_advance_booking_hours ?? 2
     )
 
     const message = formatSlotsMessage(slots, botConfig.professional_name, language)
@@ -100,7 +106,13 @@ export async function handleAgendaCreate(
     return
   }
 
-  const calendarId = googleConfig?.calendar_id ?? 'primary'
+  const calendarId = googleConfig?.calendar_id
+  if (!calendarId) {
+    console.warn('[CalendarAgent] calendar_id não configurado para client:', clientContext.clientId)
+    await sendAndSave(whatsappConfig, contact, conversation, 'O calendário ainda não foi configurado para este profissional. Entre em contato diretamente para confirmar seu horário.')
+    return
+  }
+
   const clientEmail = googleConfig?.google_email ?? null
 
   try {

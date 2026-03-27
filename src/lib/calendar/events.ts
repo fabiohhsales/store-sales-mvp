@@ -40,20 +40,24 @@ export async function createAppointment(
   params: CreateEventParams
 ): Promise<CreatedEvent> {
   const serviceName = params.config.services.find((s) => s.active)?.name ?? 'Consulta'
+  const professionalName = params.config.professional_name ?? ''
+
+  const templateVars = {
+    service_name: serviceName,
+    patient_name: params.patientName,
+    professional_name: professionalName,
+    patient_phone: params.patientPhone ?? '',
+  }
 
   const title = renderTemplate(
-    params.config.calendar_event_title_template ?? 'Consulta {service_name} — {patient_name}',
-    { service_name: serviceName, patient_name: params.patientName }
+    params.config.calendar_event_title_template ?? '[{professional_name}] {service_name} — {patient_name}',
+    templateVars
   )
 
   const description = renderTemplate(
     params.config.calendar_event_description_template ??
-      'Paciente: {patient_name}\nTelefone: {patient_phone}\nServiço: {service_name}\nAgendado via Sales Chat',
-    {
-      patient_name: params.patientName,
-      patient_phone: params.patientPhone ?? '',
-      service_name: serviceName,
-    }
+      'Profissional: {professional_name}\nPaciente: {patient_name}\nTelefone: {patient_phone}\nServiço: {service_name}\nAgendado via Sales Chat',
+    templateVars
   )
 
   const attendees: { email: string }[] = []

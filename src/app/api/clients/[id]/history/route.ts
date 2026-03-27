@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 
 // DELETE /api/clients/[id]/history — apaga mensagens e conversas do cliente
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const authClient = await createClient()
+  const { data: { user }, error: authError } = await authClient.auth.getUser()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  }
+
   const { id } = await params
   const supabase = createAdminClient()
 

@@ -18,7 +18,7 @@ export function createAiClient(): OpenAI {
   throw new Error('Nenhuma API key de IA configurada. Defina OPENAI_API_KEY ou GROQ_API_KEY.')
 }
 
-export const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o'
+export const AI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini'
 
 // Modelo leve para chamadas simples (parse de datas, etc.)
 // No Groq usa o mesmo modelo principal. No OpenAI usa gpt-4o-mini para economizar.

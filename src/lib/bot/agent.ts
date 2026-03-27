@@ -121,6 +121,10 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
     return output
   } catch (err) {
     console.error('[Agent] Erro na chamada OpenAI:', err)
+    const fallbackMsg = clientContext.botConfig?.ai_fallback_message
+    if (fallbackMsg) {
+      return { ...fallbackOutput, reply: fallbackMsg }
+    }
     return fallbackOutput
   }
 }

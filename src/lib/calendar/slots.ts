@@ -157,7 +157,8 @@ export async function getAvailableSlots(
   durationMinutes: number,
   bufferMinutes: number,
   maxSlots = 6,
-  language = 'pt-BR'
+  language = 'pt-BR',
+  minAdvanceHours = 2
 ): Promise<TimeSlot[]> {
   const freebusyRes = await calendar.freebusy.query({
     requestBody: {
@@ -194,7 +195,8 @@ export async function getAvailableSlots(
     const breakEnd = day.break_end ? spToUTC(dateStr, day.break_end) : null
 
     let slotStart = workStart
-    if (slotStart < new Date()) slotStart = roundUpToStep(new Date(), stepMs)
+    const earliestSlot = new Date(Date.now() + minAdvanceHours * 60 * 60 * 1000)
+    if (slotStart < earliestSlot) slotStart = roundUpToStep(earliestSlot, stepMs)
 
     while (slotStart.getTime() + durationMs <= workEnd.getTime()) {
       const slotEnd = new Date(slotStart.getTime() + durationMs)

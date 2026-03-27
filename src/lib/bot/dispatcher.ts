@@ -15,16 +15,25 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
   const { whatsappConfig } = clientContext
 
   try {
-    // --- 1. Envia resposta WhatsApp (se houver reply e não for handoff) ---
-    if (output.reply && !output.handoff.needs_human) {
-      const identifier = contact.identifier ?? contact.phone_number
-      if (identifier && whatsappConfig.evolution_instance_name) {
+    // --- 1. Envia resposta WhatsApp ---
+    const identifier = contact.identifier ?? contact.phone_number
+    const instanceName = whatsappConfig.evolution_instance_name
+
+    if (identifier && instanceName) {
+      // Handoff: envia ai_handoff_message antes de transferir para humano
+      if (output.handoff.needs_human) {
+        const handoffMsg = clientContext.botConfig?.ai_handoff_message
+        if (handoffMsg) {
+          try {
+            await sendTextMessage(instanceName, identifier, handoffMsg)
+            await saveAiMessage(conversation.id, conversation.chatwoot_conversation_id, handoffMsg)
+          } catch (err) {
+            console.error('[Dispatcher] Falha ao enviar mensagem de handoff:', err)
+          }
+        }
+      } else if (output.reply) {
         try {
-          await sendTextMessage(
-            whatsappConfig.evolution_instance_name,
-            identifier,
-            output.reply
-          )
+          await sendTextMessage(instanceName, identifier, output.reply)
           await saveAiMessage(conversation.id, conversation.chatwoot_conversation_id, output.reply)
         } catch (err) {
           console.error('[Dispatcher] Falha ao enviar WhatsApp:', err)

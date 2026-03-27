@@ -5,20 +5,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runFollowupPipeline } from '@/lib/followup/confirmations'
 
-export async function POST(req: NextRequest) {
+function checkAuth(req: NextRequest): NextResponse | null {
   const secret = process.env.CRON_SECRET
-  if (secret) {
-    const auth = req.headers.get('authorization')
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  if (!secret) {
+    console.error('[Cron] CRON_SECRET não configurado — endpoint bloqueado')
+    return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 })
   }
+  if (req.headers.get('authorization') !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return null
+}
+
+export async function POST(req: NextRequest) {
+  const authError = checkAuth(req)
+  if (authError) return authError
 
   try {
     const summary = await runFollowupPipeline()
-
     console.log('[Cron] followup concluído:', summary)
-
     return NextResponse.json({ ok: true, ...summary })
   } catch (err) {
     console.error('[Cron] Erro no followup pipeline:', err)
@@ -26,7 +31,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Permite GET para facilitar teste manual no browser (sem precisar de curl)
 export async function GET(req: NextRequest) {
   return POST(req)
 }

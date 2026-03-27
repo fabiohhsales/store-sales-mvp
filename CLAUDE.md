@@ -31,7 +31,7 @@ Bot Engine (src/lib/bot/) — pipeline nativo Next.js
 Evolution API → WhatsApp (resposta ao paciente)
 
 Supabase (PostgreSQL) — banco central
-Google Calendar — agendamento via OAuth2
+Google Calendar — conta central Sales Tec (GOOGLE_REFRESH_TOKEN), calendários por cliente
 ```
 
 ### Arquitetura multi-tenant — Caminho B (Chatwoot por Account)
@@ -160,9 +160,11 @@ OPENAI_MODEL_MINI=gpt-4o-mini # modelo leve (datas, etc)
 # Fallback Groq (se OPENAI_API_KEY não setada)
 GROQ_API_KEY=
 
-# Google OAuth
+# Google Calendar — conta central Sales Tec
+# Gerar com: oauth2-playground ou script local com GOOGLE_CLIENT_ID/SECRET
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+GOOGLE_REFRESH_TOKEN=   # refresh token da conta Google central que gerencia todos os calendários
 
 # n8n (legado, não usado pelo bot engine)
 N8N_URL=
@@ -259,10 +261,18 @@ NEXT_PUBLIC_APP_URL = "https://panel-testeworkflow.yvssrw.easypanel.host"
 #### panel_google_config
 - id (uuid, PK)
 - client_id (uuid, FK → panel_clients, UNIQUE)
-- google_email / calendar_id (text)
-- access_token / refresh_token (text) — ⚠️ criptografar em produção
-- token_expiry (timestamptz)
-- scopes (text[])
+- google_email (text) — e-mail do profissional (usado como attendee no convite do evento)
+- calendar_id (text) — **obrigatório** — ID do calendário exclusivo deste cliente na conta central
+  - ⚠️ se não preenchido, o bot bloqueia agendamentos e avisa o paciente
+  - cada cliente deve ter seu próprio calendário criado na conta Google central da Sales Tec
+  - o ID fica visível nas configurações do Google Calendar (ex: `abc123@group.calendar.google.com`)
+- access_token / refresh_token (text) — **não usados pelo bot** (auth é via GOOGLE_REFRESH_TOKEN global)
+- token_expiry (timestamptz) — não usado
+- scopes (text[]) — não usado
+
+> **Arquitetura atual**: uma única conta Google central (Sales Tec) gerencia todos os calendários.
+> A autenticação usa `GOOGLE_REFRESH_TOKEN` (env var global) — sem OAuth por cliente.
+> O isolamento entre clientes é feito via `calendar_id` distinto por cliente, não por conta separada.
 
 #### panel_bot_config
 Config completa do AI Agent por cliente:
@@ -348,13 +358,33 @@ Cada cliente usa seu próprio `chatwoot_agent_token` (de `panel_whatsapp_config`
 **Webhook configurado na account do cliente**: aponta para
 `https://panel-testeworkflow.yvssrw.easypanel.host/api/webhooks/chatwoot`
 
-### Google OAuth2
+### Google Calendar (conta central)
+
+A Sales Tec opera uma única conta Google que detém todos os calendários dos clientes.
+O bot autentica com `GOOGLE_REFRESH_TOKEN` (env global) — sem OAuth por cliente.
+
 ```
-Authorization: https://accounts.google.com/o/oauth2/v2/auth
-Token: https://oauth2.googleapis.com/token
-Scopes: calendar, calendar.events
-Redirect: {NEXT_PUBLIC_APP_URL}/api/auth/google/callback
+Auth: google.auth.OAuth2 com GOOGLE_REFRESH_TOKEN (src/lib/calendar/client.ts)
+Scopes usados: calendar, calendar.events
 ```
+
+**Fluxo de onboarding do calendário por cliente:**
+1. Admin cria um calendário na conta central Google para o cliente (ex: "Dr. João Silva")
+2. Copia o Calendar ID (ex: `abc123@group.calendar.google.com`) e preenche em `panel_google_config.calendar_id`
+3. Preenche `panel_google_config.google_email` com o e-mail do profissional para receber convites
+4. O bot usa esse `calendar_id` para checar disponibilidade e criar eventos no calendário correto
+
+**Isolamento por cliente:** garantido pelo `calendar_id` distinto — todos na mesma conta Google,
+mas cada cliente só vê e afeta seu próprio calendário.
+
+**Templates de evento** (`panel_bot_config`):
+- `calendar_event_title_template` — default: `[{professional_name}] {service_name} — {patient_name}`
+- `calendar_event_description_template` — default inclui profissional, paciente, telefone, serviço
+- Variáveis disponíveis: `{professional_name}`, `{patient_name}`, `{patient_phone}`, `{service_name}`
+
+> As rotas `/api/auth/google/callback` e `/api/auth/google/public` existem no código mas são
+> legado do plano de OAuth por cliente (nunca finalizado). Atualmente não fazem nada de útil
+> para o bot — o calendário é configurado manualmente pelo admin.
 
 ---
 
