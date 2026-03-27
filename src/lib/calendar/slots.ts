@@ -23,17 +23,24 @@ const DAYS_PT: Record<string, string> = {
   thursday: 'Qui', friday: 'Sex', saturday: 'Sáb',
 }
 
+const DAYS_EN: Record<string, string> = {
+  sunday: 'Sun', monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
+  thursday: 'Thu', friday: 'Fri', saturday: 'Sat',
+}
+
 const MONTHS_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 export interface TimeSlot {
   startUTC: Date
   endUTC: Date
-  label: string // "Seg, 10/jan às 09:00"
+  label: string
+  startISO: string
+  endISO: string
 }
 
 // --- Helpers de timezone ---
 
-// Data/hora em São Paulo a partir de uma Date UTC
 function spParts(date: Date) {
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: TIMEZONE,
@@ -44,7 +51,7 @@ function spParts(date: Date) {
   const p = Object.fromEntries(fmt.formatToParts(date).map((x) => [x.type, x.value]))
   return {
     year: parseInt(p.year),
-    month: parseInt(p.month), // 1-12
+    month: parseInt(p.month),
     day: parseInt(p.day),
     hour: parseInt(p.hour === '24' ? '0' : p.hour),
     minute: parseInt(p.minute),
@@ -52,22 +59,44 @@ function spParts(date: Date) {
   }
 }
 
-// Converte data SP "YYYY-MM-DD" + hora "HH:MM" em Date UTC
 function spToUTC(dateStr: string, timeStr: string): Date {
   return new Date(`${dateStr}T${timeStr}:00${SP_OFFSET}`)
 }
 
-// Obtém string de data SP "YYYY-MM-DD" de uma Date UTC
 function spDateStr(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE }).format(date)
 }
 
-// Label legível em português: "Seg, 10/jan às 09:00"
-function slotLabel(start: Date): string {
+function toSpISO(date: Date): string {
+  const p = spParts(date)
+  const mm = String(p.month).padStart(2, '0')
+  const dd = String(p.day).padStart(2, '0')
+  const hh = String(p.hour).padStart(2, '0')
+  const min = String(p.minute).padStart(2, '0')
+  return `${p.year}-${mm}-${dd}T${hh}:${min}:00${SP_OFFSET}`
+}
+
+function slotLabel(start: Date, end: Date, language: string): string {
   const p = spParts(start)
-  const dayName = DAYS_PT[p.weekday] ?? p.weekday
-  const month = MONTHS_PT[p.month - 1]
-  return `${dayName}, ${p.day}/${month} às ${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`
+  const isEn = !language.startsWith('pt')
+  const dayName = isEn ? (DAYS_EN[p.weekday] ?? p.weekday) : (DAYS_PT[p.weekday] ?? p.weekday)
+  const month = isEn ? MONTHS_EN[p.month - 1] : MONTHS_PT[p.month - 1]
+  const hh = String(p.hour).padStart(2, '0')
+  const mm = String(p.minute).padStart(2, '0')
+
+  const ep = spParts(end)
+  const ehh = String(ep.hour).padStart(2, '0')
+  const emm = String(ep.minute).padStart(2, '0')
+
+  const timeStr = isEn
+    ? `${dayName}, ${month} ${p.day} · ${hh}:${mm}–${ehh}:${emm}`
+    : `${dayName}, ${p.day}/${month} · ${hh}:${mm}–${ehh}:${emm}`
+
+  const startISO = toSpISO(start)
+  const endISO = toSpISO(end)
+
+  // ISO inline para o AI extrair start_iso/end_iso quando paciente seleciona o número
+  return `${timeStr} [${startISO}→${endISO}]`
 }
 
 // --- Interpretação do time_window_hint via AI ---
@@ -127,9 +156,9 @@ export async function getAvailableSlots(
   workingHours: WorkingHours,
   durationMinutes: number,
   bufferMinutes: number,
-  maxSlots = 6
+  maxSlots = 6,
+  language = 'pt-BR'
 ): Promise<TimeSlot[]> {
-  // 1. Busca horários ocupados via freebusy
   const freebusyRes = await calendar.freebusy.query({
     requestBody: {
       timeMin: dateRange.start.toISOString(),
@@ -142,13 +171,11 @@ export async function getAvailableSlots(
   const busyTimes: BusyInterval[] =
     (freebusyRes.data.calendars?.[calendarId]?.busy as BusyInterval[]) ?? []
 
-  // 2. Gera candidatos de slot por dia
   const available: TimeSlot[] = []
   const stepMs = (durationMinutes + bufferMinutes) * 60 * 1000
   const durationMs = durationMinutes * 60 * 1000
 
   let cursor = new Date(dateRange.start)
-  // Começa no próximo dia inteiro se já é fim do expediente
   cursor.setUTCMinutes(0, 0, 0)
 
   while (cursor < dateRange.end && available.length < maxSlots) {
@@ -167,7 +194,6 @@ export async function getAvailableSlots(
     const breakEnd = day.break_end ? spToUTC(dateStr, day.break_end) : null
 
     let slotStart = workStart
-    // Não oferece slots no passado
     if (slotStart < new Date()) slotStart = roundUpToStep(new Date(), stepMs)
 
     while (slotStart.getTime() + durationMs <= workEnd.getTime()) {
@@ -184,7 +210,9 @@ export async function getAvailableSlots(
         available.push({
           startUTC: new Date(slotStart),
           endUTC: new Date(slotEnd),
-          label: slotLabel(slotStart),
+          label: slotLabel(slotStart, slotEnd, language),
+          startISO: toSpISO(slotStart),
+          endISO: toSpISO(slotEnd),
         })
         if (available.length >= maxSlots) break
       }
@@ -192,7 +220,6 @@ export async function getAvailableSlots(
       slotStart = new Date(slotStart.getTime() + stepMs)
     }
 
-    // Próximo dia
     cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000)
     cursor.setUTCHours(0, 0, 0, 0)
   }
@@ -204,12 +231,18 @@ function roundUpToStep(date: Date, stepMs: number): Date {
   return new Date(Math.ceil(date.getTime() / stepMs) * stepMs)
 }
 
-// Formata lista de slots para mensagem WhatsApp
-export function formatSlotsMessage(slots: TimeSlot[], professionalName: string): string {
+export function formatSlotsMessage(slots: TimeSlot[], professionalName: string, language = 'pt-BR'): string {
+  const isEn = !language.startsWith('pt')
+
   if (slots.length === 0) {
-    return `Não encontrei horários disponíveis nesse período. Quer que eu verifique outra semana?`
+    return isEn
+      ? `No available slots found for that period. Would you like me to check another week?`
+      : `Não encontrei horários disponíveis nesse período. Quer que eu verifique outra semana?`
   }
 
   const list = slots.map((s, i) => `${i + 1}. ${s.label}`).join('\n')
-  return `Encontrei estes horários disponíveis com ${professionalName}:\n\n${list}\n\nQual desses funciona para você?`
+
+  return isEn
+    ? `Here are the available slots with ${professionalName}:\n\n${list}\n\nWhich one works for you? Reply with the number.`
+    : `Encontrei estes horários disponíveis com ${professionalName}:\n\n${list}\n\nQual desses funciona para você? Responda com o número.`
 }

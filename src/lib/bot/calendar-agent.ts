@@ -46,16 +46,19 @@ export async function handleAgendaCheck(
     const hint = output.actions.agenda_check.time_window_hint
     const dateRange = await parseTimeWindow(hint)
 
+    const language = botConfig.ai_language ?? 'pt-BR'
     const slots = await getAvailableSlots(
       calendar,
       calendarId,
       dateRange,
       botConfig.working_hours,
       botConfig.appointment_duration_default,
-      botConfig.appointment_buffer_minutes ?? 15
+      botConfig.appointment_buffer_minutes ?? 15,
+      6,
+      language
     )
 
-    const message = formatSlotsMessage(slots, botConfig.professional_name)
+    const message = formatSlotsMessage(slots, botConfig.professional_name, language)
     await sendAndSave(whatsappConfig, contact, conversation, message)
 
     console.log(`[CalendarAgent] check concluído para conv=${conversation.id}: ${slots.length} slots`)

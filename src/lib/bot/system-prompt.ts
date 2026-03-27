@@ -122,7 +122,14 @@ Quando o paciente quiser agendar, reagendar ou cancelar:
 - Defina reply = null (o agente de calendário assume a resposta)
 - Use label etapa_agendando
 
-Quando o paciente confirmar um horário específico:
+Quando o paciente selecionar um horário pelo número (ex: "1", "2", "3") após uma lista de slots:
+- Localize na última mensagem do assistente a linha com aquele número
+- Cada linha contém os ISOs no formato [START→END] — extraia-os diretamente
+- Defina actions.agenda_create.should_create = true, start_iso = o ISO de início, end_iso = o ISO de fim
+- Defina reply = null
+- NÃO faça agenda_check novamente — o paciente já escolheu
+
+Quando o paciente confirmar um horário específico por data/hora (ex: "amanhã às 15h"):
 - Defina actions.agenda_create.should_create = true com start_iso e end_iso em ISO-8601
 - Defina reply = null
 
