@@ -1,4 +1,7 @@
 // SOC — Centro de Operações: agrega alertas conhecidos de todos os clientes ativos/pausados/desconectados.
+//
+// Cache em memória: resultado válido por CACHE_TTL_MS. Enquanto uma checagem está em andamento,
+// requests concorrentes aguardam o mesmo resultado (deduplicação) em vez de abrir novas conexões.
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
@@ -15,8 +18,19 @@ export interface SOCAlert {
   action_url: string
 }
 
-// Timeout para cada chamada à Evolution API (ms)
-const EVOLUTION_TIMEOUT_MS = 5000
+interface CacheEntry {
+  alerts: SOCAlert[]
+  checked_at: string
+}
+
+const CACHE_TTL_MS = 25_000       // serve do cache por 25s
+const EVOLUTION_TIMEOUT_MS = 3000 // timeout por instância
+
+let cache: CacheEntry | null = null
+let cacheExpiresAt = 0
+let inflightCheck: Promise<CacheEntry> | null = null
+
+// --- Helpers ---
 
 async function checkWhatsAppState(instanceName: string): Promise<string> {
   const controller = new AbortController()
@@ -32,12 +46,12 @@ async function checkWhatsAppState(instanceName: string): Promise<string> {
 async function buildAlertsForClient(client: PanelClientWithRelations): Promise<SOCAlert[]> {
   const alerts: SOCAlert[] = []
   const url = `/clients/${client.id}`
+  const id = client.id as string
 
-  // Cliente pausado intencionalmente — info
   if (client.status === 'paused') {
     alerts.push({
-      id: `${client.id}:paused`,
-      client_id: client.id as string,
+      id: `${id}:paused`,
+      client_id: id,
       client_name: client.name,
       severity: 'info',
       type: 'client_paused',
@@ -47,11 +61,10 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
     return alerts
   }
 
-  // Cliente com status desconectado no painel
   if (client.status === 'disconnected') {
     alerts.push({
-      id: `${client.id}:client_disconnected`,
-      client_id: client.id as string,
+      id: `${id}:client_disconnected`,
+      client_id: id,
       client_name: client.name,
       severity: 'critical',
       type: 'client_disconnected',
@@ -61,14 +74,13 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
     return alerts
   }
 
-  // A partir daqui, cliente ativo
+  // Cliente ativo — verifica serviços
   const whatsapp = client.panel_whatsapp_config
 
-  // Sem instância WhatsApp configurada
   if (!whatsapp?.evolution_instance_name) {
     alerts.push({
-      id: `${client.id}:whatsapp_missing`,
-      client_id: client.id as string,
+      id: `${id}:whatsapp_missing`,
+      client_id: id,
       client_name: client.name,
       severity: 'critical',
       type: 'whatsapp_missing',
@@ -76,23 +88,22 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
       action_url: url,
     })
   } else {
-    // Verifica estado real-time na Evolution API
     try {
       const state = await checkWhatsAppState(whatsapp.evolution_instance_name)
       if (state === 'close') {
         alerts.push({
-          id: `${client.id}:whatsapp_disconnected`,
-          client_id: client.id as string,
+          id: `${id}:whatsapp_disconnected`,
+          client_id: id,
           client_name: client.name,
           severity: 'critical',
           type: 'whatsapp_disconnected',
-          message: 'WhatsApp desconectado — bot não consegue enviar mensagens (reconectar QR)',
+          message: 'WhatsApp desconectado — bot não envia mensagens (reconectar QR)',
           action_url: url,
         })
       } else if (state === 'connecting') {
         alerts.push({
-          id: `${client.id}:whatsapp_connecting`,
-          client_id: client.id as string,
+          id: `${id}:whatsapp_connecting`,
+          client_id: id,
           client_name: client.name,
           severity: 'warning',
           type: 'whatsapp_connecting',
@@ -102,8 +113,8 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
       }
     } catch {
       alerts.push({
-        id: `${client.id}:whatsapp_unreachable`,
-        client_id: client.id as string,
+        id: `${id}:whatsapp_unreachable`,
+        client_id: id,
         client_name: client.name,
         severity: 'critical',
         type: 'whatsapp_unreachable',
@@ -113,11 +124,10 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
     }
   }
 
-  // Google Calendar ausente
   if (!client.panel_google_config?.google_email) {
     alerts.push({
-      id: `${client.id}:google_missing`,
-      client_id: client.id as string,
+      id: `${id}:google_missing`,
+      client_id: id,
       client_name: client.name,
       severity: 'warning',
       type: 'google_missing',
@@ -126,11 +136,10 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
     })
   }
 
-  // Bot sem configuração
   if (!client.panel_bot_config) {
     alerts.push({
-      id: `${client.id}:bot_config_missing`,
-      client_id: client.id as string,
+      id: `${id}:bot_config_missing`,
+      client_id: id,
       client_name: client.name,
       severity: 'warning',
       type: 'bot_config_missing',
@@ -144,27 +153,49 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
 
 const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 }
 
+async function runCheck(): Promise<CacheEntry> {
+  const supabase = await createClient()
+  const { data: clients, error } = await supabase
+    .from('panel_clients')
+    .select('*, panel_whatsapp_config(*), panel_google_config(*), panel_bot_config(*)')
+    .in('status', ['active', 'paused', 'disconnected'])
+    .order('name')
+
+  if (error) throw error
+
+  const results = await Promise.allSettled(
+    (clients as PanelClientWithRelations[]).map(buildAlertsForClient)
+  )
+
+  const alerts = results
+    .filter((r): r is PromiseFulfilledResult<SOCAlert[]> => r.status === 'fulfilled')
+    .flatMap((r) => r.value)
+    .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+
+  return { alerts, checked_at: new Date().toISOString() }
+}
+
+// --- Handler ---
+
 export async function GET() {
   try {
-    const supabase = await createClient()
-    const { data: clients, error } = await supabase
-      .from('panel_clients')
-      .select('*, panel_whatsapp_config(*), panel_google_config(*), panel_bot_config(*)')
-      .in('status', ['active', 'paused', 'disconnected'])
-      .order('name')
+    // Serve do cache se ainda válido
+    if (cache && Date.now() < cacheExpiresAt) {
+      return NextResponse.json(cache)
+    }
 
-    if (error) throw error
+    // Deduplica: se já tem uma checagem em andamento, aguarda a mesma
+    if (!inflightCheck) {
+      inflightCheck = runCheck().finally(() => {
+        inflightCheck = null
+      })
+    }
 
-    const results = await Promise.allSettled(
-      (clients as PanelClientWithRelations[]).map(buildAlertsForClient)
-    )
+    const entry = await inflightCheck
+    cache = entry
+    cacheExpiresAt = Date.now() + CACHE_TTL_MS
 
-    const alerts = results
-      .filter((r): r is PromiseFulfilledResult<SOCAlert[]> => r.status === 'fulfilled')
-      .flatMap((r) => r.value)
-      .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
-
-    return NextResponse.json({ alerts, checked_at: new Date().toISOString() })
+    return NextResponse.json(entry)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro interno'
     return NextResponse.json({ error: message }, { status: 500 })
