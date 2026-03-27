@@ -58,8 +58,12 @@ export function ClientActions({ client }: ClientActionsProps) {
       const res = await fetch(`/api/clients/${client.id}/history`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Erro ao resetar')
       const data = await res.json()
-      toast.success(`Histórico apagado — ${data.deleted} conversa(s) removida(s)`)
-      router.refresh()
+      if (data.deleted === 0) {
+        toast.info('Nenhuma conversa encontrada para apagar')
+      } else {
+        toast.success(`Histórico apagado — ${data.deleted} conversa(s) removida(s)`)
+        router.refresh()
+      }
     } catch {
       toast.error('Erro ao resetar histórico')
     } finally {

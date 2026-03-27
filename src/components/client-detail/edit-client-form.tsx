@@ -26,7 +26,7 @@ import { MessageTemplatesSection } from '@/components/bot-config/message-templat
 import { HandoffSection } from '@/components/bot-config/handoff-section'
 import { CalendarSection } from '@/components/bot-config/calendar-section'
 import { AdvancedSection } from '@/components/bot-config/advanced-section'
-import type { PanelClientWithRelations, PanelBotConfig, WorkingHours } from '@/types/database'
+import type { PanelClientWithRelations, PanelBotConfig, WorkingHours, PanelGoogleConfig } from '@/types/database'
 
 interface EditClientFormProps {
   client: PanelClientWithRelations
@@ -79,6 +79,10 @@ export function EditClientForm({ client }: EditClientFormProps) {
   const [botConfig, setBotConfig] = useState<Partial<PanelBotConfig>>(
     client.panel_bot_config || DEFAULT_BOT_CONFIG
   )
+  const [googleConfig, setGoogleConfig] = useState<Pick<PanelGoogleConfig, 'google_email' | 'calendar_id'>>({
+    google_email: client.panel_google_config?.google_email ?? '',
+    calendar_id: client.panel_google_config?.calendar_id ?? '',
+  })
 
   const handleSaveClient = async () => {
     setLoading(true)
@@ -116,6 +120,23 @@ export function EditClientForm({ client }: EditClientFormProps) {
 
   const handleBotChange = (updates: Partial<PanelBotConfig>) => {
     setBotConfig((prev) => ({ ...prev, ...updates }))
+  }
+
+  const handleSaveGoogleConfig = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/clients/${client.id}/google-config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(googleConfig),
+      })
+      if (!res.ok) throw new Error('Erro ao salvar')
+      toast.success('Configuração do Google Calendar salva')
+    } catch {
+      toast.error('Erro ao salvar configuração do Google Calendar')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -163,6 +184,43 @@ export function EditClientForm({ client }: EditClientFormProps) {
           <div className="flex justify-end">
             <Button onClick={handleSaveClient} disabled={loading}>
               Salvar Dados
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Google Calendar</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="google_email">Email do profissional (para convites)</Label>
+              <Input
+                id="google_email"
+                type="email"
+                placeholder="profissional@gmail.com"
+                value={googleConfig.google_email ?? ''}
+                onChange={(e) => setGoogleConfig({ ...googleConfig, google_email: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="calendar_id">Calendar ID</Label>
+              <Input
+                id="calendar_id"
+                placeholder="abc123@group.calendar.google.com"
+                value={googleConfig.calendar_id ?? ''}
+                onChange={(e) => setGoogleConfig({ ...googleConfig, calendar_id: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                ID do calendário exclusivo deste cliente na conta Google central. Encontrado em Configurações do Google Calendar.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={handleSaveGoogleConfig} disabled={loading}>
+              Salvar Calendar
             </Button>
           </div>
         </CardContent>

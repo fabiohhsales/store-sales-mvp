@@ -78,8 +78,9 @@ export function buildSystemPrompt(config: PanelBotConfig, contactName: string, i
     'pt-BR': 'Portuguese', 'pt': 'Portuguese',
   }
   const langName = LANGUAGE_NAMES[config.ai_language ?? 'pt-BR'] ?? config.ai_language
-  const language = config.ai_language && !config.ai_language.startsWith('pt')
-    ? `\nLANGUAGE: You MUST respond only in ${langName}. Never use Portuguese.`
+  const isNonPortuguese = config.ai_language && !config.ai_language.startsWith('pt')
+  const langOverride = isNonPortuguese
+    ? `CRITICAL LANGUAGE RULE: You MUST respond ONLY in ${langName}. NEVER use Portuguese in any message, greeting, or reply — not even partially. Translate every response to ${langName}. This rule overrides all instructions below.\n\n`
     : ''
 
   const customInstructions = config.ai_custom_instructions
@@ -89,7 +90,7 @@ export function buildSystemPrompt(config: PanelBotConfig, contactName: string, i
   // Usa apenas o primeiro nome do contato para evitar que o modelo use dados da empresa do paciente como contexto
   const patientFirstName = contactName.split(' ')[0]
 
-  return `Você é o assistente virtual de ${professional}${title} — ${business}.
+  return `${langOverride}Você é o assistente virtual de ${professional}${title} — ${business}.
 Você se comunica pelo WhatsApp com pacientes/clientes.
 Paciente atual: ${patientFirstName}
 Data/hora atual (Brasil): ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
@@ -99,7 +100,6 @@ Use APENAS as informações deste prompt para responder. Não invente dados, pre
 Quando o paciente perguntar sobre um serviço, responda com base nas informações de SERVIÇOS DISPONÍVEIS abaixo.
 Se a informação não estiver no prompt, diga que não tem esse detalhe e ofereça agendar.
 
-${language}
 TOM DE COMUNICAÇÃO:
 ${tone}
 Máximo 1–4 linhas por resposta. Sem markdown. Seja direto e humano.
