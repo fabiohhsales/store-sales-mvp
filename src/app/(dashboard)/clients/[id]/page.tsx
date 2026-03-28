@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, CalendarDays } from 'lucide-react'
 import { getClientById } from '@/lib/db/clients'
 import { listAuditLogsByClientId } from '@/lib/db/audit-log'
 import { StatusCards } from '@/components/client-detail/status-cards'
@@ -97,6 +97,20 @@ export default async function ClientDetailPage({
               instanceName={client.panel_whatsapp_config?.evolution_instance_name}
             />
           </Suspense>
+
+          {/* Agenda — link rápido para agendamentos do cliente */}
+          <Link
+            href={`/clients/${id}/appointments`}
+            className="glass-card flex items-center gap-4 p-5 hover:bg-secondary/50 transition-colors group"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors">
+              <CalendarDays size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Agenda</p>
+              <p className="text-xs text-muted-foreground">Ver agendamentos e compromissos</p>
+            </div>
+          </Link>
         </div>
 
         <div>

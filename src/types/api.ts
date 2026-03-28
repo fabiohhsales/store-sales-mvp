@@ -85,6 +85,14 @@ export interface ChatwootAgent {
   availability_status: string
 }
 
+export type ChatwootAgentRole = 'agent' | 'administrator'
+
+export interface ChatwootAgentInput {
+  name: string
+  email: string
+  role: ChatwootAgentRole
+}
+
 export interface ChatwootConversation {
   id: number
   inbox_id: number

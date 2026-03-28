@@ -137,7 +137,8 @@ EVOLUTION_API_URL=
 EVOLUTION_API_KEY=
 
 # Chatwoot
-CHATWOOT_URL=
+CHATWOOT_URL=https://chatsales-chatwoot.yvssrw.easypanel.host
+NEXT_PUBLIC_CHATWOOT_URL=https://chatsales-chatwoot.yvssrw.easypanel.host
 CHATWOOT_API_TOKEN=
 CHATWOOT_ACCOUNT_ID=
 CHATWOOT_PLATFORM_TOKEN=

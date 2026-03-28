@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createInstance, setChatwootIntegration, getPanelWebhookUrl, deleteInstance } from '@/lib/api/evolution'
-import { createChatwootAccount, findInboxByName, configureChatwootWebhook, deleteChatwootAccount, ensureChatwootLabels } from '@/lib/api/chatwoot'
+import { createChatwootAccount, createChatwootAgent, findInboxByName, configureChatwootWebhook, deleteChatwootAccount, ensureChatwootLabels } from '@/lib/api/chatwoot'
 import { createWhatsAppConfig } from '@/lib/db/whatsapp-config'
 import { getBotConfigByClientId } from '@/lib/db/bot-config'
 import { updateClient, getClientById } from '@/lib/db/clients'
@@ -29,23 +29,47 @@ export async function POST(request: NextRequest) {
     }
 
     const client = await getClientById(client_id)
+    const provisionedAgents = client.provisioned_agents ?? []
+    const agentsSummary = {
+      created: [] as string[],
+      existing: [] as string[],
+      failed: [] as Array<{ email: string; reason: string }>,
+    }
 
     // Tracking pra cleanup em caso de erro parcial
     let chatwootAccountId: number | null = null
     let chatwootToken: string | null = null
     let evolutionCreated = false
+    let accountCreatedNow = false
+
+    // Verifica se já existe uma account Chatwoot pré-provisionada para este cliente
+    const existingAccountId = client.chatwoot_account_id ?? null
+    const existingToken = client.chatwoot_agent_token ?? null
 
     try {
-      // Etapa 1 — Cria Account isolada no Chatwoot
-      console.log(`[WhatsApp] Etapa 1: Criando Account Chatwoot para "${client.name}"`)
-      const chatwootAccount = await createChatwootAccount(
-        client.name,
-        client.email,
-        client.owner_name,
-        instance_name
-      )
-      chatwootAccountId = chatwootAccount.id
-      chatwootToken = chatwootAccount.access_token
+      let chatwootAccount: { id: number; access_token: string }
+
+      if (existingAccountId && existingToken) {
+        // Reutiliza account pré-provisionada (criada no cadastro do cliente)
+        console.log(`[WhatsApp] Etapa 1: Reutilizando Account Chatwoot #${existingAccountId} para "${client.name}"`)
+        chatwootAccount = { id: existingAccountId, access_token: existingToken }
+        chatwootAccountId = existingAccountId
+        chatwootToken = existingToken
+        accountCreatedNow = false
+      } else {
+        // Cria nova account (fallback: cliente não passou pelo fluxo de provisionamento)
+        console.log(`[WhatsApp] Etapa 1: Criando Account Chatwoot para "${client.name}"`)
+        const newAccount = await createChatwootAccount(
+          client.name,
+          client.email,
+          client.owner_name,
+          instance_name
+        )
+        chatwootAccount = newAccount
+        chatwootAccountId = newAccount.id
+        chatwootToken = newAccount.access_token
+        accountCreatedNow = true
+      }
 
       // Etapa 2 — Configura webhook Chatwoot → painel
       console.log(`[WhatsApp] Etapa 2: Configurando webhook Chatwoot (Account ${chatwootAccount.id})`)
@@ -60,6 +84,30 @@ export async function POST(request: NextRequest) {
         await ensureChatwootLabels(chatwootAccount.id, chatwootAccount.access_token, stageLabels)
       } catch (err) {
         console.warn('[WhatsApp] Sync de etiquetas falhou (não-crítico):', err)
+      }
+
+      // Etapa 2c — Provisiona agentes apenas se a account foi criada agora
+      // (se reutilizamos uma account pré-existente, os agentes já foram criados no cadastro)
+      if (accountCreatedNow && provisionedAgents.length > 0) {
+        console.log(`[WhatsApp] Etapa 2c: Provisionando ${provisionedAgents.length} agente(s) no Chatwoot`)
+        for (const agent of provisionedAgents) {
+          try {
+            const result = await createChatwootAgent(
+              chatwootAccount.id,
+              chatwootAccount.access_token,
+              agent
+            )
+
+            if (result.status === 'exists') {
+              agentsSummary.existing.push(agent.email)
+            } else {
+              agentsSummary.created.push(agent.email)
+            }
+          } catch (agentError) {
+            const reason = agentError instanceof Error ? agentError.message : 'Erro desconhecido ao provisionar agente'
+            agentsSummary.failed.push({ email: agent.email, reason })
+          }
+        }
       }
 
       // Etapa 3 — Cria instância na Evolution
@@ -130,13 +178,22 @@ export async function POST(request: NextRequest) {
           instance_id: evolutionResponse.instance.instanceId,
           chatwoot_account_id: chatwootAccount.id,
           chatwoot_inbox_id: chatwootInboxId,
+          agents_summary: {
+            created: agentsSummary.created.length,
+            existing: agentsSummary.existing.length,
+            failed: agentsSummary.failed.length,
+          },
         },
       })
 
       console.log(`[WhatsApp] Instância "${instance_name}" criada com sucesso!`)
 
       return NextResponse.json(
-        { config: savedConfig, qrcode: evolutionResponse.qrcode || null },
+        {
+          config: savedConfig,
+          qrcode: evolutionResponse.qrcode || null,
+          agents_summary: agentsSummary,
+        },
         { status: 201 }
       )
     } catch (innerError) {
@@ -150,7 +207,7 @@ export async function POST(request: NextRequest) {
         } catch { /* ignora */ }
       }
 
-      if (chatwootAccountId && chatwootToken) {
+      if (accountCreatedNow && chatwootAccountId && chatwootToken) {
         try {
           await deleteChatwootAccount(chatwootAccountId, chatwootToken)
           console.log(`[WhatsApp] Cleanup: Account Chatwoot #${chatwootAccountId} deletada`)

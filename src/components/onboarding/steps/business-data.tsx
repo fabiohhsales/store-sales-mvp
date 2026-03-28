@@ -20,6 +20,8 @@ import {
 } from '@/components/ui/card'
 import { toast } from 'sonner'
 import type { BusinessSegment } from '@/types/database'
+import type { ChatwootAgentRole } from '@/types/api'
+import { PlusIcon, TrashIcon } from 'lucide-react'
 
 interface BusinessDataStepProps {
   onComplete: (clientId: string) => void
@@ -34,6 +36,22 @@ const segments: { value: BusinessSegment; label: string }[] = [
   { value: 'outro', label: 'Outro' },
 ]
 
+interface OnboardingChatwootUser {
+  name: string
+  email: string
+  role: ChatwootAgentRole
+}
+
+const DEFAULT_CHATWOOT_USER: OnboardingChatwootUser = {
+  name: '',
+  email: '',
+  role: 'agent',
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
 export function BusinessDataStep({ onComplete }: BusinessDataStepProps) {
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({
@@ -43,6 +61,19 @@ export function BusinessDataStep({ onComplete }: BusinessDataStepProps) {
     phone: '',
     business_segment: '' as BusinessSegment | '',
   })
+  const [chatwootUsers, setChatwootUsers] = useState<OnboardingChatwootUser[]>([])
+
+  function addChatwootUser() {
+    setChatwootUsers((prev) => [...prev, { ...DEFAULT_CHATWOOT_USER }])
+  }
+
+  function removeChatwootUser(index: number) {
+    setChatwootUsers((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function updateChatwootUser(index: number, updates: Partial<OnboardingChatwootUser>) {
+    setChatwootUsers((prev) => prev.map((item, i) => (i === index ? { ...item, ...updates } : item)))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,12 +83,33 @@ export function BusinessDataStep({ onComplete }: BusinessDataStepProps) {
       return
     }
 
+    const normalizedUsers = chatwootUsers.map((user) => ({
+      name: user.name.trim(),
+      email: user.email.trim().toLowerCase(),
+      role: user.role,
+    }))
+
+    const hasInvalidUser = normalizedUsers.some((user) => !user.name || !user.email || !isValidEmail(user.email))
+    if (hasInvalidUser) {
+      toast.error('Preencha nome e e-mail validos para todos os agentes adicionais')
+      return
+    }
+
+    const uniqueEmails = new Set(normalizedUsers.map((user) => user.email))
+    if (uniqueEmails.size !== normalizedUsers.length) {
+      toast.error('Nao repita e-mails na lista de agentes adicionais')
+      return
+    }
+
     setLoading(true)
     try {
       const res = await fetch('/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          chatwoot_users: normalizedUsers,
+        }),
       })
 
       if (!res.ok) {
@@ -150,6 +202,82 @@ export function BusinessDataStep({ onComplete }: BusinessDataStepProps) {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-3 rounded-lg border p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-medium">Agentes Chatwoot adicionais</Label>
+                <p className="text-xs text-muted-foreground">
+                  Esses usuarios serao provisionados no espaco do cliente durante a etapa de WhatsApp.
+                </p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={addChatwootUser}>
+                <PlusIcon className="mr-2 h-4 w-4" />
+                Adicionar agente
+              </Button>
+            </div>
+
+            {chatwootUsers.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Nenhum agente adicional. Voce pode continuar sem preencher esta secao.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {chatwootUsers.map((user, index) => (
+                  <div key={index} className="grid gap-3 rounded-md border p-3 sm:grid-cols-12">
+                    <div className="space-y-1 sm:col-span-4">
+                      <Label htmlFor={`chatwoot-user-name-${index}`}>Nome</Label>
+                      <Input
+                        id={`chatwoot-user-name-${index}`}
+                        placeholder="Maria Souza"
+                        value={user.name}
+                        onChange={(e) => updateChatwootUser(index, { name: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-4">
+                      <Label htmlFor={`chatwoot-user-email-${index}`}>E-mail</Label>
+                      <Input
+                        id={`chatwoot-user-email-${index}`}
+                        type="email"
+                        placeholder="maria@clinica.com"
+                        value={user.email}
+                        onChange={(e) => updateChatwootUser(index, { email: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-3">
+                      <Label htmlFor={`chatwoot-user-role-${index}`}>Papel</Label>
+                      <Select
+                        value={user.role}
+                        onValueChange={(value) => updateChatwootUser(index, { role: value as ChatwootAgentRole })}
+                      >
+                        <SelectTrigger id={`chatwoot-user-role-${index}`}>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="agent">agent</SelectItem>
+                          <SelectItem value="administrator">administrator</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-end sm:col-span-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeChatwootUser(index)}
+                        aria-label={`Remover agente ${index + 1}`}
+                      >
+                        <TrashIcon className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end pt-4">

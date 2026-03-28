@@ -103,6 +103,31 @@ export function HandoffSection({ config, onChange }: SectionProps) {
           dessas palavras, a conversa será transferida imediatamente.
         </p>
       </div>
+
+      <div className="space-y-3 rounded-lg border border-dashed p-3">
+        <div className="flex items-center gap-3">
+          <Switch
+            id="handoff_email_notify"
+            checked={false}
+            disabled
+          />
+          <Label htmlFor="handoff_email_notify">
+            Notificar via e-mail (em desenvolvimento)
+          </Label>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="handoff_email">
+            E-mail desejado (em desenvolvimento)
+          </Label>
+          <Input
+            id="handoff_email"
+            type="email"
+            placeholder="email@clinica.com"
+            disabled
+          />
+        </div>
+      </div>
     </div>
   )
 }
