@@ -53,7 +53,12 @@ export async function POST(request: NextRequest) {
       if (existingAccountId && existingToken) {
         // Reutiliza account pré-provisionada (criada no cadastro do cliente)
         console.log(`[WhatsApp] Etapa 1: Reutilizando Account Chatwoot #${existingAccountId} para "${client.name}"`)
-        chatwootAccount = { id: existingAccountId, access_token: existingToken }
+        chatwootAccount = {
+          id: existingAccountId,
+          name: client.name,
+          access_token: existingToken,
+          login_email: client.chatwoot_email ?? client.email,
+        }
         chatwootAccountId = existingAccountId
         chatwootToken = existingToken
         accountCreatedNow = false

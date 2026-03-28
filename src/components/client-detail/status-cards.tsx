@@ -9,9 +9,10 @@ import type { PanelClientWithRelations } from '@/types/database'
 
 interface StatusCardsProps {
   client: PanelClientWithRelations
+  chatwootPublicUrl?: string
 }
 
-export function StatusCards({ client }: StatusCardsProps) {
+export function StatusCards({ client, chatwootPublicUrl }: StatusCardsProps) {
   const [copied, setCopied] = useState(false)
   const hasWhatsApp = !!client.panel_whatsapp_config
   const hasGoogle = !!client.panel_google_config?.google_email
@@ -19,7 +20,7 @@ export function StatusCards({ client }: StatusCardsProps) {
   const hasChatwoot = !!(client.chatwoot_account_id ?? client.panel_whatsapp_config?.chatwoot_account_id)
   const chatwootAccountId = client.chatwoot_account_id ?? client.panel_whatsapp_config?.chatwoot_account_id
   const chatwootLoginEmail = client.chatwoot_email ?? client.panel_whatsapp_config?.chatwoot_email ?? client.email
-  const chatwootUrl = getChatwootPublicUrl()
+  const chatwootUrl = (chatwootPublicUrl ?? getChatwootPublicUrl()).replace(/\/$/, '')
 
   async function copyLoginEmail() {
     try {
@@ -138,7 +139,7 @@ export function StatusCards({ client }: StatusCardsProps) {
                 <div className="flex flex-col gap-1">
                   {chatwootAccountId && (
                     <a
-                      href={`${chatwootUrl}/accounts/${chatwootAccountId}`}
+                      href={`${chatwootUrl}/app/accounts/${chatwootAccountId}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -148,7 +149,7 @@ export function StatusCards({ client }: StatusCardsProps) {
                     </a>
                   )}
                   <a
-                    href={`${chatwootUrl}/app/auth/password/reset`}
+                    href={`${chatwootUrl}/app/auth/reset/password`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
