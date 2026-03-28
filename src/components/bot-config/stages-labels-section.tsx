@@ -34,6 +34,11 @@ const FOLLOWUP_CADENCE_OPTIONS: Array<{
   { value: 'agendado', label: 'Agendado' },
 ]
 
+const FOLLOWUP_CADENCE_DEV_OPTIONS = [
+  { value: 'paciente', label: 'Paciente (em desenvolvimento)' },
+  { value: 'nutricao_perdidos', label: 'Nutricao de perdidos (em desenvolvimento)' },
+] as const
+
 export function StagesLabelsSection({ config, onChange }: SectionProps) {
   const stageLabels = config.stage_labels ?? []
 
@@ -53,7 +58,7 @@ export function StagesLabelsSection({ config, onChange }: SectionProps) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Defina as etapas do funil do cliente. O slug é o nome técnico usado pelo bot e no Chatwoot.
+        Defina as etapas do funil do cliente. O nome da etiqueta no chat é gerado automaticamente.
       </p>
 
       {stageLabels.map((stage, index) => (
@@ -74,7 +79,7 @@ export function StagesLabelsSection({ config, onChange }: SectionProps) {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor={`stage-display-${index}`}>Nome amigável</Label>
+              <Label htmlFor={`stage-display-${index}`}>Nome da Etapa</Label>
               <Input
                 id={`stage-display-${index}`}
                 placeholder="Triagem"
@@ -88,17 +93,18 @@ export function StagesLabelsSection({ config, onChange }: SectionProps) {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor={`stage-slug-${index}`}>Slug técnico</Label>
+              <Label htmlFor={`stage-slug-${index}`}>Nome da etiqueta no chat (gerado automaticamente)</Label>
               <Input
                 id={`stage-slug-${index}`}
                 placeholder="etapa_triagem"
                 value={stage.slug}
-                onChange={(e) => updateStage(index, { slug: normalizeStageSlug(e.target.value) })}
+                readOnly
+                disabled
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label>Vínculo com Follow-up</Label>
+              <Label>Follow Up com IA</Label>
               <Select
                 value={stage.followup_cadence ?? 'none'}
                 onValueChange={(value) =>
@@ -114,6 +120,11 @@ export function StagesLabelsSection({ config, onChange }: SectionProps) {
                   <SelectItem value="none">Sem vínculo (ignorar nos follow-ups)</SelectItem>
                   {FOLLOWUP_CADENCE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                  {FOLLOWUP_CADENCE_DEV_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value} disabled>
                       {option.label}
                     </SelectItem>
                   ))}

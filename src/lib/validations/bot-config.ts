@@ -18,6 +18,7 @@ const stageLabelSchema = z.object({
     .min(1, 'Slug da etapa é obrigatório')
     .regex(/^[a-z0-9_]+$/, 'Slug deve usar apenas letras minúsculas, números e _'),
   display_name: z.string().min(1, 'Nome amigável da etapa é obrigatório'),
+  followup_cadence: z.enum(['lead', 'atendimento', 'agendado']).nullable().optional(),
 })
 
 const dayScheduleSchema = z.object({

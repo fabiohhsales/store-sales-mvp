@@ -29,6 +29,14 @@ export type HealthCheckService = 'whatsapp' | 'google_calendar' | 'chatwoot'
 
 export type HealthCheckStatus = 'ok' | 'warning' | 'error'
 
+export type ChatwootProvisionedAgentRole = 'agent' | 'administrator'
+
+export interface ProvisionedChatwootAgent {
+  name: string
+  email: string
+  role: ChatwootProvisionedAgentRole
+}
+
 // --- Panel Clients ---
 
 export interface PanelClient {
@@ -37,6 +45,7 @@ export interface PanelClient {
   owner_name: string
   phone: string | null
   email: string
+  provisioned_agents?: ProvisionedChatwootAgent[] | null
   status: ClientStatus
   created_at: string
   updated_at: string

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createInstance, setChatwootIntegration, getPanelWebhookUrl, deleteInstance } from '@/lib/api/evolution'
-import { createChatwootAccount, findInboxByName, configureChatwootWebhook, deleteChatwootAccount, ensureChatwootLabels } from '@/lib/api/chatwoot'
+import { createChatwootAccount, createChatwootAgent, findInboxByName, configureChatwootWebhook, deleteChatwootAccount, ensureChatwootLabels } from '@/lib/api/chatwoot'
 import { createWhatsAppConfig } from '@/lib/db/whatsapp-config'
 import { getBotConfigByClientId } from '@/lib/db/bot-config'
 import { updateClient, getClientById } from '@/lib/db/clients'
@@ -29,6 +29,12 @@ export async function POST(request: NextRequest) {
     }
 
     const client = await getClientById(client_id)
+    const provisionedAgents = client.provisioned_agents ?? []
+    const agentsSummary = {
+      created: [] as string[],
+      existing: [] as string[],
+      failed: [] as Array<{ email: string; reason: string }>,
+    }
 
     // Tracking pra cleanup em caso de erro parcial
     let chatwootAccountId: number | null = null
@@ -60,6 +66,28 @@ export async function POST(request: NextRequest) {
         await ensureChatwootLabels(chatwootAccount.id, chatwootAccount.access_token, stageLabels)
       } catch (err) {
         console.warn('[WhatsApp] Sync de etiquetas falhou (não-crítico):', err)
+      }
+
+      if (provisionedAgents.length > 0) {
+        console.log(`[WhatsApp] Etapa 2c: Provisionando ${provisionedAgents.length} agente(s) no Chatwoot`)
+        for (const agent of provisionedAgents) {
+          try {
+            const result = await createChatwootAgent(
+              chatwootAccount.id,
+              chatwootAccount.access_token,
+              agent
+            )
+
+            if (result.status === 'exists') {
+              agentsSummary.existing.push(agent.email)
+            } else {
+              agentsSummary.created.push(agent.email)
+            }
+          } catch (agentError) {
+            const reason = agentError instanceof Error ? agentError.message : 'Erro desconhecido ao provisionar agente'
+            agentsSummary.failed.push({ email: agent.email, reason })
+          }
+        }
       }
 
       // Etapa 3 — Cria instância na Evolution
@@ -130,13 +158,22 @@ export async function POST(request: NextRequest) {
           instance_id: evolutionResponse.instance.instanceId,
           chatwoot_account_id: chatwootAccount.id,
           chatwoot_inbox_id: chatwootInboxId,
+          agents_summary: {
+            created: agentsSummary.created.length,
+            existing: agentsSummary.existing.length,
+            failed: agentsSummary.failed.length,
+          },
         },
       })
 
       console.log(`[WhatsApp] Instância "${instance_name}" criada com sucesso!`)
 
       return NextResponse.json(
-        { config: savedConfig, qrcode: evolutionResponse.qrcode || null },
+        {
+          config: savedConfig,
+          qrcode: evolutionResponse.qrcode || null,
+          agents_summary: agentsSummary,
+        },
         { status: 201 }
       )
     } catch (innerError) {
