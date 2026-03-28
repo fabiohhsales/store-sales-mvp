@@ -11,29 +11,66 @@ interface ChatwootDiagnosticProps {
 }
 
 export function ChatwootDiagnostic({ clientId, accountId, hasToken }: ChatwootDiagnosticProps) {
-  const [loading, setLoading] = useState(false)
+  const [loadingRepair, setLoadingRepair] = useState(false)
+  const [loadingProvision, setLoadingProvision] = useState(false)
+  const [localAccountId, setLocalAccountId] = useState<number | null>(accountId)
+  const [localHasToken, setLocalHasToken] = useState<boolean>(hasToken)
   const [result, setResult] = useState<{
     repaired: boolean
     action: string
     panel_whatsapp_config: { chatwoot_account_id: number | null; has_token: boolean }
     panel_clients: { chatwoot_account_id: number | null; has_token: boolean }
   } | null>(null)
+  const [provisionResult, setProvisionResult] = useState<{
+    message: string
+    account_id: number | null
+    copied_to_whatsapp_config: boolean
+    ignored_agents: number
+    agents_summary: { created: string[]; existing: string[]; failed: Array<{ email: string; reason: string }> }
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const isHealthy = !!accountId && hasToken
+  const isHealthy = !!localAccountId && localHasToken
 
   async function handleRepair() {
-    setLoading(true)
+    setLoadingRepair(true)
     setError(null)
     try {
       const res = await fetch(`/api/clients/${clientId}/repair-chatwoot`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Erro ao diagnosticar')
       setResult(data)
+      setLocalAccountId(data.panel_clients.chatwoot_account_id ?? data.panel_whatsapp_config.chatwoot_account_id ?? null)
+      setLocalHasToken(!!(data.panel_clients.has_token || data.panel_whatsapp_config.has_token))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro desconhecido')
     } finally {
-      setLoading(false)
+      setLoadingRepair(false)
+    }
+  }
+
+  async function handleProvision() {
+    setLoadingProvision(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/provision-chatwoot`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Erro ao provisionar Chatwoot')
+
+      setProvisionResult({
+        message: data.message ?? 'Chatwoot provisionado com sucesso',
+        account_id: data.account_id ?? null,
+        copied_to_whatsapp_config: !!data.copied_to_whatsapp_config,
+        ignored_agents: Number(data.ignored_agents ?? 0),
+        agents_summary: data.agents_summary ?? { created: [], existing: [], failed: [] },
+      })
+
+      setLocalAccountId(data.account_id ?? null)
+      setLocalHasToken(!!data.token_configured)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro desconhecido')
+    } finally {
+      setLoadingProvision(false)
     }
   }
 
@@ -50,22 +87,27 @@ export function ChatwootDiagnostic({ clientId, accountId, hasToken }: ChatwootDi
           <div className="mt-1 space-y-0.5">
             <p className="text-xs text-muted-foreground">
               Account ID:{' '}
-              <span className={accountId ? 'text-foreground font-mono' : 'text-destructive'}>
-                {accountId ?? 'não configurado'}
+              <span className={localAccountId ? 'text-foreground font-mono' : 'text-destructive'}>
+                {localAccountId ?? 'não configurado'}
               </span>
             </p>
             <p className="text-xs text-muted-foreground">
               Token:{' '}
-              <span className={hasToken ? 'text-foreground' : 'text-destructive'}>
-                {hasToken ? '••••••••' : 'não configurado'}
+              <span className={localHasToken ? 'text-foreground' : 'text-destructive'}>
+                {localHasToken ? '••••••••' : 'não configurado'}
               </span>
             </p>
           </div>
         </div>
         {!isHealthy && (
-          <Button size="sm" variant="outline" onClick={handleRepair} disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reparar'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={handleRepair} disabled={loadingRepair || loadingProvision}>
+              {loadingRepair ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reparar'}
+            </Button>
+            <Button size="sm" onClick={handleProvision} disabled={loadingProvision || loadingRepair}>
+              {loadingProvision ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Provisionar'}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -80,6 +122,22 @@ export function ChatwootDiagnostic({ clientId, accountId, hasToken }: ChatwootDi
             panel_clients: account={result.panel_clients.chatwoot_account_id ?? '—'} token={result.panel_clients.has_token ? '✓' : '✗'}
             {' | '}
             panel_whatsapp_config: account={result.panel_whatsapp_config.chatwoot_account_id ?? '—'} token={result.panel_whatsapp_config.has_token ? '✓' : '✗'}
+          </p>
+        </div>
+      )}
+
+      {provisionResult && (
+        <div className="rounded-md bg-muted/50 px-3 py-2 text-xs space-y-1">
+          <p className="text-green-600">✓ {provisionResult.message}</p>
+          <p className="text-muted-foreground">
+            account={provisionResult.account_id ?? '—'}
+            {' | '}
+            copiado p/ whatsapp_config={provisionResult.copied_to_whatsapp_config ? 'sim' : 'não'}
+            {' | '}
+            agentes ignorados={provisionResult.ignored_agents}
+          </p>
+          <p className="text-muted-foreground">
+            agentes: criados={provisionResult.agents_summary.created.length}, existentes={provisionResult.agents_summary.existing.length}, falhas={provisionResult.agents_summary.failed.length}
           </p>
         </div>
       )}
