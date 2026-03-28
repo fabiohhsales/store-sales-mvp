@@ -86,7 +86,7 @@ export function StagesLabelsSection({ config, onChange }: SectionProps) {
                 value={stage.display_name}
                 onChange={(e) => {
                   const displayName = e.target.value
-                  const nextSlug = stage.slug ? stage.slug : normalizeStageSlug(displayName)
+                  const nextSlug = normalizeStageSlug(displayName)
                   updateStage(index, { display_name: displayName, slug: nextSlug })
                 }}
               />

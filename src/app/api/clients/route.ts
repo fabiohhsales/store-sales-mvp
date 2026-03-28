@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createClientRecord, listClients } from '@/lib/db/clients'
+import { createClientRecord, updateClient, listClients } from '@/lib/db/clients'
 import { insertAuditLog } from '@/lib/db/audit-log'
+import { createChatwootAccount, createChatwootAgent, configureChatwootWebhook, ensureChatwootLabels } from '@/lib/api/chatwoot'
+import { getPanelWebhookUrl } from '@/lib/api/evolution'
+import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
 import type { PanelClientInsert, ProvisionedChatwootAgent } from '@/types/database'
 import type { ChatwootAgentRole } from '@/types/api'
 
@@ -93,6 +96,11 @@ export async function POST(request: NextRequest) {
 
     const client = await createClientRecord(clientData)
 
+    // Provisiona account Chatwoot imediatamente após criar o cliente (não-bloqueante)
+    provisionChatwootForClient(client.id, name, email, owner_name, chatwootUsers).catch((err) =>
+      console.error(`[Clients] Falha ao provisionar Chatwoot para cliente ${client.id}:`, err)
+    )
+
     await insertAuditLog({
       admin_email: user.email!,
       action: 'client_created',
@@ -114,5 +122,49 @@ export async function POST(request: NextRequest) {
       { error: 'Erro interno ao criar cliente' },
       { status: 500 }
     )
+  }
+}
+
+async function provisionChatwootForClient(
+  clientId: string,
+  name: string,
+  email: string,
+  ownerName: string,
+  agents: ProvisionedChatwootAgent[]
+): Promise<void> {
+  try {
+    console.log(`[Clients] Provisionando Chatwoot para cliente "${name}" (${clientId})`)
+
+    // Usa um nome de instância temporário para criar a account antes do WhatsApp
+    const tempInstanceName = `client-${clientId.slice(0, 8)}`
+
+    const account = await createChatwootAccount(name, email, ownerName, tempInstanceName)
+
+    const panelWebhookUrl = getPanelWebhookUrl()
+    await configureChatwootWebhook(account.id, account.access_token, panelWebhookUrl)
+
+    try {
+      await ensureChatwootLabels(account.id, account.access_token, DEFAULT_STAGE_LABELS)
+    } catch (err) {
+      console.warn('[Clients] Sync de etiquetas padrão no Chatwoot falhou (não-crítico):', err)
+    }
+
+    for (const agent of agents) {
+      try {
+        await createChatwootAgent(account.id, account.access_token, agent)
+      } catch (err) {
+        console.warn(`[Clients] Falha ao criar agente Chatwoot ${agent.email} (não-crítico):`, err)
+      }
+    }
+
+    await updateClient(clientId, {
+      chatwoot_account_id: account.id,
+      chatwoot_agent_token: account.access_token,
+    })
+
+    console.log(`[Clients] Chatwoot provisionado: Account #${account.id} para cliente ${clientId}`)
+  } catch (err) {
+    console.error(`[Clients] Erro ao provisionar Chatwoot para ${clientId}:`, err)
+    throw err
   }
 }

@@ -46,6 +46,8 @@ export interface PanelClient {
   phone: string | null
   email: string
   provisioned_agents?: ProvisionedChatwootAgent[] | null
+  chatwoot_account_id?: number | null
+  chatwoot_agent_token?: string | null
   status: ClientStatus
   created_at: string
   updated_at: string

@@ -1,8 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { MoreHorizontal, Eye, MessageCircle, RefreshCw, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 import { HealthIndicator } from './health-indicator'
 import type { PanelClientWithRelations, ClientStatus } from '@/types/database'
 
@@ -44,7 +43,7 @@ function ConnectionDot({ connected, label }: { connected: boolean; label?: strin
 }
 
 export function ClientList({ clients }: ClientListProps) {
-  const [openMenu, setOpenMenu] = useState<string | null>(null)
+  const chatwootUrl = process.env.NEXT_PUBLIC_CHATWOOT_URL?.replace(/\/$/, '') ?? ''
 
   if (clients.length === 0) {
     return (
@@ -119,33 +118,26 @@ export function ClientList({ clients }: ClientListProps) {
                 <td className="px-5 py-3.5 text-sm text-muted-foreground tabular-nums">
                   {new Date(client.created_at).toLocaleDateString('pt-BR')}
                 </td>
-                <td className="px-5 py-3.5 text-right relative">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setOpenMenu(openMenu === client.id ? null : client.id)
-                    }}
-                    className="p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-                  >
-                    <MoreHorizontal size={16} />
-                  </button>
-                  {openMenu === client.id && (
-                    <div className="absolute right-5 top-12 z-10 w-48 rounded-lg bg-popover border border-border shadow-xl shadow-black/20 py-1">
-                      <Link href={`/clients/${client.id}`} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-accent transition-colors">
-                        <Eye size={14} /> Ver detalhes
-                      </Link>
-                      <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-accent transition-colors">
-                        <MessageCircle size={14} /> Enviar mensagem
-                      </button>
-                      <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-accent transition-colors">
-                        <RefreshCw size={14} /> Reconectar
-                      </button>
-                      <hr className="my-1 border-border" />
-                      <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors">
-                        <Trash2 size={14} /> Excluir
-                      </button>
-                    </div>
-                  )}
+                <td className="px-5 py-3.5 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <Link
+                      href={`/clients/${client.id}`}
+                      className="px-2.5 py-1 text-xs rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
+                    >
+                      Ver
+                    </Link>
+                    {chatwootUrl && client.chatwoot_account_id && (
+                      <a
+                        href={`${chatwootUrl}/accounts/${client.chatwoot_account_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1 text-xs rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors inline-flex items-center gap-1"
+                      >
+                        Chatwoot
+                        <ExternalLink size={10} />
+                      </a>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
