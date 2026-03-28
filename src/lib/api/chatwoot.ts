@@ -123,7 +123,7 @@ export async function createChatwootAccount(
 
 // Deleta uma Account Chatwoot.
 // Tenta Platform API primeiro, depois fallback pra Super Admin session.
-export async function deleteChatwootAccount(accountId: number, _accountToken: string): Promise<{ deleted: boolean; error?: string }> {
+export async function deleteChatwootAccount(accountId: number, _accountToken?: string): Promise<{ deleted: boolean; error?: string }> {
   // Tentativa 1: Platform API (funciona se a account foi criada pela Platform App)
   if (PLATFORM_TOKEN) {
     try {
