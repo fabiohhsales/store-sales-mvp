@@ -75,6 +75,7 @@ export function WhatsAppReconnect({ instanceName }: WhatsAppReconnectProps) {
         ) : qrBase64 ? (
           <div className="flex flex-col items-center gap-3">
             <div className="rounded-lg border border-border bg-foreground/95 p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element -- QR code base64 data URL */}
               <img
                 src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
                 alt="QR Code"

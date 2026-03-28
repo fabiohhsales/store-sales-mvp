@@ -12,6 +12,14 @@ const serviceSchema = z.object({
   active: z.boolean(),
 })
 
+const stageLabelSchema = z.object({
+  slug: z
+    .string()
+    .min(1, 'Slug da etapa é obrigatório')
+    .regex(/^[a-z0-9_]+$/, 'Slug deve usar apenas letras minúsculas, números e _'),
+  display_name: z.string().min(1, 'Nome amigável da etapa é obrigatório'),
+})
+
 const dayScheduleSchema = z.object({
   enabled: z.boolean(),
   start: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM'),
@@ -44,6 +52,14 @@ export const botConfigInsertSchema = z.object({
 
   // Servicos
   services: z.array(serviceSchema).default([]),
+  stage_labels: z
+    .array(stageLabelSchema)
+    .min(1, 'Informe ao menos uma etapa')
+    .refine(
+      (items) => new Set(items.map((item) => item.slug)).size === items.length,
+      'Não pode haver slugs de etapa duplicados'
+    )
+    .default([{ slug: 'etapa_triagem', display_name: 'Triagem' }]),
 
   // Horarios
   working_hours: workingHoursSchema,
@@ -58,6 +74,10 @@ export const botConfigInsertSchema = z.object({
   ai_tone: z.enum(aiToneValues).default('professional_friendly'),
   ai_language: z.string().default('pt-BR'),
   ai_custom_instructions: z.string().nullable().optional(),
+  process_flow_guide: z.string().max(4000).nullable().optional(),
+  objections_guide: z.string().max(4000).nullable().optional(),
+  qualification_questions_guide: z.string().max(4000).nullable().optional(),
+  disengagement_policy_guide: z.string().max(4000).nullable().optional(),
   ai_fallback_message: z.string().nullable().optional(),
   ai_handoff_message: z.string().nullable().optional(),
 
@@ -70,6 +90,21 @@ export const botConfigInsertSchema = z.object({
   msg_reminder: z.string().nullable().optional(),
   msg_noshow: z.string().nullable().optional(),
   msg_outside_hours: z.string().nullable().optional(),
+  lead_followup_enabled: z.boolean().nullable().optional(),
+  lead_followup_msg_d1: z.string().nullable().optional(),
+  lead_followup_msg_d2: z.string().nullable().optional(),
+  lead_followup_msg_d3: z.string().nullable().optional(),
+  lead_followup_msg_d5: z.string().nullable().optional(),
+  lead_followup_msg_d7: z.string().nullable().optional(),
+  atendimento_followup_enabled: z.boolean().nullable().optional(),
+  atendimento_followup_msg_d1: z.string().nullable().optional(),
+  atendimento_followup_msg_d2: z.string().nullable().optional(),
+  atendimento_followup_msg_d4: z.string().nullable().optional(),
+  atendimento_followup_msg_d7: z.string().nullable().optional(),
+  atendimento_followup_msg_d10: z.string().nullable().optional(),
+  agendado_followup_msg_d2: z.string().nullable().optional(),
+  agendado_followup_msg_minus3h: z.string().nullable().optional(),
+  agendado_followup_msg_minus5min: z.string().nullable().optional(),
 
   // Handoff
   handoff_on_negative_sentiment: z.boolean().default(true),

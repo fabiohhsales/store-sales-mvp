@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { Shield, AlertTriangle, XCircle, CheckCircle, Download, ChevronDown, ChevronRight } from 'lucide-react'
+import { Shield, XCircle, Download, ChevronDown } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ActivityChart } from './activity-chart'
@@ -392,33 +391,39 @@ export function SOCContent({
   // Fetch logs quando filtros mudam
   useEffect(() => {
     if (!logsMounted.current) { logsMounted.current = true; return }
-    setLogsLoading(true)
-    const p = new URLSearchParams({ period: logsPeriod, client_id: logsClientId, action: logsAction, offset: '0', limit: '50' })
-    fetch(`/api/soc/logs?${p}`)
-      .then((r) => r.json())
-      .then((d) => {
+    const fetchLogs = async () => {
+      setLogsLoading(true)
+      const p = new URLSearchParams({ period: logsPeriod, client_id: logsClientId, action: logsAction, offset: '0', limit: '50' })
+      try {
+        const d = await fetch(`/api/soc/logs?${p}`).then((r) => r.json())
         setLogs(d.logs ?? [])
         setLogsTotal(d.total)
         setLogsOffset(50)
         setLogsHasMore((d.logs ?? []).length === 50)
-      })
-      .finally(() => setLogsLoading(false))
+      } finally {
+        setLogsLoading(false)
+      }
+    }
+    fetchLogs()
   }, [logsPeriod, logsClientId, logsAction])
 
   // Fetch health checks quando filtros mudam
   useEffect(() => {
     if (!checksMounted.current) { checksMounted.current = true; return }
-    setChecksLoading(true)
-    const p = new URLSearchParams({ period: checksPeriod, client_id: checksClientId, status: checksStatus, offset: '0', limit: '50' })
-    fetch(`/api/soc/health?${p}`)
-      .then((r) => r.json())
-      .then((d) => {
+    const fetchChecks = async () => {
+      setChecksLoading(true)
+      const p = new URLSearchParams({ period: checksPeriod, client_id: checksClientId, status: checksStatus, offset: '0', limit: '50' })
+      try {
+        const d = await fetch(`/api/soc/health?${p}`).then((r) => r.json())
         setChecks(d.checks ?? [])
         setChecksTotal(d.total)
         setChecksOffset(50)
         setChecksHasMore((d.checks ?? []).length === 50)
-      })
-      .finally(() => setChecksLoading(false))
+      } finally {
+        setChecksLoading(false)
+      }
+    }
+    fetchChecks()
   }, [checksPeriod, checksClientId, checksStatus])
 
   async function loadMoreLogs() {

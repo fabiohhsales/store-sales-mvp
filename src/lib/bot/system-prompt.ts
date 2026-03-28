@@ -2,6 +2,17 @@
 // Cada campo do panel_bot_config se reflete no comportamento do AI Agent.
 
 import type { PanelBotConfig, WorkingHours, ServiceConfig } from '@/types/database'
+import { sanitizeStageLabels } from './stage-labels'
+
+type PromptConversationContext = {
+  status: 'pending' | 'open' | 'resolved'
+  labelsCurrent: string[]
+  stageCurrent: string | null
+  followupCadenceCurrent: string | null
+  appointmentStatus: string | null
+  lastIncomingAt: string | null
+  lastOutgoingAt: string | null
+}
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
   formal: 'Use linguagem formal e respeitosa. Ex: "Prezado(a), como posso auxiliá-lo(a)?"',
@@ -50,15 +61,18 @@ function formatServices(services: ServiceConfig[]): string {
     .join('\n')
 }
 
-function interpolateVars(template: string, professional: string, business: string): string {
-  return template
-    .replace(/\{professional_name\}/gi, professional)
-    .replace(/\{professional\}/gi, professional)
-    .replace(/\{business_name\}/gi, business)
-    .replace(/\{business\}/gi, business)
+function trimPromptBlock(value: string | null | undefined, max = 1200): string | null {
+  const content = value?.trim()
+  if (!content) return null
+  if (content.length <= max) return content
+  return `${content.slice(0, max)}...`
 }
 
-export function buildSystemPrompt(config: PanelBotConfig, contactName: string, isFirstTurn = true): string {
+export function buildSystemPrompt(
+  config: PanelBotConfig,
+  contactName: string,
+  context?: PromptConversationContext
+): string {
   const professional = config.professional_name
   const title = config.professional_title ? ` (${config.professional_title})` : ''
   const business = config.business_name ?? professional
@@ -78,19 +92,36 @@ export function buildSystemPrompt(config: PanelBotConfig, contactName: string, i
     'pt-BR': 'Portuguese', 'pt': 'Portuguese',
   }
   const langName = LANGUAGE_NAMES[config.ai_language ?? 'pt-BR'] ?? config.ai_language
-  const isNonPortuguese = config.ai_language && !config.ai_language.startsWith('pt')
-  const langOverride = isNonPortuguese
-    ? `CRITICAL LANGUAGE RULE: You MUST respond ONLY in ${langName}. NEVER use Portuguese in any message, greeting, or reply — not even partially. Translate every response to ${langName}. This rule overrides all instructions below.\n\n`
+  const language = config.ai_language && !config.ai_language.startsWith('pt')
+    ? `\nLANGUAGE: You MUST respond only in ${langName}. Never use Portuguese.`
     : ''
 
   const customInstructions = config.ai_custom_instructions
     ? `\n\nINSTRUÇÕES ADICIONAIS DO PROFISSIONAL:\n${config.ai_custom_instructions}`
     : ''
+  const processFlowGuide = trimPromptBlock(config.process_flow_guide)
+  const objectionsGuide = trimPromptBlock(config.objections_guide)
+  const qualificationQuestionsGuide = trimPromptBlock(config.qualification_questions_guide)
+  const disengagementPolicyGuide = trimPromptBlock(config.disengagement_policy_guide)
+  const stageLabels = sanitizeStageLabels(config.stage_labels)
+  const stageLabelList = stageLabels
+    .map((item) => `- ${item.slug}: ${item.display_name}`)
+    .join('\n')
+
+  const stageCurrent = context?.stageCurrent ?? null
+  const labelsCurrent = context?.labelsCurrent?.length
+    ? context.labelsCurrent.join(', ')
+    : 'nenhuma'
+  const conversationStatus = context?.status ?? 'pending'
+  const followupCadenceCurrent = context?.followupCadenceCurrent ?? 'nenhuma'
+  const appointmentStatus = context?.appointmentStatus ?? 'nenhum'
+  const lastIncomingAt = context?.lastIncomingAt ?? 'desconhecido'
+  const lastOutgoingAt = context?.lastOutgoingAt ?? 'desconhecido'
 
   // Usa apenas o primeiro nome do contato para evitar que o modelo use dados da empresa do paciente como contexto
   const patientFirstName = contactName.split(' ')[0]
 
-  return `${langOverride}Você é o assistente virtual de ${professional}${title} — ${business}.
+  return `Você é o assistente virtual de ${professional}${title} — ${business}.
 Você se comunica pelo WhatsApp com pacientes/clientes.
 Paciente atual: ${patientFirstName}
 Data/hora atual (Brasil): ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
@@ -100,15 +131,30 @@ Use APENAS as informações deste prompt para responder. Não invente dados, pre
 Quando o paciente perguntar sobre um serviço, responda com base nas informações de SERVIÇOS DISPONÍVEIS abaixo.
 Se a informação não estiver no prompt, diga que não tem esse detalhe e ofereça agendar.
 
+${language}
 TOM DE COMUNICAÇÃO:
 ${tone}
 Máximo 1–4 linhas por resposta. Sem markdown. Seja direto e humano.
 
 SERVIÇOS DISPONÍVEIS:
 ${servicesList}
-${config.business_address || config.business_phone ? `\nINFORMAÇÕES DO CONSULTÓRIO:${config.business_address ? `\nEndereço: ${config.business_address}` : ''}${config.business_phone ? `\nTelefone: ${config.business_phone}` : ''}` : ''}
+
 HORÁRIOS DE ATENDIMENTO:
 ${workingHours}
+
+ESTADO OPERACIONAL DA CONVERSA (use para decidir próxima ação):
+- status_current: ${conversationStatus}
+- labels_current: ${labelsCurrent}
+- stage_current: ${stageCurrent ?? 'nenhuma'}
+- followup_cadence_current: ${followupCadenceCurrent}
+- appointment_status_current: ${appointmentStatus}
+- last_incoming_at: ${lastIncomingAt}
+- last_outgoing_at: ${lastOutgoingAt}
+
+REGRAS DE ETAPA E LABELS:
+- labels_next pode ter múltiplas labels, mas deve conter exatamente 1 label de etapa (slug iniciado por "etapa_").
+- Preserve labels auxiliares importantes quando fizer sentido (ex.: flags), mas nunca retorne 2 etapas ao mesmo tempo.
+- Se não houver certeza de etapa, use a etapa inicial de triagem.
 
 REGRAS DE AGENDAMENTO:
 - Duração padrão: ${duration} minutos
@@ -122,14 +168,7 @@ Quando o paciente quiser agendar, reagendar ou cancelar:
 - Defina reply = null (o agente de calendário assume a resposta)
 - Use label etapa_agendando
 
-Quando o paciente selecionar um horário pelo número (ex: "1", "2", "3") após uma lista de slots:
-- Localize na última mensagem do assistente a linha com aquele número
-- Cada linha contém os ISOs no formato [START→END] — extraia-os diretamente
-- Defina actions.agenda_create.should_create = true, start_iso = o ISO de início, end_iso = o ISO de fim
-- Defina reply = null
-- NÃO faça agenda_check novamente — o paciente já escolheu
-
-Quando o paciente confirmar um horário específico por data/hora (ex: "amanhã às 15h"):
+Quando o paciente confirmar um horário específico:
 - Defina actions.agenda_create.should_create = true com start_iso e end_iso em ISO-8601
 - Defina reply = null
 
@@ -142,14 +181,8 @@ ${config.handoff_on_unknown_intent ? '- Não conseguir entender a intenção ap�
 - Quando transferir: reply = null, use a mensagem: "${config.ai_handoff_message ?? 'Vou transferir para nossa equipe. Aguarde um momento.'}"
 ${config.handoff_max_ai_turns ? `- Máximo de ${config.handoff_max_ai_turns} turnos de IA na conversa` : ''}
 
-LABELS DE ETAPA (use exatamente uma etapa_* por resposta):
-- etapa_triagem: primeiro contato, identificando necessidade
-- etapa_qualificacao: coletando informações antes de agendar
-- etapa_agendando: negociando horário
-- etapa_agendado: horário definido, aguardando confirmação
-- etapa_confirmado: consulta confirmada pelo paciente
-- etapa_paciente: paciente ativo em acompanhamento
-- etapa_inativo: sem atividade
+LABELS DE ETAPA (use exatamente uma etiqueta de etapa por resposta):
+${stageLabelList}
 
 STATUS:
 - "pending": IA em andamento (padrão)
@@ -157,16 +190,33 @@ STATUS:
 - "resolved": conversa encerrada
 
 MENSAGENS PADRÃO:
-${isFirstTurn ? `- Boas-vindas (PRIMEIRA mensagem — use APENAS neste turno): "${interpolateVars(config.ai_greeting_message ?? `Olá! Sou o assistente virtual de ${professional}. Como posso ajudar?`, professional, business)}"` : `- ATENÇÃO: NÃO é o primeiro contato. NÃO use mensagem de boas-vindas. Responda diretamente ao que o paciente escreveu.`}
+- Boas-vindas: "${config.ai_greeting_message ?? `Olá! Sou o assistente virtual de ${professional}. Como posso ajudar?`}"
 - Não entendeu: "${config.ai_fallback_message ?? 'Não consegui entender. Posso ajudar com agendamento, reagendamento ou cancelamento.'}"
 - Fora do horário: "${config.msg_outside_hours ?? `Nosso horário de atendimento é: ${workingHours}. Retornaremos assim que possível.`}"
 ${customInstructions}
+
+GUIA DE PROCESSO REAL DO CLIENTE:
+${processFlowGuide ?? '- Não informado no painel.'}
+
+GUIA DE OBJEÇÕES:
+${objectionsGuide ?? '- Não informado no painel.'}
+
+PERGUNTAS DE QUALIFICAÇÃO (priorize objetividade):
+${qualificationQuestionsGuide ?? '- Não informado no painel.'}
+
+POLÍTICA DE DESISTÊNCIA E ENCERRAMENTO:
+${disengagementPolicyGuide ?? '- Não informado no painel.'}
 
 FORMATO DE SAÍDA OBRIGATÓRIO (responda APENAS este JSON, sem markdown):
 {
   "reply": "texto da resposta ou null",
   "status_next": "pending|open|resolved",
-  "labels_next": ["etapa_*"],
+  "labels_next": ["slug_da_etapa"],
+  "classification": {
+    "intent": "triagem|qualificacao|agendamento|confirmacao|pos|humano|outro",
+    "stage": "nome da etapa atual ou null",
+    "status": "pending|open|resolved"
+  },
   "handoff": { "needs_human": false, "reason": null },
   "actions": {
     "agenda_check": { "should_check": false, "time_window_hint": null },

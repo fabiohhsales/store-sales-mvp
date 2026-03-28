@@ -108,6 +108,12 @@ export interface ServiceConfig {
   active: boolean
 }
 
+export interface StageLabelConfig {
+  slug: string
+  display_name: string
+  followup_cadence?: 'lead' | 'atendimento' | 'agendado' | null
+}
+
 // --- Working Hours (JSON field in bot config) ---
 
 export interface DaySchedule {
@@ -139,6 +145,7 @@ export interface PanelBotConfig {
 
   // Serviços
   services: ServiceConfig[]
+  stage_labels: StageLabelConfig[]
 
   // Horários
   working_hours: WorkingHours
@@ -153,6 +160,10 @@ export interface PanelBotConfig {
   ai_tone: AiTone
   ai_language: string
   ai_custom_instructions: string | null
+  process_flow_guide: string | null
+  objections_guide: string | null
+  qualification_questions_guide: string | null
+  disengagement_policy_guide: string | null
   ai_fallback_message: string | null
   ai_handoff_message: string | null
 
@@ -165,6 +176,21 @@ export interface PanelBotConfig {
   msg_reminder: string | null
   msg_noshow: string | null
   msg_outside_hours: string | null
+  lead_followup_enabled: boolean | null
+  lead_followup_msg_d1: string | null
+  lead_followup_msg_d2: string | null
+  lead_followup_msg_d3: string | null
+  lead_followup_msg_d5: string | null
+  lead_followup_msg_d7: string | null
+  atendimento_followup_enabled: boolean | null
+  atendimento_followup_msg_d1: string | null
+  atendimento_followup_msg_d2: string | null
+  atendimento_followup_msg_d4: string | null
+  atendimento_followup_msg_d7: string | null
+  atendimento_followup_msg_d10: string | null
+  agendado_followup_msg_d2: string | null
+  agendado_followup_msg_minus3h: string | null
+  agendado_followup_msg_minus5min: string | null
 
   // Handoff
   handoff_on_negative_sentiment: boolean

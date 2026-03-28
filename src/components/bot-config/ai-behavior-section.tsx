@@ -114,6 +114,69 @@ export function AiBehaviorSection({ config, onChange }: SectionProps) {
       </div>
 
       <div className="space-y-1.5">
+        <Label htmlFor="process_flow_guide">
+          Processo de atendimento (etapas e critérios)
+        </Label>
+        <Textarea
+          id="process_flow_guide"
+          placeholder="Ex: 1) Triagem: entender contexto. 2) Qualificação: coletar X e Y. 3) Agendamento: oferecer 2 opções."
+          value={config.process_flow_guide ?? ''}
+          onChange={(e) =>
+            onChange({ process_flow_guide: e.target.value })
+          }
+          rows={4}
+        />
+        <p className="text-xs text-muted-foreground">
+          Descreve as etapas reais do cliente e os critérios de avanço/handoff por etapa.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="objections_guide">
+          Objeções frequentes e resposta recomendada
+        </Label>
+        <Textarea
+          id="objections_guide"
+          placeholder="Ex: Preço alto -> reforçar valor e parcelamento. Vou pensar -> propor retorno com data."
+          value={config.objections_guide ?? ''}
+          onChange={(e) =>
+            onChange({ objections_guide: e.target.value })
+          }
+          rows={4}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="qualification_questions_guide">
+          Perguntas obrigatórias de qualificação
+        </Label>
+        <Textarea
+          id="qualification_questions_guide"
+          placeholder="Ex: Triagem: motivo principal, urgência, faixa de horário. Qualificação: histórico e objetivo."
+          value={config.qualification_questions_guide ?? ''}
+          onChange={(e) =>
+            onChange({ qualification_questions_guide: e.target.value })
+          }
+          rows={4}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="disengagement_policy_guide">
+          Política para desistência e encerramento
+        </Label>
+        <Textarea
+          id="disengagement_policy_guide"
+          placeholder="Ex: Se lead disser que não tem interesse, encerrar com empatia e não insistir em agenda."
+          value={config.disengagement_policy_guide ?? ''}
+          onChange={(e) =>
+            onChange({ disengagement_policy_guide: e.target.value })
+          }
+          rows={3}
+        />
+      </div>
+
+      <div className="space-y-1.5">
         <Label htmlFor="ai_fallback_message">
           Mensagem de fallback (quando não entende)
         </Label>

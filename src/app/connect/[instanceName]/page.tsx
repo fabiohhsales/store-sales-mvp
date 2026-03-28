@@ -44,7 +44,7 @@ export default function PublicConnectPage() {
   }, [instanceName])
 
   useEffect(() => {
-    fetchQR()
+    fetchQR() // eslint-disable-line react-hooks/set-state-in-effect
   }, [fetchQR])
 
   useEffect(() => {
@@ -111,6 +111,7 @@ export default function PublicConnectPage() {
 
               {qrBase64 && (
                 <div className="rounded-xl border-2 border-border bg-white p-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- QR code base64 data URL */}
                   <img src={qrBase64} alt="QR Code WhatsApp" className="h-56 w-56" />
                 </div>
               )}

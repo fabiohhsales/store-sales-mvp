@@ -10,7 +10,6 @@ import {
 } from '@/lib/calendar/slots'
 import {
   createAppointment,
-  updateAppointmentEvent,
   deleteAppointmentEvent,
   getAppointmentByEventId,
 } from '@/lib/calendar/events'

@@ -28,8 +28,10 @@ function buildActivityData(logs: PanelAuditLog[]) {
 export default async function SOCPage() {
   const supabase = await createClient()
 
-  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  // Server Component — Date.now() é seguro aqui (executa uma vez por request)
+  const now = Date.now() // eslint-disable-line react-hooks/purity
+  const since30d = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString()
 
   const [
     { data: logs },

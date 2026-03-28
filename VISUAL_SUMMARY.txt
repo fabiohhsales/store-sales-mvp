@@ -1,0 +1,168 @@
+# 📋 VISUAL SUMMARY: Bot Engine Classification
+
+## 🎯 State Today
+```
+┌────────────────────────────────────────────────┐
+│ ✅ PROMPT  → Dinâmico da Config do Cliente    │
+│ ✅ OUTPUT  → JSON com classification          │
+│ ✅ SCHEMA  → Zod valida tudo                  │
+│ ✅ FLOW    → Sem discord                      │
+│ 🟢 STATUS → Production Ready                  │
+└────────────────────────────────────────────────┘
+```
+
+---
+
+## 3️⃣ Fields da Classification
+
+```
+intent:  string
+  • triagem       → Descobrir necessidade
+  • qualificacao  → Coletar informações
+  • agendamento   → Negociar horário
+  • confirmacao   → Confirmar consulta
+  • pos           → Pós-consulta
+  • humano        → Transferência
+  • outro         → Não detectou
+
+stage:   string | null
+  • Qualquer string (triagem, agendando, paciente, inativo, etc)
+  • Mapeia para cadência: triagem→lead, agendando→lead, agendado→agendado
+
+status:  string
+  • pending   → IA respondeu, aguardando
+  • open      → Humano precisa responder
+  • resolved  → Conversa encerrada
+```
+
+---
+
+## 🔀 Fluxo Mínimo
+
+```
+MESSAGE WHATSAPP
+    ↓
+CHATWOOT WEBHOOK
+    ↓
+PIPELINE (histórico)
+    ↓
+OPENAI (gpt-4o-mini)
+    ↓
+OUTPUT JSON (com classification)
+    ↓
+DISPATCHER:
+  • WhatsApp (reply)
+  • Chatwoot (labels)
+  • Supabase (conversations)
+  • Calendar (se needed)
+    ↓
+✅ SALVO
+   status: classification.status
+   labels: labels_next
+   last_outgoing_at: NOW()
+```
+
+---
+
+## 📁 3 Arquivos Principais
+
+| Arquivo | Responsabilidade |
+|---------|-----------------|
+| `src/lib/bot/system-prompt.ts` | Constrói prompt dinâmico com config |
+| `src/lib/bot/output-schema.ts` | Define + valida JSON da IA (Zod) |
+| `src/lib/bot/dispatcher.ts` | Consome output, distribui efeitos |
+
+---
+
+## 📊 Classification Salvo Em:
+
+```
+conversations {
+  id: uuid
+  status: classification.status        ← pending | open | resolved
+  labels: classification.intent        ← Acumulado em array
+  followup_cadence: detectFollowup...  ← Derivado do stage
+  last_outgoing_at: NOW()
+  
+  ❌ last_intent: NOT IN TABLE YET
+     (Oportunidade: adicionar em migration 005)
+}
+```
+
+---
+
+## 💡 Quick Wins
+
+### Sem Ação
+✅ Tudo funciona hoje
+
+### Com 10 min (Muito Recomendado)
+✅ Adicionar `last_intent` em conversations  
+✅ Rastreabilidade + Diagnóstico + Alertas  
+✅ Ver: RECOMENDACAO_PERSIST_INTENT.md
+
+### Com 30 min
+✅ Dashboard mostrando distribuição de intents  
+✅ Alertas automáticos  
+✅ Queries de análise
+
+---
+
+## 🎓 Conceitos-Chave
+
+```
+Classification (nesta turn)
+  ↓
+  ├─ intent: O que quer (detecção)
+  ├─ stage: Aonde está (contexto)
+  └─ status: Próximo estado (decisão)
+  
+Labels (histórico acumulado)
+  ↓
+  └─ Array de tags: [etapa_triagem, lead_qualificado, ...]
+  
+Cadência (funil automático)
+  ↓
+  ├─ lead: D+1,2,3,5,7 (reengajamento)
+  ├─ atendimento: D+1,2,4,7,10 (acompanhamento)
+  └─ agendado: D-2, D-1, -3h, -5min (reminders)
+```
+
+---
+
+## 📚 7 Documentos
+
+1. **INDEX.md** — Navegação
+2. **RESUMO_FINAL.md** — 2 min, respostas
+3. **STATUS_CLASSIFICATION.md** — 10 min, entender
+4. **QUICK_REFERENCE.md** — Lookup rápido
+5. **ANALISE_PROMPT_OUTPUT.md** — Deep dive
+6. **RECOMENDACAO_PERSIST_INTENT.md** — Feature design
+7. **IMPLEMENTACAO_READY.md** — Code ready
+
+---
+
+## ✅ Confirmações
+
+- [x] Sem erros compilação
+- [x] Schema Zod OK
+- [x] Prompt dinâmico OK
+- [x] Dispatcher OK
+- [x] Production ready
+- [x] Sem discord
+
+---
+
+## 🚀 Próxima Ação
+
+| Tempo | Ação |
+|-------|------|
+| 5 min | Ler INDEX + RESUMO |
+| 20 min | Ler STATUS + QUICK_REF |
+| 10 min | Implementar last_intent |
+
+---
+
+**Status:** 🟢 PRODUCTION READY  
+**Data:** 2025-03-27  
+**Conclusão:** Tudo Funcionando Perfeitamente ✅

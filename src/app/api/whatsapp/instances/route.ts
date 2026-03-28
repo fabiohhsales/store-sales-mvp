@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createInstance, setChatwootIntegration, getPanelWebhookUrl, deleteInstance } from '@/lib/api/evolution'
-import { createChatwootAccount, findInboxByName, configureChatwootWebhook, deleteChatwootAccount } from '@/lib/api/chatwoot'
+import { createChatwootAccount, findInboxByName, configureChatwootWebhook, deleteChatwootAccount, ensureChatwootLabels } from '@/lib/api/chatwoot'
 import { createWhatsAppConfig } from '@/lib/db/whatsapp-config'
+import { getBotConfigByClientId } from '@/lib/db/bot-config'
 import { updateClient, getClientById } from '@/lib/db/clients'
 import { insertAuditLog } from '@/lib/db/audit-log'
+import { DEFAULT_STAGE_LABELS, sanitizeStageLabels } from '@/lib/bot/stage-labels'
 import type { PanelWhatsAppConfigInsert } from '@/types/database'
 
 export async function POST(request: NextRequest) {
@@ -49,6 +51,16 @@ export async function POST(request: NextRequest) {
       console.log(`[WhatsApp] Etapa 2: Configurando webhook Chatwoot (Account ${chatwootAccount.id})`)
       const panelWebhookUrl = getPanelWebhookUrl()
       await configureChatwootWebhook(chatwootAccount.id, chatwootAccount.access_token, panelWebhookUrl)
+
+      // Etapa 2b — Sincroniza etiquetas padrão/configuradas na account do cliente
+      console.log(`[WhatsApp] Etapa 2b: Sincronizando etiquetas no Chatwoot (Account ${chatwootAccount.id})`)
+      try {
+        const botConfig = await getBotConfigByClientId(client_id)
+        const stageLabels = sanitizeStageLabels(botConfig?.stage_labels ?? DEFAULT_STAGE_LABELS)
+        await ensureChatwootLabels(chatwootAccount.id, chatwootAccount.access_token, stageLabels)
+      } catch (err) {
+        console.warn('[WhatsApp] Sync de etiquetas falhou (não-crítico):', err)
+      }
 
       // Etapa 3 — Cria instância na Evolution
       console.log(`[WhatsApp] Etapa 3: Criando instância Evolution "${instance_name}"`)

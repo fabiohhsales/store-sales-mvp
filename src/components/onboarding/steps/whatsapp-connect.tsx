@@ -158,6 +158,7 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
             <Badge variant="secondary">Aguardando escaneamento</Badge>
             {qrBase64 ? (
               <div className="rounded-lg border bg-white p-4">
+                {/* eslint-disable-next-line @next/next/no-img-element -- QR code base64 data URL */}
                 <img
                   src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
                   alt="QR Code WhatsApp"

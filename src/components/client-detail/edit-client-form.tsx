@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { ProfessionalSection } from '@/components/bot-config/professional-section'
 import { ServicesSection } from '@/components/bot-config/services-section'
+import { StagesLabelsSection } from '@/components/bot-config/stages-labels-section'
 import { WorkingHoursSection } from '@/components/bot-config/working-hours-section'
 import { AiBehaviorSection } from '@/components/bot-config/ai-behavior-section'
 import { FollowupSection } from '@/components/bot-config/followup-section'
@@ -26,7 +27,8 @@ import { MessageTemplatesSection } from '@/components/bot-config/message-templat
 import { HandoffSection } from '@/components/bot-config/handoff-section'
 import { CalendarSection } from '@/components/bot-config/calendar-section'
 import { AdvancedSection } from '@/components/bot-config/advanced-section'
-import type { PanelClientWithRelations, PanelBotConfig, WorkingHours, PanelGoogleConfig } from '@/types/database'
+import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
+import type { PanelClientWithRelations, PanelBotConfig, WorkingHours } from '@/types/database'
 
 interface EditClientFormProps {
   client: PanelClientWithRelations
@@ -47,6 +49,7 @@ const DEFAULT_BOT_CONFIG: Partial<PanelBotConfig> = {
   ai_tone: 'professional_friendly',
   ai_language: 'pt-BR',
   services: [],
+  stage_labels: DEFAULT_STAGE_LABELS,
   working_hours: DEFAULT_WORKING_HOURS,
   appointment_duration_default: 60,
   appointment_buffer_minutes: 15,
@@ -79,10 +82,6 @@ export function EditClientForm({ client }: EditClientFormProps) {
   const [botConfig, setBotConfig] = useState<Partial<PanelBotConfig>>(
     client.panel_bot_config || DEFAULT_BOT_CONFIG
   )
-  const [googleConfig, setGoogleConfig] = useState<Pick<PanelGoogleConfig, 'google_email' | 'calendar_id'>>({
-    google_email: client.panel_google_config?.google_email ?? '',
-    calendar_id: client.panel_google_config?.calendar_id ?? '',
-  })
 
   const handleSaveClient = async () => {
     setLoading(true)
@@ -122,22 +121,26 @@ export function EditClientForm({ client }: EditClientFormProps) {
     setBotConfig((prev) => ({ ...prev, ...updates }))
   }
 
-  const handleSaveGoogleConfig = async () => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/clients/${client.id}/google-config`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(googleConfig),
-      })
-      if (!res.ok) throw new Error('Erro ao salvar')
-      toast.success('Configuração do Google Calendar salva')
-    } catch {
-      toast.error('Erro ao salvar configuração do Google Calendar')
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadLatestConfig() {
+      try {
+        const res = await fetch(`/api/bot-config?client_id=${client.id}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setBotConfig((prev) => ({ ...prev, ...data }))
+      } catch {
+        // Falha de pull não deve bloquear edição
+      }
     }
-  }
+
+    void loadLatestConfig()
+    return () => {
+      cancelled = true
+    }
+  }, [client.id])
 
   return (
     <div className="space-y-6">
@@ -191,43 +194,6 @@ export function EditClientForm({ client }: EditClientFormProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Google Calendar</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="google_email">Email do profissional (para convites)</Label>
-              <Input
-                id="google_email"
-                type="email"
-                placeholder="profissional@gmail.com"
-                value={googleConfig.google_email ?? ''}
-                onChange={(e) => setGoogleConfig({ ...googleConfig, google_email: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="calendar_id">Calendar ID</Label>
-              <Input
-                id="calendar_id"
-                placeholder="abc123@group.calendar.google.com"
-                value={googleConfig.calendar_id ?? ''}
-                onChange={(e) => setGoogleConfig({ ...googleConfig, calendar_id: e.target.value })}
-              />
-              <p className="text-xs text-muted-foreground">
-                ID do calendário exclusivo deste cliente na conta Google central. Encontrado em Configurações do Google Calendar.
-              </p>
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <Button onClick={handleSaveGoogleConfig} disabled={loading}>
-              Salvar Calendar
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle className="text-base">Configuração do Bot</CardTitle>
         </CardHeader>
           <CardContent>
@@ -242,6 +208,12 @@ export function EditClientForm({ client }: EditClientFormProps) {
                 <AccordionTrigger>Serviços</AccordionTrigger>
                 <AccordionContent>
                   <ServicesSection config={botConfig} onChange={handleBotChange} />
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="stages">
+                <AccordionTrigger>Configuração de Etapas</AccordionTrigger>
+                <AccordionContent>
+                  <StagesLabelsSection config={botConfig} onChange={handleBotChange} />
                 </AccordionContent>
               </AccordionItem>
               <AccordionItem value="hours">

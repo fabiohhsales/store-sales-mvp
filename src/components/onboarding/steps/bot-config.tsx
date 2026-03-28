@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -19,6 +19,7 @@ import { toast } from 'sonner'
 import { Settings } from 'lucide-react'
 import { ProfessionalSection } from '@/components/bot-config/professional-section'
 import { ServicesSection } from '@/components/bot-config/services-section'
+import { StagesLabelsSection } from '@/components/bot-config/stages-labels-section'
 import { WorkingHoursSection } from '@/components/bot-config/working-hours-section'
 import { AiBehaviorSection } from '@/components/bot-config/ai-behavior-section'
 import { FollowupSection } from '@/components/bot-config/followup-section'
@@ -26,6 +27,7 @@ import { MessageTemplatesSection } from '@/components/bot-config/message-templat
 import { HandoffSection } from '@/components/bot-config/handoff-section'
 import { CalendarSection } from '@/components/bot-config/calendar-section'
 import { AdvancedSection } from '@/components/bot-config/advanced-section'
+import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
 import type { PanelBotConfig, WorkingHours } from '@/types/database'
 
 interface BotConfigStepProps {
@@ -51,6 +53,7 @@ export function BotConfigStep({ clientId, initialConfig, onComplete }: BotConfig
     ai_tone: 'professional_friendly',
     ai_language: 'pt-BR',
     services: [],
+    stage_labels: DEFAULT_STAGE_LABELS,
     working_hours: DEFAULT_WORKING_HOURS,
     appointment_duration_default: 60,
     appointment_buffer_minutes: 15,
@@ -72,6 +75,27 @@ export function BotConfigStep({ clientId, initialConfig, onComplete }: BotConfig
     chatwoot_working_hours_enabled: true,
     ...initialConfig,
   })
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadLatestConfig() {
+      try {
+        const res = await fetch(`/api/bot-config?client_id=${clientId}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setConfig((prev) => ({ ...prev, ...data }))
+      } catch {
+        // Falha de pull não deve bloquear o onboarding
+      }
+    }
+
+    void loadLatestConfig()
+    return () => {
+      cancelled = true
+    }
+  }, [clientId])
 
   const handleChange = (updates: Partial<PanelBotConfig>) => {
     setConfig((prev) => ({ ...prev, ...updates }))
@@ -129,6 +153,13 @@ export function BotConfigStep({ clientId, initialConfig, onComplete }: BotConfig
             <AccordionTrigger>Serviços</AccordionTrigger>
             <AccordionContent>
               <ServicesSection config={config} onChange={handleChange} />
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="stages">
+            <AccordionTrigger>Configuração de Etapas</AccordionTrigger>
+            <AccordionContent>
+              <StagesLabelsSection config={config} onChange={handleChange} />
             </AccordionContent>
           </AccordionItem>
 

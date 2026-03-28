@@ -9,6 +9,7 @@ import type {
   BotMessage,
 } from '@/types/bot'
 import type { PanelWhatsAppConfig, PanelBotConfig, PanelGoogleConfig } from '@/types/database'
+import { stageLabelSlugs } from './stage-labels'
 
 // --- Contexto do cliente resolvido a partir do chatwoot_account_id ---
 
@@ -119,7 +120,8 @@ async function upsertContact(
 async function upsertConversation(
   supabase: ReturnType<typeof createAdminClient>,
   msg: NormalizedWebhookMessage,
-  contact: BotContact
+  contact: BotContact,
+  defaultLabel: string
 ): Promise<BotConversation> {
   const { data: existing } = await supabase
     .from('conversations')
@@ -151,7 +153,7 @@ async function upsertConversation(
       account_id: msg.chatwootAccountId,
       updated_at: new Date().toISOString(),
       chatwoot_contact_id: msg.chatwootContactId,
-      labels: ['etapa_triagem'],
+      labels: [defaultLabel],
       last_incoming_at: new Date().toISOString(),
     })
     .select()
@@ -210,7 +212,8 @@ export async function runBasePipeline(msg: NormalizedWebhookMessage): Promise<Pi
 
   const supabase = createAdminClient()
   const contact = await upsertContact(supabase, msg)
-  const conversation = await upsertConversation(supabase, msg, contact)
+  const stageSlugs = stageLabelSlugs(clientContext.botConfig?.stage_labels)
+  const conversation = await upsertConversation(supabase, msg, contact, stageSlugs[0])
   const message = await saveMessage(supabase, msg, conversation)
   const messageHistory = await getMessageHistory(supabase, conversation.id)
 

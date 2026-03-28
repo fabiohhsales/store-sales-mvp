@@ -13,10 +13,7 @@ import {
   DragEndEvent,
 } from '@dnd-kit/core'
 import {
-  SortableContext,
-  arrayMove,
   sortableKeyboardCoordinates,
-  horizontalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { KanbanColumn } from './kanban-column'
 import { KanbanCard, type Deal } from './kanban-card'

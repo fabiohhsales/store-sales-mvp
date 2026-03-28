@@ -4,6 +4,16 @@ import type {
   ChatwootAgent,
   ChatwootAccount,
 } from '@/types/api'
+import type { StageLabelConfig } from '@/types/database'
+
+interface ChatwootLabel {
+  title: string
+  description?: string | null
+}
+
+interface ChatwootLabelListResponse {
+  payload: ChatwootLabel[]
+}
 
 const BASE_URL = process.env.CHATWOOT_URL!
 const API_TOKEN = process.env.CHATWOOT_API_TOKEN!
@@ -113,7 +123,7 @@ export async function createChatwootAccount(
 
 // Deleta uma Account Chatwoot.
 // Tenta Platform API primeiro, depois fallback pra Super Admin session.
-export async function deleteChatwootAccount(accountId: number, _accountToken: string): Promise<{ deleted: boolean; error?: string }> {
+export async function deleteChatwootAccount(accountId: number, _accountToken?: string): Promise<{ deleted: boolean; error?: string }> {
   // Tentativa 1: Platform API (funciona se a account foi criada pela Platform App)
   if (PLATFORM_TOKEN) {
     try {
@@ -268,6 +278,86 @@ export async function updateConversationLabels(
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`Chatwoot labels ${res.status}: ${body}`)
+  }
+}
+
+export async function listChatwootStageLabels(
+  accountId: number,
+  accountToken: string
+): Promise<StageLabelConfig[]> {
+  const res = await fetch(`${BASE_URL}/api/v1/accounts/${accountId}/labels`, {
+    headers: {
+      'Content-Type': 'application/json',
+      api_access_token: accountToken,
+    },
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Chatwoot list labels ${res.status}: ${body}`)
+  }
+
+  const data: ChatwootLabelListResponse = await res.json()
+  return data.payload
+    .filter((item) => !!item.title)
+    .map((item) => ({
+      slug: item.title,
+      display_name: item.description?.trim() || item.title,
+    }))
+}
+
+async function createAccountLabel(
+  accountId: number,
+  accountToken: string,
+  stageLabel: StageLabelConfig
+): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/v1/accounts/${accountId}/labels`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      api_access_token: accountToken,
+    },
+    body: JSON.stringify({
+      title: stageLabel.slug,
+      description: stageLabel.display_name,
+      show_on_sidebar: true,
+    }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Chatwoot create label ${res.status}: ${body}`)
+  }
+}
+
+export async function ensureChatwootLabels(
+  accountId: number,
+  accountToken: string,
+  stageLabels: StageLabelConfig[]
+): Promise<void> {
+  if (stageLabels.length === 0) return
+
+  let existing = new Set<string>()
+  try {
+    const labels = await listChatwootStageLabels(accountId, accountToken)
+    existing = new Set(labels.map((item) => item.slug))
+  } catch (err) {
+    console.warn(`[Chatwoot] Falha ao listar labels da account ${accountId}; tentando criar direto`, err)
+  }
+
+  for (const label of stageLabels) {
+    if (existing.has(label.slug)) continue
+
+    try {
+      await createAccountLabel(accountId, accountToken, label)
+      existing.add(label.slug)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('already') || msg.includes('taken') || msg.includes('422')) {
+        continue
+      }
+      throw err
+    }
   }
 }
 
