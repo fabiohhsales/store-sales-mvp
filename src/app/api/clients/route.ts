@@ -125,6 +125,18 @@ export async function POST(request: NextRequest) {
   }
 }
 
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3, baseDelayMs = 1000): Promise<T> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      if (attempt === maxAttempts - 1) throw err
+      await new Promise((r) => setTimeout(r, baseDelayMs * Math.pow(2, attempt)))
+    }
+  }
+  throw new Error('unreachable')
+}
+
 async function provisionChatwootForClient(
   clientId: string,
   name: string,
@@ -138,10 +150,10 @@ async function provisionChatwootForClient(
     // Usa um nome de instância temporário para criar a account antes do WhatsApp
     const tempInstanceName = `client-${clientId.slice(0, 8)}`
 
-    const account = await createChatwootAccount(name, email, ownerName, tempInstanceName)
+    const account = await withRetry(() => createChatwootAccount(name, email, ownerName, tempInstanceName))
 
     const panelWebhookUrl = getPanelWebhookUrl()
-    await configureChatwootWebhook(account.id, account.access_token, panelWebhookUrl)
+    await withRetry(() => configureChatwootWebhook(account.id, account.access_token, panelWebhookUrl))
 
     try {
       await ensureChatwootLabels(account.id, account.access_token, DEFAULT_STAGE_LABELS)

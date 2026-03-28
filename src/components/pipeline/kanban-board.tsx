@@ -269,6 +269,7 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
         onMoveStage={handleMoveStage}
         clientId={clientId}
         token={token}
+        chatwootAccountId={data.chatwootAccountId}
       />
     </div>
   )

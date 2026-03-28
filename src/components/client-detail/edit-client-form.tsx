@@ -14,9 +14,17 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { PlusIcon, TrashIcon } from 'lucide-react'
 import { ProfessionalSection } from '@/components/bot-config/professional-section'
 import { ServicesSection } from '@/components/bot-config/services-section'
 import { StagesLabelsSection } from '@/components/bot-config/stages-labels-section'
@@ -28,7 +36,8 @@ import { HandoffSection } from '@/components/bot-config/handoff-section'
 import { CalendarSection } from '@/components/bot-config/calendar-section'
 import { AdvancedSection } from '@/components/bot-config/advanced-section'
 import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
-import type { PanelClientWithRelations, PanelBotConfig, WorkingHours } from '@/types/database'
+import type { PanelClientWithRelations, PanelBotConfig, WorkingHours, ProvisionedChatwootAgent } from '@/types/database'
+import type { ChatwootAgentRole } from '@/types/api'
 
 interface EditClientFormProps {
   client: PanelClientWithRelations
@@ -71,8 +80,18 @@ const DEFAULT_BOT_CONFIG: Partial<PanelBotConfig> = {
   chatwoot_working_hours_enabled: true,
 }
 
+const DEFAULT_AGENT: ProvisionedChatwootAgent = { name: '', email: '', role: 'agent' }
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
 export function EditClientForm({ client }: EditClientFormProps) {
   const [loading, setLoading] = useState(false)
+  const [agentsLoading, setAgentsLoading] = useState(false)
+  const [chatwootUsers, setChatwootUsers] = useState<ProvisionedChatwootAgent[]>(
+    client.provisioned_agents ?? []
+  )
   const [clientData, setClientData] = useState({
     name: client.name,
     owner_name: client.owner_name,
@@ -121,6 +140,53 @@ export function EditClientForm({ client }: EditClientFormProps) {
     setBotConfig((prev) => ({ ...prev, ...updates }))
   }
 
+  const addAgent = () => setChatwootUsers((prev) => [...prev, { ...DEFAULT_AGENT }])
+  const removeAgent = (i: number) => setChatwootUsers((prev) => prev.filter((_, idx) => idx !== i))
+  const updateAgent = (i: number, updates: Partial<ProvisionedChatwootAgent>) =>
+    setChatwootUsers((prev) => prev.map((a, idx) => (idx === i ? { ...a, ...updates } : a)))
+
+  const handleSaveAgents = async () => {
+    const normalized = chatwootUsers.map((a) => ({
+      ...a,
+      name: a.name.trim(),
+      email: a.email.trim().toLowerCase(),
+    }))
+    const invalid = normalized.find((a) => !a.name || !a.email || !isValidEmail(a.email))
+    if (invalid) {
+      toast.error('Preencha nome e e-mail válidos para todos os agentes')
+      return
+    }
+    const emails = normalized.map((a) => a.email)
+    if (new Set(emails).size !== emails.length) {
+      toast.error('E-mails duplicados na lista de agentes')
+      return
+    }
+    setAgentsLoading(true)
+    try {
+      const res = await fetch(`/api/clients/${client.id}/agents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agents: normalized }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao salvar agentes')
+      const { agents_summary: s, chatwoot_provisioned } = data
+      if (chatwoot_provisioned) {
+        toast.success(
+          `Agentes salvos — criados: ${s.created.length}, já existentes: ${s.existing.length}${
+            s.failed.length ? `, falhas: ${s.failed.length}` : ''
+          }`
+        )
+      } else {
+        toast.success('Agentes salvos no banco. Serão provisionados no Chatwoot quando a instância for criada.')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao salvar agentes')
+    } finally {
+      setAgentsLoading(false)
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -144,6 +210,83 @@ export function EditClientForm({ client }: EditClientFormProps) {
 
   return (
     <div className="space-y-6">
+      {/* Agentes Chatwoot */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Agentes Chatwoot</CardTitle>
+            <Button type="button" variant="outline" size="sm" onClick={addAgent}>
+              <PlusIcon className="mr-2 h-4 w-4" />
+              Adicionar agente
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {chatwootUsers.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhum agente adicional configurado.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {chatwootUsers.map((user, index) => (
+                <div key={index} className="grid gap-3 rounded-md border p-3 sm:grid-cols-12">
+                  <div className="space-y-1 sm:col-span-4">
+                    <Label htmlFor={`agent-name-${index}`}>Nome</Label>
+                    <Input
+                      id={`agent-name-${index}`}
+                      placeholder="Maria Souza"
+                      value={user.name}
+                      onChange={(e) => updateAgent(index, { name: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-4">
+                    <Label htmlFor={`agent-email-${index}`}>E-mail</Label>
+                    <Input
+                      id={`agent-email-${index}`}
+                      type="email"
+                      placeholder="maria@clinica.com"
+                      value={user.email}
+                      onChange={(e) => updateAgent(index, { email: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-3">
+                    <Label htmlFor={`agent-role-${index}`}>Papel</Label>
+                    <Select
+                      value={user.role}
+                      onValueChange={(v) => updateAgent(index, { role: v as ChatwootAgentRole })}
+                    >
+                      <SelectTrigger id={`agent-role-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="agent">Agente</SelectItem>
+                        <SelectItem value="administrator">Administrador</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-end sm:col-span-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeAgent(index)}
+                      aria-label={`Remover agente ${index + 1}`}
+                    >
+                      <TrashIcon className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button onClick={handleSaveAgents} disabled={agentsLoading}>
+              {agentsLoading ? 'Salvando...' : 'Salvar Agentes'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Dados do Cliente</CardTitle>

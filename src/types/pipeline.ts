@@ -27,6 +27,7 @@ export interface PipelineConversation {
 export interface PipelineData {
   columns: StageLabelConfig[]
   conversations: PipelineConversation[]
+  chatwootAccountId?: number | null
 }
 
 export interface AgendaAppointment {

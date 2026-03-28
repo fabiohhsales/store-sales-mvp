@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Calendar, Clock, ExternalLink, MessageCircle, Phone, User } from 'lucide-react'
+import { getChatwootPublicUrl } from '@/lib/config'
 import type { PipelineConversation } from '@/types/pipeline'
 import type { StageLabelConfig } from '@/types/database'
 
@@ -29,6 +30,7 @@ interface ConversationDetailModalProps {
   onMoveStage: (conversationId: string, chatwootId: number, fromStage: string, toStage: string) => void
   clientId: string
   token?: string
+  chatwootAccountId?: number | null
 }
 
 interface MessageEntry {
@@ -68,7 +70,9 @@ export function ConversationDetailModal({
   onMoveStage,
   clientId,
   token,
+  chatwootAccountId,
 }: ConversationDetailModalProps) {
+  const chatwootUrl = getChatwootPublicUrl()
   const [messages, setMessages] = useState<MessageEntry[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
 
@@ -125,6 +129,17 @@ export function ConversationDetailModal({
           <Badge variant={STATUS_VARIANTS[conversation.status]}>
             {STATUS_LABELS[conversation.status]}
           </Badge>
+          {chatwootUrl && chatwootAccountId && conversation.chatwoot_conversation_id && (
+            <a
+              href={`${chatwootUrl}/accounts/${chatwootAccountId}/conversations/${conversation.chatwoot_conversation_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Abrir no Chatwoot
+            </a>
+          )}
           {currentColumn && (
             <Badge variant="outline">{currentColumn.display_name}</Badge>
           )}

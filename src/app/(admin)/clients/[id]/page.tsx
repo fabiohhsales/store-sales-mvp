@@ -13,6 +13,8 @@ import { GoogleReconnect } from '@/components/client-detail/google-reconnect'
 import { PublicLink } from '@/components/client-detail/public-link'
 import { ClientAuditLog } from '@/components/client-detail/client-audit-log'
 import { ClientMetrics } from '@/components/client-detail/client-metrics'
+import { ChatwootAppsSetup } from '@/components/client-detail/chatwoot-apps-setup'
+import { ChatwootDiagnostic } from '@/components/client-detail/chatwoot-diagnostic'
 import type { ClientStatus } from '@/types/database'
 
 const statusLabels: Record<ClientStatus, string> = {
@@ -111,6 +113,17 @@ export default async function ClientDetailPage({
               <p className="text-xs text-muted-foreground">Ver agendamentos e compromissos</p>
             </div>
           </Link>
+
+          <ChatwootAppsSetup
+            clientId={id}
+            hasChatwoot={!!(client.chatwoot_account_id ?? client.panel_whatsapp_config?.chatwoot_account_id)}
+          />
+
+          <ChatwootDiagnostic
+            clientId={id}
+            accountId={client.chatwoot_account_id ?? client.panel_whatsapp_config?.chatwoot_account_id ?? null}
+            hasToken={!!(client.chatwoot_agent_token ?? client.panel_whatsapp_config?.chatwoot_agent_token)}
+          />
         </div>
 
         <div>

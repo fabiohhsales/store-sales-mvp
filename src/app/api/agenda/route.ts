@@ -13,14 +13,24 @@ export async function GET(request: NextRequest) {
     const auth = await authenticateRequest(token, clientId)
     const admin = createAdminClient()
 
-    // Busca chatwoot_account_id
-    const { data: whatsappConfig } = await admin
-      .from('panel_whatsapp_config')
-      .select('chatwoot_account_id')
-      .eq('client_id', auth.client_id)
-      .single()
+    // Busca chatwoot_account_id — tenta panel_whatsapp_config, depois panel_clients (migration 008)
+    const [{ data: whatsappConfig }, { data: clientRow }] = await Promise.all([
+      admin
+        .from('panel_whatsapp_config')
+        .select('chatwoot_account_id')
+        .eq('client_id', auth.client_id)
+        .maybeSingle(),
+      admin
+        .from('panel_clients')
+        .select('chatwoot_account_id')
+        .eq('id', auth.client_id)
+        .maybeSingle(),
+    ])
 
-    if (!whatsappConfig?.chatwoot_account_id) {
+    const chatwootAccountId =
+      whatsappConfig?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null
+
+    if (!chatwootAccountId) {
       return NextResponse.json(
         { error: 'Cliente sem configuração Chatwoot' },
         { status: 404 }
@@ -38,7 +48,7 @@ export async function GET(request: NextRequest) {
         contacts!inner(name, phone_number),
         conversations!inner(account_id)
       `)
-      .eq('conversations.account_id', whatsappConfig.chatwoot_account_id)
+      .eq('conversations.account_id', chatwootAccountId)
 
     if (dateFrom) {
       query = query.gte('start_at', dateFrom)

@@ -48,19 +48,19 @@ export async function POST(
     const { id } = await params
     const client = await getClientById(id)
 
-    if (!client?.panel_whatsapp_config) {
-      return NextResponse.json(
-        { error: 'Cliente sem configuração WhatsApp' },
-        { status: 400 }
-      )
+    if (!client) {
+      return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 })
     }
 
-    const { chatwoot_account_id, chatwoot_agent_token } =
-      client.panel_whatsapp_config
+    // Fallback: prefer panel_whatsapp_config, then panel_clients directly
+    const chatwoot_account_id =
+      client.panel_whatsapp_config?.chatwoot_account_id ?? client.chatwoot_account_id
+    const chatwoot_agent_token =
+      client.panel_whatsapp_config?.chatwoot_agent_token ?? client.chatwoot_agent_token
 
     if (!chatwoot_account_id || !chatwoot_agent_token) {
       return NextResponse.json(
-        { error: 'chatwoot_account_id ou chatwoot_agent_token não configurados' },
+        { error: 'Chatwoot não provisionado para este cliente' },
         { status: 400 }
       )
     }

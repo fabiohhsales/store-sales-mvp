@@ -1,5 +1,6 @@
 import { Smartphone, Calendar, Bot, MessageSquare, AlertTriangle, ExternalLink } from 'lucide-react'
 import { HealthIndicator } from '@/components/dashboard/health-indicator'
+import { getChatwootPublicUrl } from '@/lib/config'
 import type { PanelClientWithRelations } from '@/types/database'
 
 interface StatusCardsProps {
@@ -11,7 +12,7 @@ export function StatusCards({ client }: StatusCardsProps) {
   const hasGoogle = !!client.panel_google_config?.google_email
   const hasBotConfig = !!client.panel_bot_config
   const hasChatwoot = !!(client.chatwoot_account_id)
-  const chatwootUrl = process.env.NEXT_PUBLIC_CHATWOOT_URL?.replace(/\/$/, '') ?? ''
+  const chatwootUrl = getChatwootPublicUrl()
 
   const missing: string[] = []
   if (!hasWhatsApp) missing.push('WhatsApp')

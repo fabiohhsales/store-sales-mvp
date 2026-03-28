@@ -110,7 +110,11 @@ export async function GET(request: NextRequest) {
       ? [{ slug: '_sem_etapa', display_name: 'Sem etapa' }, ...stageLabels]
       : stageLabels
 
-    return NextResponse.json({ columns, conversations: pipelineConversations })
+    return NextResponse.json({
+      columns,
+      conversations: pipelineConversations,
+      chatwootAccountId: whatsappConfig.chatwoot_account_id,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro interno'
     const status = message.includes('autorizado') || message.includes('inválido') ? 401 : 500
