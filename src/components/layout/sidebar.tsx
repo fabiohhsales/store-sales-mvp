@@ -14,6 +14,7 @@ import {
   Calendar,
   ToggleLeft,
   ToggleRight,
+  UserCircle,
 } from 'lucide-react'
 
 const adminNavItems = [
@@ -28,6 +29,7 @@ const adminNavItems = [
 const clientNavItems = [
   { href: '/pipeline', label: 'Pipeline', icon: Kanban },
   { href: '/agenda', label: 'Agenda', icon: Calendar },
+  { href: '/account', label: 'Minha Conta', icon: UserCircle },
 ]
 
 export function Sidebar() {
