@@ -3,6 +3,7 @@ import type {
   ChatwootInboxListResponse,
   ChatwootAgent,
   ChatwootAccount,
+  ChatwootAgentInput,
 } from '@/types/api'
 import type { StageLabelConfig } from '@/types/database'
 
@@ -21,6 +22,11 @@ const ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1'
 const BOT_EMAIL_DOMAIN = process.env.CHATWOOT_BOT_EMAIL_DOMAIN || 'salestec.com'
 const BOT_PASSWORD = process.env.CHATWOOT_BOT_PASSWORD!
 const PLATFORM_TOKEN = process.env.CHATWOOT_PLATFORM_TOKEN || ''
+
+export interface ChatwootAgentCreateResult {
+  status: 'created' | 'exists'
+  agent?: ChatwootAgent
+}
 
 // --- API regular (Account 1) ---
 
@@ -124,6 +130,8 @@ export async function createChatwootAccount(
 // Deleta uma Account Chatwoot.
 // Tenta Platform API primeiro, depois fallback pra Super Admin session.
 export async function deleteChatwootAccount(accountId: number, _accountToken?: string): Promise<{ deleted: boolean; error?: string }> {
+  void _accountToken
+
   // Tentativa 1: Platform API (funciona se a account foi criada pela Platform App)
   if (PLATFORM_TOKEN) {
     try {
@@ -359,6 +367,41 @@ export async function ensureChatwootLabels(
       throw err
     }
   }
+}
+
+export async function createChatwootAgent(
+  accountId: number,
+  accountToken: string,
+  agent: ChatwootAgentInput
+): Promise<ChatwootAgentCreateResult> {
+  const res = await fetch(`${BASE_URL}/api/v1/accounts/${accountId}/agents`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      api_access_token: accountToken,
+    },
+    body: JSON.stringify({
+      name: agent.name,
+      email: agent.email,
+      role: agent.role,
+    }),
+  })
+
+  if (res.ok) {
+    const created: ChatwootAgent = await res.json()
+    return {
+      status: 'created',
+      agent: created,
+    }
+  }
+
+  const body = await res.text()
+  const lowered = body.toLowerCase()
+  if (res.status === 422 && (lowered.includes('already') || lowered.includes('taken') || lowered.includes('exists') || lowered.includes('signed up'))) {
+    return { status: 'exists' }
+  }
+
+  throw new Error(`Chatwoot create agent ${res.status}: ${body}`)
 }
 
 // Configura webhook do Chatwoot → painel na Account do cliente

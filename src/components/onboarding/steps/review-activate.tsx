@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
-import { Check, AlertCircle, ArrowLeft, Rocket } from 'lucide-react'
+import { Check, AlertCircle, ArrowLeft, Rocket, LayoutDashboard } from 'lucide-react'
 import type { PanelClientWithRelations } from '@/types/database'
 
 interface ReviewActivateStepProps {
@@ -26,6 +26,7 @@ export function ReviewActivateStep({ clientId, onActivated, onBack }: ReviewActi
   const [client, setClient] = useState<PanelClientWithRelations | null>(null)
   const [loading, setLoading] = useState(true)
   const [activating, setActivating] = useState(false)
+  const [setupChatwootApps, setSetupChatwootApps] = useState(true)
 
   useEffect(() => {
     async function load() {
@@ -45,14 +46,22 @@ export function ReviewActivateStep({ clientId, onActivated, onBack }: ReviewActi
   const handleActivate = async () => {
     setActivating(true)
     try {
-      const res = await fetch(`/api/clients/${clientId}/activate`, {
-        method: 'POST',
-      })
+      const res = await fetch(`/api/clients/${clientId}/activate`, { method: 'POST' })
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || 'Erro ao ativar')
       }
-      toast.success('Cliente ativado com sucesso!')
+      toast.success('Cliente ativado!')
+
+      if (setupChatwootApps) {
+        const appsRes = await fetch(`/api/clients/${clientId}/setup-chatwoot-apps`, { method: 'POST' })
+        if (appsRes.ok) {
+          toast.success('Pipeline e Agenda configurados no Chatwoot!')
+        } else {
+          toast.warning('Cliente ativado, mas houve um erro ao configurar o Chatwoot. Configure manualmente em Settings.')
+        }
+      }
+
       onActivated()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Erro ao ativar')
@@ -156,13 +165,32 @@ export function ReviewActivateStep({ clientId, onActivated, onBack }: ReviewActi
 
         <Separator />
 
+        {/* Toggle: configurar Dashboard Apps automaticamente */}
+        <div
+          className="flex items-start gap-3 rounded-md border border-border p-4 cursor-pointer hover:bg-accent/30 transition-colors"
+          onClick={() => setSetupChatwootApps((v) => !v)}
+        >
+          <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors ${setupChatwootApps ? 'border-primary bg-primary' : 'border-muted-foreground'}`}>
+            {setupChatwootApps && <Check className="h-3 w-3 text-primary-foreground" />}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm font-medium text-foreground">Configurar Pipeline e Agenda no Chatwoot</p>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Cria tokens de acesso e registra automaticamente as abas "Pipeline" e "Agenda" como Dashboard Apps na conta Chatwoot do cliente.
+            </p>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between">
           <Button variant="outline" onClick={onBack}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Voltar
           </Button>
           <Button onClick={handleActivate} disabled={!canActivate || activating}>
-            {activating ? 'Ativando...' : 'Ativar Cliente'}
+            {activating ? 'Configurando...' : 'Ativar Cliente'}
           </Button>
         </div>
 

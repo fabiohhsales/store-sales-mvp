@@ -2,7 +2,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClientRecord, listClients } from '@/lib/db/clients'
 import { insertAuditLog } from '@/lib/db/audit-log'
-import type { PanelClientInsert } from '@/types/database'
+import type { PanelClientInsert, ProvisionedChatwootAgent } from '@/types/database'
+import type { ChatwootAgentRole } from '@/types/api'
+
+function parseChatwootUsers(input: unknown): ProvisionedChatwootAgent[] {
+  if (!Array.isArray(input)) return []
+
+  const parsed = input
+    .map((item) => {
+      const record = item as Record<string, unknown>
+      const name = typeof record?.name === 'string' ? record.name.trim() : ''
+      const email = typeof record?.email === 'string' ? record.email.trim().toLowerCase() : ''
+      const role: ChatwootAgentRole = record?.role === 'administrator' ? 'administrator' : 'agent'
+      return { name, email, role }
+    })
+    .filter((item) => item.name.length > 0 || item.email.length > 0)
+
+  if (parsed.some((item) => !item.name || !item.email)) {
+    throw new Error('Todos os agentes Chatwoot devem ter nome e e-mail')
+  }
+
+  const invalidEmail = parsed.find((item) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.email))
+  if (invalidEmail) {
+    throw new Error(`E-mail invalido na lista de agentes: ${invalidEmail.email}`)
+  }
+
+  const emailSet = new Set(parsed.map((item) => item.email))
+  if (emailSet.size !== parsed.length) {
+    throw new Error('Nao repita e-mails na lista de agentes Chatwoot')
+  }
+
+  return parsed
+}
 
 export async function GET() {
   try {
@@ -36,6 +67,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { name, owner_name, email, phone, business_segment } = body
 
+    let chatwootUsers: ProvisionedChatwootAgent[] = []
+    try {
+      chatwootUsers = parseChatwootUsers(body.chatwoot_users)
+    } catch (payloadError) {
+      const message = payloadError instanceof Error ? payloadError.message : 'Payload de agentes Chatwoot invalido'
+      return NextResponse.json({ error: message }, { status: 400 })
+    }
+
     if (!name || !owner_name || !email) {
       return NextResponse.json(
         { error: 'Campos obrigatórios: name, owner_name, email' },
@@ -48,6 +87,7 @@ export async function POST(request: NextRequest) {
       owner_name,
       email,
       phone: phone || null,
+      provisioned_agents: chatwootUsers,
       status: 'draft',
     }
 
@@ -57,7 +97,14 @@ export async function POST(request: NextRequest) {
       admin_email: user.email!,
       action: 'client_created',
       client_id: client.id,
-      details: { name, owner_name, email, phone, business_segment },
+      details: {
+        name,
+        owner_name,
+        email,
+        phone,
+        business_segment,
+        provisioned_agents_count: chatwootUsers.length,
+      },
     })
 
     return NextResponse.json(client, { status: 201 })
