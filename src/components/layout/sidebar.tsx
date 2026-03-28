@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   LayoutDashboard,
   Users,
@@ -11,19 +11,42 @@ import {
   ChevronRight,
   Kanban,
   Shield,
+  Calendar,
+  ToggleLeft,
+  ToggleRight,
 } from 'lucide-react'
 
-const navItems = [
+const adminNavItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/clients', label: 'Clientes', icon: Users },
-  { href: '/deals', label: 'Negócios', icon: Kanban },
+  { href: '/pipeline', label: 'Pipeline', icon: Kanban },
+  { href: '/agenda', label: 'Agenda', icon: Calendar },
   { href: '/settings', label: 'Configurações', icon: Settings },
   { href: '/soc', label: 'SOC', icon: Shield },
+]
+
+const clientNavItems = [
+  { href: '/pipeline', label: 'Pipeline', icon: Kanban },
+  { href: '/agenda', label: 'Agenda', icon: Calendar },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
+  const [mode, setMode] = useState<'admin' | 'client'>('admin')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebar-mode')
+    if (saved === 'client' || saved === 'admin') setMode(saved)
+  }, [])
+
+  function toggleMode() {
+    const newMode = mode === 'admin' ? 'client' : 'admin'
+    setMode(newMode)
+    localStorage.setItem('sidebar-mode', newMode)
+  }
+
+  const navItems = mode === 'admin' ? adminNavItems : clientNavItems
 
   return (
     <aside
@@ -39,7 +62,22 @@ export function Sidebar() {
         </span>
       </div>
 
-      <nav className="flex-1 py-4 px-2 flex flex-col gap-1">
+      {/* Toggle admin/client */}
+      {!collapsed && (
+        <button
+          onClick={toggleMode}
+          className="flex items-center gap-2 mx-2 mt-3 px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+        >
+          {mode === 'admin' ? (
+            <ToggleRight size={16} className="text-primary" />
+          ) : (
+            <ToggleLeft size={16} />
+          )}
+          {mode === 'admin' ? 'Admin' : 'Client'}
+        </button>
+      )}
+
+      <nav className="flex-1 py-2 px-2 flex flex-col gap-1">
         {navItems.map((item) => {
           const isActive =
             item.href === '/'
