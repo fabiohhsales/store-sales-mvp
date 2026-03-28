@@ -1,9 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, LayoutDashboard, Users, Settings, Kanban, Shield } from 'lucide-react'
+import {
+  Menu,
+  LayoutDashboard,
+  Users,
+  Settings,
+  Kanban,
+  Shield,
+  Calendar,
+  ToggleLeft,
+  ToggleRight,
+  UserCircle,
+} from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -12,17 +23,38 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 
-const navItems = [
+const adminNavItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/clients', label: 'Clientes', icon: Users },
-  { href: '/deals', label: 'Negócios', icon: Kanban },
+  { href: '/pipeline', label: 'Pipeline', icon: Kanban },
+  { href: '/agenda', label: 'Agenda', icon: Calendar },
   { href: '/settings', label: 'Configurações', icon: Settings },
   { href: '/soc', label: 'SOC', icon: Shield },
+]
+
+const clientNavItems = [
+  { href: '/pipeline', label: 'Pipeline', icon: Kanban },
+  { href: '/agenda', label: 'Agenda', icon: Calendar },
+  { href: '/account', label: 'Minha Conta', icon: UserCircle },
 ]
 
 export function MobileNav() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<'admin' | 'client'>('admin')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebar-mode')
+    if (saved === 'client' || saved === 'admin') setMode(saved)
+  }, [])
+
+  function toggleMode() {
+    const newMode = mode === 'admin' ? 'client' : 'admin'
+    setMode(newMode)
+    localStorage.setItem('sidebar-mode', newMode)
+  }
+
+  const navItems = mode === 'admin' ? adminNavItems : clientNavItems
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -36,7 +68,21 @@ export function MobileNav() {
             Sales Tec
           </SheetTitle>
         </SheetHeader>
-        <nav className="space-y-1 px-3 py-4">
+
+        {/* Toggle admin/client */}
+        <button
+          onClick={toggleMode}
+          className="flex items-center gap-2 mx-3 mt-3 px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors w-[calc(100%-1.5rem)]"
+        >
+          {mode === 'admin' ? (
+            <ToggleRight size={16} className="text-primary" />
+          ) : (
+            <ToggleLeft size={16} />
+          )}
+          {mode === 'admin' ? 'Admin' : 'Client'}
+        </button>
+
+        <nav className="space-y-1 px-3 py-2">
           {navItems.map((item) => {
             const isActive =
               item.href === '/'

@@ -1,4 +1,5 @@
 import { Separator } from '@/components/ui/separator'
+import { EmbedTokensSection } from '@/components/settings/embed-tokens-section'
 
 export default function SettingsPage() {
   return (
@@ -95,6 +96,8 @@ export default function SettingsPage() {
           </p>
         </div>
       </div>
+
+      <EmbedTokensSection />
     </div>
   )
 }
