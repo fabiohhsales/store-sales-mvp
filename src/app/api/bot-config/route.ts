@@ -1,25 +1,91 @@
-import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { upsertBotConfig } from '@/lib/db/bot-config'
+import { getBotConfigByClientId, updateBotConfig, upsertBotConfig } from '@/lib/db/bot-config'
+import { getWhatsAppConfigByClientId } from '@/lib/db/whatsapp-config'
 import { insertAuditLog } from '@/lib/db/audit-log'
+import { ensureChatwootLabels, listChatwootStageLabels } from '@/lib/api/chatwoot'
+import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
 import type { PanelBotConfigInsert } from '@/types/database'
 
-export async function POST(request: NextRequest) {
+export async function GET(request: Request) {
   try {
     const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    const user = session?.user
 
     if (authError || !user) {
-      return NextResponse.json(
+      return Response.json({ error: 'Não autorizado' }, { status: 401 })
+    }
+
+    const clientId = new URL(request.url).searchParams.get('client_id')
+    if (!clientId) {
+      return Response.json({ error: 'Parâmetro obrigatório: client_id' }, { status: 400 })
+    }
+
+    const config = await getBotConfigByClientId(clientId)
+    if (!config) {
+      return Response.json({ error: 'Configuração não encontrada' }, { status: 404 })
+    }
+
+    const whatsappConfig = await getWhatsAppConfigByClientId(clientId)
+    if (!whatsappConfig?.chatwoot_account_id || !whatsappConfig.chatwoot_agent_token) {
+      return Response.json(config, { status: 200 })
+    }
+
+    try {
+      const remoteLabels = await listChatwootStageLabels(
+        whatsappConfig.chatwoot_account_id,
+        whatsappConfig.chatwoot_agent_token
+      )
+
+      if (remoteLabels.length > 0) {
+        const currentBySlug = new Map(
+          sanitizeStageLabels(config.stage_labels).map((item) => [item.slug, item.followup_cadence ?? null])
+        )
+
+        const stageLabels = sanitizeStageLabels(remoteLabels).map((item) => ({
+          ...item,
+          followup_cadence: currentBySlug.get(item.slug) ?? null,
+        }))
+        const normalizedCurrent = JSON.stringify(sanitizeStageLabels(config.stage_labels))
+        const normalizedRemote = JSON.stringify(stageLabels)
+
+        if (normalizedCurrent !== normalizedRemote) {
+          const updated = await updateBotConfig(clientId, { stage_labels: stageLabels })
+          return Response.json(updated, { status: 200 })
+        }
+      }
+    } catch (syncError) {
+      console.warn('[BotConfig] Pull de etiquetas Chatwoot falhou, retornando dados locais:', syncError)
+    }
+
+    return Response.json(config, { status: 200 })
+  } catch (error) {
+    console.error('Erro ao buscar configuração do bot:', error)
+    return Response.json(
+      { error: 'Erro interno ao buscar configuração do bot' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const supabase = await createClient()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    const user = session?.user
+
+    if (authError || !user) {
+      return Response.json(
         { error: 'Não autorizado' },
         { status: 401 }
       )
     }
 
     const body = await request.json()
+    const stageLabels = sanitizeStageLabels(body.stage_labels)
 
     if (!body.client_id || !body.professional_name || !body.working_hours) {
-      return NextResponse.json(
+      return Response.json(
         { error: 'Campos obrigatórios: client_id, professional_name, working_hours' },
         { status: 400 }
       )
@@ -39,6 +105,7 @@ export async function POST(request: NextRequest) {
 
       // Serviços
       services: body.services || [],
+      stage_labels: stageLabels,
 
       // Horários
       working_hours: body.working_hours,
@@ -53,6 +120,10 @@ export async function POST(request: NextRequest) {
       ai_tone: body.ai_tone || 'professional_friendly',
       ai_language: body.ai_language || 'pt-BR',
       ai_custom_instructions: body.ai_custom_instructions || null,
+      process_flow_guide: body.process_flow_guide || null,
+      objections_guide: body.objections_guide || null,
+      qualification_questions_guide: body.qualification_questions_guide || null,
+      disengagement_policy_guide: body.disengagement_policy_guide || null,
       ai_fallback_message: body.ai_fallback_message || null,
       ai_handoff_message: body.ai_handoff_message || null,
 
@@ -65,6 +136,21 @@ export async function POST(request: NextRequest) {
       msg_reminder: body.msg_reminder || null,
       msg_noshow: body.msg_noshow || null,
       msg_outside_hours: body.msg_outside_hours || null,
+      lead_followup_enabled: body.lead_followup_enabled ?? false,
+      lead_followup_msg_d1: body.lead_followup_msg_d1 || null,
+      lead_followup_msg_d2: body.lead_followup_msg_d2 || null,
+      lead_followup_msg_d3: body.lead_followup_msg_d3 || null,
+      lead_followup_msg_d5: body.lead_followup_msg_d5 || null,
+      lead_followup_msg_d7: body.lead_followup_msg_d7 || null,
+      atendimento_followup_enabled: body.atendimento_followup_enabled ?? false,
+      atendimento_followup_msg_d1: body.atendimento_followup_msg_d1 || null,
+      atendimento_followup_msg_d2: body.atendimento_followup_msg_d2 || null,
+      atendimento_followup_msg_d4: body.atendimento_followup_msg_d4 || null,
+      atendimento_followup_msg_d7: body.atendimento_followup_msg_d7 || null,
+      atendimento_followup_msg_d10: body.atendimento_followup_msg_d10 || null,
+      agendado_followup_msg_d2: body.agendado_followup_msg_d2 || null,
+      agendado_followup_msg_minus3h: body.agendado_followup_msg_minus3h || null,
+      agendado_followup_msg_minus5min: body.agendado_followup_msg_minus5min || null,
 
       // Handoff
       handoff_on_negative_sentiment: body.handoff_on_negative_sentiment ?? true,
@@ -88,6 +174,21 @@ export async function POST(request: NextRequest) {
 
     const savedConfig = await upsertBotConfig(config)
 
+    // Sincroniza labels no Chatwoot quando o cliente já tem account/token.
+    // Falha de sync não bloqueia o salvamento do bot config.
+    try {
+      const whatsappConfig = await getWhatsAppConfigByClientId(body.client_id)
+      if (whatsappConfig?.chatwoot_account_id && whatsappConfig.chatwoot_agent_token) {
+        await ensureChatwootLabels(
+          whatsappConfig.chatwoot_account_id,
+          whatsappConfig.chatwoot_agent_token,
+          config.stage_labels
+        )
+      }
+    } catch (syncError) {
+      console.warn('[BotConfig] Falha ao sincronizar etiquetas no Chatwoot:', syncError)
+    }
+
     await insertAuditLog({
       admin_email: user.email!,
       action: 'bot_config_saved',
@@ -96,13 +197,14 @@ export async function POST(request: NextRequest) {
         professional_name: config.professional_name,
         services_count: config.services.length,
         ai_tone: config.ai_tone,
+        stage_labels_count: config.stage_labels.length,
       },
     })
 
-    return NextResponse.json(savedConfig, { status: 200 })
+    return Response.json(savedConfig, { status: 200 })
   } catch (error) {
     console.error('Erro ao salvar configuração do bot:', error)
-    return NextResponse.json(
+    return Response.json(
       { error: 'Erro interno ao salvar configuração do bot' },
       { status: 500 }
     )

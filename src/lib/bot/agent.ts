@@ -6,11 +6,17 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createAiClient, AI_MODEL } from '@/lib/ai/client'
 import { buildSystemPrompt } from './system-prompt'
 import { safeParseAgentOutput, fallbackOutput } from './output-schema'
+import { listChatwootStageLabels } from '@/lib/api/chatwoot'
+import { sanitizeStageLabels, stageLabelSlugs } from './stage-labels'
 import type { AgentOutput } from './output-schema'
 import type { PipelineResult } from './pipeline'
 import type { BotMessage } from '@/types/bot'
+import type { PanelBotConfig, StageLabelConfig } from '@/types/database'
 
 const AI_PAUSE_MINUTES = 10
+const LABEL_SYNC_CACHE_TTL_MS = 2 * 60 * 1000
+
+const runtimeStageLabelsCache = new Map<string, { syncedAt: number; labels: StageLabelConfig[] }>()
 
 // --- AI Pause ---
 
@@ -51,21 +57,11 @@ async function setAiPause(conversationId: string): Promise<void> {
 
 function buildChatMessages(
   history: BotMessage[],
-  systemPrompt: string,
-  pendingSlots?: Array<{ label: string; startISO: string; endISO: string }> | null
+  systemPrompt: string
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
   ]
-
-  // Injeta os slots salvos como contexto de sistema para extração confiável
-  if (pendingSlots && pendingSlots.length > 0) {
-    const slotLines = pendingSlots.map((s, i) => `${i + 1}. ${s.label}`).join('\n')
-    messages.push({
-      role: 'system',
-      content: `HORÁRIOS PENDENTES (aguardando seleção do paciente):\n${slotLines}\n\nQuando o paciente informar um número, use os ISOs desta lista diretamente para agenda_create. Não tente extrair do histórico de mensagens.`,
-    })
-  }
 
   for (const msg of history) {
     if (!msg.content) continue
@@ -80,6 +76,80 @@ function buildChatMessages(
   }
 
   return messages
+}
+
+function mergeRuntimeStageLabels(
+  localLabels: StageLabelConfig[] | null | undefined,
+  remoteLabels: StageLabelConfig[]
+): StageLabelConfig[] {
+  const local = sanitizeStageLabels(localLabels)
+  const remote = sanitizeStageLabels(remoteLabels)
+
+  const localCadenceBySlug = new Map<string, StageLabelConfig['followup_cadence']>()
+  for (const item of local) {
+    localCadenceBySlug.set(item.slug, item.followup_cadence ?? null)
+  }
+
+  const merged: StageLabelConfig[] = remote.map((item) => ({
+    ...item,
+    followup_cadence: localCadenceBySlug.get(item.slug) ?? item.followup_cadence ?? null,
+  }))
+
+  const mergedSlugs = new Set(merged.map((item) => item.slug))
+  for (const item of local) {
+    if (!mergedSlugs.has(item.slug)) {
+      merged.push(item)
+    }
+  }
+
+  return sanitizeStageLabels(merged)
+}
+
+async function resolveRuntimeBotConfig(result: PipelineResult): Promise<PanelBotConfig> {
+  const baseConfig = result.clientContext.botConfig
+  if (!baseConfig) {
+    throw new Error('bot_config_not_found')
+  }
+
+  const accountId = result.clientContext.whatsappConfig.chatwoot_account_id
+  const accountToken = result.clientContext.whatsappConfig.chatwoot_agent_token
+
+  if (!accountId || !accountToken) {
+    return baseConfig
+  }
+
+  const now = Date.now()
+  const cacheKey = result.clientContext.clientId
+  const cached = runtimeStageLabelsCache.get(cacheKey)
+
+  if (cached && now - cached.syncedAt < LABEL_SYNC_CACHE_TTL_MS) {
+    return {
+      ...baseConfig,
+      stage_labels: mergeRuntimeStageLabels(baseConfig.stage_labels, cached.labels),
+    }
+  }
+
+  try {
+    const remoteLabels = await listChatwootStageLabels(accountId, accountToken)
+    const sanitizedRemote = sanitizeStageLabels(remoteLabels)
+
+    runtimeStageLabelsCache.set(cacheKey, {
+      syncedAt: now,
+      labels: sanitizedRemote,
+    })
+
+    return {
+      ...baseConfig,
+      stage_labels: mergeRuntimeStageLabels(baseConfig.stage_labels, sanitizedRemote),
+    }
+  } catch (err) {
+    console.warn(
+      `[Agent] Falha no sync runtime de labels client=${result.clientContext.clientId}; usando config local`,
+      err
+    )
+
+    return baseConfig
+  }
 }
 
 // --- Chamada principal ---
@@ -103,11 +173,19 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
   // Seta a trava antes de processar (evita execução dupla)
   await setAiPause(conversation.id)
 
-  const isFirstTurn = !messageHistory.some((m) => m.from_who === 'ai')
-    && conversation.last_outgoing_by !== 'ai'
-  console.log(`[Agent] conv=${conversation.id} isFirstTurn=${isFirstTurn} historyLen=${messageHistory.length}`)
-  const systemPrompt = buildSystemPrompt(clientContext.botConfig, contact.name ?? 'Paciente', isFirstTurn)
-  const chatMessages = buildChatMessages(messageHistory, systemPrompt, conversation.pending_slots)
+  const runtimeBotConfig = await resolveRuntimeBotConfig(result)
+  const stageCurrent = (conversation.labels ?? []).find((label) => label.startsWith('etapa_')) ?? null
+
+  const systemPrompt = buildSystemPrompt(runtimeBotConfig, contact.name ?? 'Paciente', {
+    status: conversation.status,
+    labelsCurrent: conversation.labels ?? [],
+    stageCurrent,
+    followupCadenceCurrent: conversation.followup_cadence,
+    appointmentStatus: conversation.appointment_status,
+    lastIncomingAt: conversation.last_incoming_at,
+    lastOutgoingAt: conversation.last_outgoing_at,
+  })
+  const chatMessages = buildChatMessages(messageHistory, systemPrompt)
 
   try {
     const openai = createAiClient()
@@ -120,7 +198,9 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
     })
 
     const rawContent = completion.choices[0]?.message?.content ?? ''
-    const output = safeParseAgentOutput(rawContent)
+    const output = safeParseAgentOutput(rawContent, {
+      validStageSlugs: stageLabelSlugs(runtimeBotConfig.stage_labels),
+    })
 
     console.log(
       `[Agent] conv=${conversation.id} intent=${output.debug.detected_intent}` +
@@ -131,10 +211,6 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
     return output
   } catch (err) {
     console.error('[Agent] Erro na chamada OpenAI:', err)
-    const fallbackMsg = clientContext.botConfig?.ai_fallback_message
-    if (fallbackMsg) {
-      return { ...fallbackOutput, reply: fallbackMsg }
-    }
     return fallbackOutput
   }
 }
