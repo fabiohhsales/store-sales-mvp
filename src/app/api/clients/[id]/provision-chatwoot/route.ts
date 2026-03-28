@@ -75,7 +75,7 @@ export async function POST(
 
     const { data: clientRow, error: clientError } = await admin
       .from('panel_clients')
-      .select('id, name, owner_name, email, provisioned_agents, chatwoot_account_id, chatwoot_agent_token')
+      .select('id, name, owner_name, email, provisioned_agents, chatwoot_email, chatwoot_account_id, chatwoot_agent_token')
       .eq('id', clientId)
       .single()
 
@@ -143,6 +143,7 @@ export async function POST(
       .update({
         chatwoot_account_id: account.id,
         chatwoot_agent_token: account.access_token,
+        chatwoot_email: account.login_email ?? clientRow.chatwoot_email ?? clientRow.email,
       })
       .eq('id', clientId)
 
@@ -153,16 +154,17 @@ export async function POST(
     let copiedToWhatsappConfig = false
     const { data: wConfig } = await admin
       .from('panel_whatsapp_config')
-      .select('chatwoot_account_id, chatwoot_agent_token')
+      .select('chatwoot_account_id, chatwoot_agent_token, chatwoot_email')
       .eq('client_id', clientId)
       .maybeSingle()
 
-    if (wConfig && (!wConfig.chatwoot_account_id || !wConfig.chatwoot_agent_token)) {
+    if (wConfig && (!wConfig.chatwoot_account_id || !wConfig.chatwoot_agent_token || !wConfig.chatwoot_email)) {
       const { error: wUpdateError } = await admin
         .from('panel_whatsapp_config')
         .update({
           chatwoot_account_id: wConfig.chatwoot_account_id ?? account.id,
           chatwoot_agent_token: wConfig.chatwoot_agent_token ?? account.access_token,
+          chatwoot_email: wConfig.chatwoot_email ?? account.login_email ?? clientRow.chatwoot_email ?? clientRow.email,
         })
         .eq('client_id', clientId)
 

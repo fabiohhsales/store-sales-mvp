@@ -172,6 +172,7 @@ async function provisionChatwootForClient(
     await updateClient(clientId, {
       chatwoot_account_id: account.id,
       chatwoot_agent_token: account.access_token,
+      chatwoot_email: account.login_email ?? email,
     })
 
     console.log(`[Clients] Chatwoot provisionado: Account #${account.id} para cliente ${clientId}`)

@@ -59,6 +59,7 @@ export interface ChatwootAccount {
   id: number
   name: string
   access_token: string
+  login_email?: string
 }
 
 export interface ChatwootInbox {

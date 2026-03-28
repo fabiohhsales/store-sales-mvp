@@ -8,6 +8,7 @@ import { updateClient, getClientById } from '@/lib/db/clients'
 import { insertAuditLog } from '@/lib/db/audit-log'
 import { DEFAULT_STAGE_LABELS, sanitizeStageLabels } from '@/lib/bot/stage-labels'
 import type { PanelWhatsAppConfigInsert } from '@/types/database'
+import type { ChatwootAccount } from '@/types/api'
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
     const existingToken = client.chatwoot_agent_token ?? null
 
     try {
-      let chatwootAccount: { id: number; access_token: string }
+      let chatwootAccount: ChatwootAccount
 
       if (existingAccountId && existingToken) {
         // Reutiliza account pré-provisionada (criada no cadastro do cliente)
@@ -70,6 +71,8 @@ export async function POST(request: NextRequest) {
         chatwootToken = newAccount.access_token
         accountCreatedNow = true
       }
+
+      const chatwootLoginEmail = chatwootAccount.login_email ?? client.chatwoot_email ?? client.email
 
       // Etapa 2 — Configura webhook Chatwoot → painel
       console.log(`[WhatsApp] Etapa 2: Configurando webhook Chatwoot (Account ${chatwootAccount.id})`)
@@ -159,11 +162,18 @@ export async function POST(request: NextRequest) {
         disconnected_at: null,
         webhook_url: panelWebhookUrl,
         chatwoot_inbox_id: chatwootInboxId,
+        chatwoot_email: chatwootLoginEmail,
         chatwoot_account_id: chatwootAccount.id,
         chatwoot_agent_token: chatwootAccount.access_token,
       }
 
       const savedConfig = await createWhatsAppConfig(whatsappConfig)
+
+      await updateClient(client_id, {
+        chatwoot_account_id: chatwootAccount.id,
+        chatwoot_agent_token: chatwootAccount.access_token,
+        chatwoot_email: chatwootLoginEmail,
+      })
 
       // Etapa 6 — Atualiza status e registra auditoria
       console.log(`[WhatsApp] Etapa 6: Atualizando status do cliente`)
@@ -177,6 +187,7 @@ export async function POST(request: NextRequest) {
           instance_name,
           instance_id: evolutionResponse.instance.instanceId,
           chatwoot_account_id: chatwootAccount.id,
+          chatwoot_email: chatwootLoginEmail,
           chatwoot_inbox_id: chatwootInboxId,
           agents_summary: {
             created: agentsSummary.created.length,

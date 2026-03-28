@@ -1,6 +1,10 @@
-import { Smartphone, Calendar, Bot, MessageSquare, AlertTriangle, ExternalLink } from 'lucide-react'
+"use client"
+
+import { useState } from 'react'
+import { Smartphone, Calendar, Bot, MessageSquare, AlertTriangle, ExternalLink, Copy, Check } from 'lucide-react'
 import { HealthIndicator } from '@/components/dashboard/health-indicator'
 import { getChatwootPublicUrl } from '@/lib/config'
+import { Button } from '@/components/ui/button'
 import type { PanelClientWithRelations } from '@/types/database'
 
 interface StatusCardsProps {
@@ -8,11 +12,24 @@ interface StatusCardsProps {
 }
 
 export function StatusCards({ client }: StatusCardsProps) {
+  const [copied, setCopied] = useState(false)
   const hasWhatsApp = !!client.panel_whatsapp_config
   const hasGoogle = !!client.panel_google_config?.google_email
   const hasBotConfig = !!client.panel_bot_config
-  const hasChatwoot = !!(client.chatwoot_account_id)
+  const hasChatwoot = !!(client.chatwoot_account_id ?? client.panel_whatsapp_config?.chatwoot_account_id)
+  const chatwootAccountId = client.chatwoot_account_id ?? client.panel_whatsapp_config?.chatwoot_account_id
+  const chatwootLoginEmail = client.chatwoot_email ?? client.panel_whatsapp_config?.chatwoot_email ?? client.email
   const chatwootUrl = getChatwootPublicUrl()
+
+  async function copyLoginEmail() {
+    try {
+      await navigator.clipboard.writeText(chatwootLoginEmail)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
 
   const missing: string[] = []
   if (!hasWhatsApp) missing.push('WhatsApp')
@@ -109,16 +126,37 @@ export function StatusCards({ client }: StatusCardsProps) {
                 <span className="connection-dot online" />
                 <span className="text-sm font-medium text-foreground">Provisionado</span>
               </div>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground truncate" title={chatwootLoginEmail}>
+                  Login: {chatwootLoginEmail}
+                </p>
+                <Button type="button" size="icon" variant="ghost" className="h-5 w-5" onClick={copyLoginEmail} title="Copiar login">
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                </Button>
+              </div>
               {chatwootUrl && (
-                <a
-                  href={`${chatwootUrl}/accounts/${client.chatwoot_account_id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  Abrir conta
-                  <ExternalLink size={10} />
-                </a>
+                <div className="flex flex-col gap-1">
+                  {chatwootAccountId && (
+                    <a
+                      href={`${chatwootUrl}/accounts/${chatwootAccountId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    >
+                      Abrir conta
+                      <ExternalLink size={10} />
+                    </a>
+                  )}
+                  <a
+                    href={`${chatwootUrl}/app/auth/password/reset`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    Redefinir senha
+                    <ExternalLink size={10} />
+                  </a>
+                </div>
               )}
             </div>
           ) : (

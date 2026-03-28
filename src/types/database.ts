@@ -45,6 +45,7 @@ export interface PanelClient {
   owner_name: string
   phone: string | null
   email: string
+  chatwoot_email?: string | null
   provisioned_agents?: ProvisionedChatwootAgent[] | null
   chatwoot_account_id?: number | null
   chatwoot_agent_token?: string | null
@@ -74,6 +75,7 @@ export interface PanelWhatsAppConfig {
   disconnected_at: string | null
   webhook_url: string | null
   chatwoot_inbox_id: number | null
+  chatwoot_email: string | null
   chatwoot_account_id: number | null
   chatwoot_agent_token: string | null
   created_at: string
