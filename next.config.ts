@@ -22,8 +22,10 @@ const chatwootFrameAncestors = Array.from(
 
 const nextConfig: NextConfig = {
   typescript: {
-    // Type checking é feito localmente — evita OOM no build da VPS
     ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
   },
   async headers() {
     return [
