@@ -9,23 +9,23 @@ o serviço da Sales Tec.
 O mercado-alvo são profissionais de saúde (médicos, dentistas, psicólogos, fisioterapeutas)
 e negócios de serviços que agendam por WhatsApp.
 
-**O bot engine foi migrado do n8n para código nativo Next.js.** O n8n ainda existe na infra
-mas NÃO É MAIS usado para processar mensagens dos clientes do painel.
+**O bot engine foi migrado do n8n para código nativo Next.js.**
+**O pipeline de mensagens foi migrado do Chatwoot para direto na Evolution API.**
+n8n e Chatwoot ainda existem na infra mas NÃO SÃO MAIS usados para processar mensagens.
 
 ---
 
-## Arquitetura atual
+## Arquitetura atual (pós-migração Evolution direta)
 
 ```
 Paciente (WhatsApp)
   ↓ mensagem
 Evolution API v2.3.7 (Baileys)
-  ↓ integração nativa bidirecional
-Chatwoot v4.9.1 EE — cria conversa, dispara webhook
-  ↓ POST /api/webhooks/chatwoot (no painel Next.js)
+  ↓ webhook direto (sem Chatwoot)
+POST /api/webhooks/evolution (no painel Next.js)
 Bot Engine (src/lib/bot/) — pipeline nativo Next.js
-  ↓ identifica cliente pelo chatwoot_account_id
-  ↓ upsert contact/conversation no Supabase
+  ↓ identifica cliente pelo evolution_instance_name
+  ↓ upsert contact/conversation/message no Supabase (com client_id)
   ↓ AI Agent (OpenAI gpt-4o-mini) com system prompt dinâmico
   ↓ dispatch: envia resposta via Evolution API
 Evolution API → WhatsApp (resposta ao paciente)
@@ -34,72 +34,87 @@ Supabase (PostgreSQL) — banco central
 Google Calendar — conta central Sales Tec (GOOGLE_REFRESH_TOKEN), calendários por cliente
 ```
 
-### Arquitetura multi-tenant — Caminho B (Chatwoot por Account)
+### Identificação do cliente (novo fluxo)
 
-Cada cliente tem sua própria **Chatwoot Account** isolada (não apenas inbox).
-O painel cria automaticamente:
-- Uma Account no Chatwoot (via platform API)
-- Um agente bot dedicado nessa account
-- Uma instância na Evolution API integrada a essa account
-- O webhook da account apontando para o painel
+Identificação: `payload.instance` (Evolution instance name) → busca em `panel_whatsapp_config.evolution_instance_name`.
 
-Identificação do cliente no webhook: `payload.account.id` → busca em `panel_whatsapp_config.chatwoot_account_id`.
+**NÃO usa mais `chatwoot_account_id`.**
+
+### Desk — Painel de Atendimento Humano
+
+Operadores podem ver o fluxo do bot em tempo real e assumir conversas para responder
+como o número WhatsApp do cliente.
+
+- Rota: `/desk?client_id=<uuid>` (admins) ou `/desk` (operators via panel_users)
+- Botão de acesso direto na página do cliente admin: `/clients/[id]`
+- Realtime via Supabase (canal `desk:{clientId}` e `chat:{conversationId}`)
 
 ---
 
 ## Bot Engine (src/lib/bot/)
 
-Substituição completa do n8n. Todos os arquivos abaixo são o core do bot.
-
-### Fluxo de uma mensagem
+### Fluxo de uma mensagem (Evolution direto)
 
 ```
-POST /api/webhooks/chatwoot
-  → normalizePayload()        — filtra outgoing, privado, grupos (@g.us)
-  → void runPipeline()        — responde 200 imediatamente, processa em background
-      → runBasePipeline()     — resolve cliente, upsert contact/conversation/message
-      → runAgent()            — verifica ai_pause, chama OpenAI, retorna AgentOutput
-      → dispatch()            — envia WhatsApp, atualiza Chatwoot, limpa ai_pause
+POST /api/webhooks/evolution
+  → normalizeEvolutionPayload()  — filtra fromMe, grupos (@g.us), sem conteúdo
+  → void runPipeline()           — responde 200 imediatamente, processa em background
+      → runEvolutionPipeline()   — resolve cliente por instance_name, upsert contact/conversation/message
+      → runAgent()               — verifica ai_pause, chama OpenAI, retorna AgentOutput
+      → dispatch()               — envia WhatsApp via Evolution, atualiza stage/summary, limpa ai_pause
 ```
 
 ### Arquivos principais
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `src/app/api/webhooks/chatwoot/route.ts` | Endpoint POST, normaliza payload Chatwoot v4.9 |
-| `src/lib/bot/pipeline.ts` | Resolve cliente, upsert contact/conversation/message |
+| `src/app/api/webhooks/evolution/route.ts` | Endpoint POST Evolution — pipeline principal |
+| `src/app/api/webhooks/chatwoot/route.ts` | Legado — mantido mas não é mais o pipeline ativo |
+| `src/lib/bot/normalize-evolution.ts` | Normaliza payload bruto Evolution para struct interna |
+| `src/lib/bot/pipeline.ts` | `runEvolutionPipeline()` — resolve cliente, upsert contact/conversation/message |
 | `src/lib/bot/agent.ts` | Verifica ai_pause, chama OpenAI com structured output |
-| `src/lib/bot/dispatcher.ts` | Envia resposta WhatsApp, atualiza Chatwoot, limpa ai_pause |
+| `src/lib/bot/dispatcher.ts` | Envia resposta WhatsApp, handoff, summary de triagem, limpa ai_pause |
 | `src/lib/bot/system-prompt.ts` | Monta system prompt dinâmico a partir do panel_bot_config |
 | `src/lib/bot/output-schema.ts` | Schema Zod do JSON estruturado retornado pela IA |
 | `src/lib/bot/calendar-agent.ts` | Checa disponibilidade e cria eventos no Google Calendar |
 | `src/lib/ai/client.ts` | Cliente OpenAI/Groq unificado (usa OPENAI_API_KEY se disponível) |
 
-### Detalhes importantes do webhook (Chatwoot v4.9)
+### Detalhes do webhook Evolution
 
-- `message_type` vem como string `"incoming"` (não inteiro `0`) — código já trata ambos
-- `contact` está em `payload.conversation.meta.sender` (não em `payload.conversation.contact`)
-- Grupos filtrados pelo `identifier` terminando em `@g.us`
-- Rota whitelistada no middleware de auth em `src/lib/supabase/middleware.ts`
+- Evento principal: `messages.upsert` — mensagens recebidas
+- Evento `connection.update` — sincroniza `connection_status` em `panel_whatsapp_config`
+- `fromMe: true` ignorado — não processa respostas do próprio bot
+- Grupos (`@g.us`) ignorados
+- Rota whitelistada no middleware: `isEvolutionWebhook`
+
+### Deduplicação de mensagens
+
+Campo `evolution_message_id` em `messages` com unique partial index.
+Se a mensagem já existe (Evolution entrega duplicada), ignora silenciosamente.
 
 ### AI Pause
 
-O `ai_pause` é setado no início do processamento (evita execução dupla se webhook
-disparar duas vezes) e **limpo no final do dispatch** (permite próximas mensagens).
+O `ai_pause` é setado quando operador assume a conversa e **limpo ao devolver ao bot ou resolver**.
 Tabela: `ai_pauses` com `conversation_id` (PK) e `paused_until`.
+
+### Handoff (bot → humano)
+
+Quando bot detecta handoff necessário (sentimento negativo, urgência, max_turns, keywords):
+1. Envia a `ai_handoff_message` via WhatsApp
+2. Gera summary de triagem via OpenAI (max 200 tokens)
+3. Muda `stage = 'awaiting_human'` e salva `summary` na conversa
+4. Desk notifica operadores via Realtime + toast + browser Notification
 
 ### Checagem de status do cliente
 
 `pipeline.ts` verifica `panel_clients.status` antes de processar.
-Se status ≠ `'active'`, ignora silenciosamente. Pausar o cliente no painel
-realmente para o bot.
+Se status ≠ `'active'`, ignora silenciosamente.
 
 ### Sistema de IA
 
 - **Cliente**: `src/lib/ai/client.ts` — usa `OPENAI_API_KEY` se setada, senão `GROQ_API_KEY`
-- **Modelo padrão**: `gpt-4o-mini` (recomendado) via `OPENAI_MODEL`
-- **Modelo mini** (parse de datas etc): `gpt-4o-mini` ou `OPENAI_MODEL_MINI`
-- Groq com `llama-3.3-70b-versatile` funciona mas é menos confiável para JSON estruturado
+- **Modelo padrão**: `gpt-4o-mini` via `OPENAI_MODEL`
+- `createAiClient()` deve ser chamado DENTRO das funções, nunca no module level (causa erro no build)
 
 ### System Prompt dinâmico
 
@@ -124,7 +139,7 @@ realmente para o bot.
 | Painel Admin | https://panel-testeworkflow.yvssrw.easypanel.host |
 | Evolution API | https://chatsales-evolution-api.yvssrw.easypanel.host |
 | n8n (legado) | https://chatsales-n8n.yvssrw.easypanel.host |
-| Chatwoot | https://chatsales-chatwoot.yvssrw.easypanel.host |
+| Chatwoot (legado) | https://chatsales-chatwoot.yvssrw.easypanel.host |
 | Supabase | https://chatsales-supabase.yvssrw.easypanel.host |
 
 ---
@@ -136,7 +151,7 @@ realmente para o bot.
 EVOLUTION_API_URL=
 EVOLUTION_API_KEY=
 
-# Chatwoot
+# Chatwoot (legado — manter para não quebrar rotas existentes)
 CHATWOOT_URL=https://chatsales-chatwoot.yvssrw.easypanel.host
 NEXT_PUBLIC_CHATWOOT_URL=https://chatsales-chatwoot.yvssrw.easypanel.host
 CHATWOOT_API_TOKEN=
@@ -162,7 +177,6 @@ OPENAI_MODEL_MINI=gpt-4o-mini # modelo leve (datas, etc)
 GROQ_API_KEY=
 
 # Google Calendar — conta central Sales Tec
-# Gerar com: oauth2-playground ou script local com GOOGLE_CLIENT_ID/SECRET
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REFRESH_TOKEN=   # refresh token da conta Google central que gerencia todos os calendários
@@ -175,23 +189,13 @@ N8N_API_KEY=
 ### NEXT_PUBLIC_* e build time
 
 Variáveis `NEXT_PUBLIC_*` precisam estar disponíveis no **build**, não só no runtime.
-O `nixpacks.toml` injeta essas vars na fase de build:
-
-```toml
-[phases.build]
-cmds = ["npm run build"]
-
-[variables]
-NEXT_PUBLIC_SUPABASE_URL = "https://chatsales-supabase.yvssrw.easypanel.host"
-NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJ..."
-NEXT_PUBLIC_APP_URL = "https://panel-testeworkflow.yvssrw.easypanel.host"
-```
+O `nixpacks.toml` injeta essas vars na fase de build.
 
 ---
 
 ## Tabelas Supabase
 
-### Tabelas do bot (existentes — usadas pelo bot engine nativo)
+### Tabelas do bot (migradas para Evolution direto — migration 010)
 
 #### ai_pauses
 - conversation_id (text, PK)
@@ -205,37 +209,50 @@ NEXT_PUBLIC_APP_URL = "https://panel-testeworkflow.yvssrw.easypanel.host"
 - conversation_id (uuid)
 - contact_id (uuid)
 - google_event_id (text)
-- title (text)
-- start_at / end_at (timestamptz)
-- modality / status / meet_link (text)
-- confirmation_sent_at / reminder_sent_at (timestamptz)
+- title / modality / status / meet_link (text)
+- start_at / end_at / confirmation_sent_at / reminder_sent_at (timestamptz)
 - confirmation_response (text)
 - created_at / updated_at (timestamptz)
 
 #### contacts
 - id (uuid, PK)
-- chatwoot_id (bigint, NOT NULL) — unique constraint principal
+- chatwoot_id (bigint, **nullable** desde migration 010)
 - name / phone_number / identifier (text)
+- **client_id** (uuid, FK → panel_clients) — adicionado em migration 010
 - created_at (timestamptz)
-- ⚠️ constraint `contacts_phone_account_id_unique` — pipeline trata duplicate key
-  fazendo fallback SELECT por phone_number
+- ⚠️ unique key atual: `phone_number + client_id` (Evolution pipeline)
 
 #### conversations
 - id (uuid, PK)
-- chatwoot_conversation_id (bigint)
+- chatwoot_conversation_id (bigint, **nullable**)
 - contact_id (uuid)
-- status (enum: pending/open/resolved)
-- account_id (integer) — chatwoot_account_id do cliente
+- **client_id** (uuid, FK → panel_clients) — adicionado em migration 010
+- status (text: open/resolved)
+- account_id (integer, **nullable**) — legado Chatwoot
 - labels (text[])
+- **stage** (text) — adicionado em migration 010: `bot_triage` | `awaiting_human` | `in_service` | `resolved`
+- **assigned_operator_id** (uuid) — id do operador que assumiu
+- **resolved_at** (timestamptz)
+- **summary** (text) — resumo de triagem gerado pelo AI
 - last_incoming_at / last_outgoing_at (timestamptz)
 - last_outgoing_by / appointment_status / followup_cadence (text)
+- ⚠️ Conversas antigas (pré-migration 010) têm `stage = NULL` e `client_id = NULL`
+  — o Desk exclui essas ao filtrar por client_id
 
 #### messages
 - id (uuid, PK)
-- chatwoot_message_id (bigint)
+- chatwoot_message_id (bigint, **nullable**)
+- **evolution_message_id** (text) — adicionado em migration 010, unique partial index
+- **client_id** (uuid, FK → panel_clients) — adicionado em migration 010
 - conversation_id (uuid)
 - content / content_type / sender_type / from_who (text)
-- chatwoot_conversation_id / source_id (text)
+- chatwoot_conversation_id / source_id (text, nullable)
+- created_at (timestamptz)
+
+#### panel_users — NOVA (migration 010)
+- id (uuid, PK = auth.users.id)
+- role (text): `admin` | `operator`
+- client_id (uuid, nullable FK → panel_clients) — obrigatório para operators
 - created_at (timestamptz)
 
 ### Tabelas do painel (panel_*)
@@ -249,31 +266,23 @@ NEXT_PUBLIC_APP_URL = "https://panel-testeworkflow.yvssrw.easypanel.host"
 #### panel_whatsapp_config
 - id (uuid, PK)
 - client_id (uuid, FK → panel_clients, UNIQUE)
-- evolution_instance_name (text, UNIQUE) — slug da instância na Evolution API
+- evolution_instance_name (text, UNIQUE) — **chave de identificação do cliente no webhook Evolution**
 - evolution_instance_id / evolution_instance_token (text)
 - connection_status (text): open / connecting / disconnected
 - connected_phone (text)
-- chatwoot_account_id (integer) — ⚠️ identifica o cliente no webhook
-- chatwoot_inbox_id (integer)
-- chatwoot_agent_token (text) — token do agente bot da account isolada
+- chatwoot_account_id (integer) — legado, não usado no novo pipeline
+- chatwoot_inbox_id (integer) — legado
+- chatwoot_agent_token (text) — legado
 - webhook_url (text)
 - connected_at / disconnected_at / created_at / updated_at (timestamptz)
 
 #### panel_google_config
 - id (uuid, PK)
 - client_id (uuid, FK → panel_clients, UNIQUE)
-- google_email (text) — e-mail do profissional (usado como attendee no convite do evento)
-- calendar_id (text) — **obrigatório** — ID do calendário exclusivo deste cliente na conta central
-  - ⚠️ se não preenchido, o bot bloqueia agendamentos e avisa o paciente
-  - cada cliente deve ter seu próprio calendário criado na conta Google central da Sales Tec
-  - o ID fica visível nas configurações do Google Calendar (ex: `abc123@group.calendar.google.com`)
-- access_token / refresh_token (text) — **não usados pelo bot** (auth é via GOOGLE_REFRESH_TOKEN global)
+- google_email (text) — e-mail do profissional (attendee no convite)
+- calendar_id (text) — **obrigatório** — ID do calendário exclusivo na conta central Google
+- access_token / refresh_token / scopes (não usados — auth via GOOGLE_REFRESH_TOKEN global)
 - token_expiry (timestamptz) — não usado
-- scopes (text[]) — não usado
-
-> **Arquitetura atual**: uma única conta Google central (Sales Tec) gerencia todos os calendários.
-> A autenticação usa `GOOGLE_REFRESH_TOKEN` (env var global) — sem OAuth por cliente.
-> O isolamento entre clientes é feito via `calendar_id` distinto por cliente, não por conta separada.
 
 #### panel_bot_config
 Config completa do AI Agent por cliente:
@@ -281,19 +290,12 @@ Config completa do AI Agent por cliente:
 **Perfil**: professional_name, professional_title, professional_register, business_name, business_segment, business_address, business_phone
 
 **Serviços**: services (jsonb) — `[{ name, duration_minutes, modality, price, active }]`
-Modalidades: `"presencial"` | `"teleconsulta"` | `"ambos"` (expandido no prompt para "presencial ou teleconsulta (online)")
 
 **Horários**: working_hours (jsonb) — `{ monday: { enabled, start, end, break_start, break_end }, ... }`
-appointment_duration_default (int, default 60), appointment_buffer_minutes (int, default 15),
-max_advance_booking_days (int, default 60), min_advance_booking_hours (int, default 2),
+appointment_duration_default / appointment_buffer_minutes / max_advance_booking_days / min_advance_booking_hours (int)
 allow_same_day_booking (bool)
 
 **IA**: ai_greeting_message, ai_tone, ai_language, ai_custom_instructions, ai_fallback_message, ai_handoff_message
-- ai_tone: `"formal"` | `"professional_friendly"` | `"casual"` | `"empathetic"`
-- ai_language: código de idioma (`"pt-BR"`, `"EN"`, `"ES"` etc) — aplicado no system prompt
-
-**Follow-up**: followup_enabled, followup_confirmation_hours_before, followup_reminder_hours_before,
-followup_noshow_enabled, msg_confirmation, msg_reminder, msg_noshow, msg_outside_hours
 
 **Handoff**: handoff_on_negative_sentiment, handoff_on_medical_urgency, handoff_on_unknown_intent,
 handoff_max_ai_turns, handoff_keywords (text[])
@@ -301,14 +303,13 @@ handoff_max_ai_turns, handoff_keywords (text[])
 **Calendar**: calendar_event_title_template, calendar_event_description_template,
 calendar_create_meet_link, calendar_send_invite_to_patient, calendar_color_id
 
-**Chatwoot**: chatwoot_auto_resolve_hours, chatwoot_working_hours_enabled, chatwoot_assign_to_agent_id
+**Chatwoot** (legado): chatwoot_auto_resolve_hours, chatwoot_working_hours_enabled, chatwoot_assign_to_agent_id
 
 #### panel_onboarding_sessions
 - id (uuid, PK)
 - client_id (uuid, FK)
 - token (text, UNIQUE) — URL pública pro cliente
-- step_completed (text): none / whatsapp / google / config / done
-- whatsapp_connected / google_connected / config_completed (bool)
+- step_completed / whatsapp_connected / google_connected / config_completed
 - expires_at (timestamptz)
 
 #### panel_audit_log
@@ -321,9 +322,7 @@ calendar_create_meet_link, calendar_send_invite_to_patient, calendar_color_id
 #### panel_health_checks
 - id (uuid, PK)
 - client_id (uuid, FK)
-- service (text): whatsapp / google_calendar / chatwoot
-- status (text): ok / warning / error
-- details (text)
+- service / status / details (text)
 - response_time_ms (int)
 - checked_at (timestamptz)
 
@@ -338,67 +337,42 @@ GET    /instance/connect/{instance}         — gera QR
 GET    /instance/connectionState/{instance} — status
 GET    /instance/fetchInstances             — lista
 DELETE /instance/delete/{instance}          — remove
-POST   /chatwoot/set/{instance}             — configura integração Chatwoot
-PUT    /instance/webhook/{instance}         — configura webhook
-POST   /message/sendText/{instance}         — envia mensagem (usado pelo dispatcher)
+POST   /chatwoot/set/{instance}             — configura/desabilita integração Chatwoot
+POST   /webhook/set/{instance}              — ⚠️ configura webhook (não PUT /instance/webhook/)
+POST   /message/sendText/{instance}         — envia mensagem
 ```
 Header: `apikey: EVOLUTION_API_KEY`
 
-Na criação da instância, setar Chatwoot com a account isolada do cliente
-(não a account 1). O webhook deve apontar para o painel, não para o n8n.
-
-### Chatwoot API (por account isolada do cliente)
-```
-POST   /auth/sign_in                          — login (plataforma)
-GET    /api/v1/accounts/{id}/inboxes          — lista inboxes
-POST   /api/v1/accounts/{id}/conversations/{id}/labels — atualiza labels
-PATCH  /api/v1/accounts/{id}/conversations/{id} — atualiza status
-```
-Cada cliente usa seu próprio `chatwoot_agent_token` (de `panel_whatsapp_config`).
-
-**Webhook configurado na account do cliente**: aponta para
-`https://panel-testeworkflow.yvssrw.easypanel.host/api/webhooks/chatwoot`
+⚠️ **Endpoint correto para webhook**: `POST /webhook/set/{instance}` com body `{ webhook: { url, ... } }`
+O `PUT /instance/webhook/{instance}` retorna 404 — não usar.
 
 ### Google Calendar (conta central)
 
-A Sales Tec opera uma única conta Google que detém todos os calendários dos clientes.
-O bot autentica com `GOOGLE_REFRESH_TOKEN` (env global) — sem OAuth por cliente.
-
 ```
 Auth: google.auth.OAuth2 com GOOGLE_REFRESH_TOKEN (src/lib/calendar/client.ts)
-Scopes usados: calendar, calendar.events
+Scopes: calendar, calendar.events
 ```
-
-**Fluxo de onboarding do calendário por cliente:**
-1. Admin cria um calendário na conta central Google para o cliente (ex: "Dr. João Silva")
-2. Copia o Calendar ID (ex: `abc123@group.calendar.google.com`) e preenche em `panel_google_config.calendar_id`
-3. Preenche `panel_google_config.google_email` com o e-mail do profissional para receber convites
-4. O bot usa esse `calendar_id` para checar disponibilidade e criar eventos no calendário correto
-
-**Isolamento por cliente:** garantido pelo `calendar_id` distinto — todos na mesma conta Google,
-mas cada cliente só vê e afeta seu próprio calendário.
-
-**Templates de evento** (`panel_bot_config`):
-- `calendar_event_title_template` — default: `[{professional_name}] {service_name} — {patient_name}`
-- `calendar_event_description_template` — default inclui profissional, paciente, telefone, serviço
-- Variáveis disponíveis: `{professional_name}`, `{patient_name}`, `{patient_phone}`, `{service_name}`
-
-> As rotas `/api/auth/google/callback` e `/api/auth/google/public` existem no código mas são
-> legado do plano de OAuth por cliente (nunca finalizado). Atualmente não fazem nada de útil
-> para o bot — o calendário é configurado manualmente pelo admin.
 
 ---
 
 ## Rotas da API do painel
 
-### Bot
-- `POST /api/webhooks/chatwoot` — recebe eventos do Chatwoot (público, sem auth)
+### Bot (webhooks)
+- `POST /api/webhooks/evolution` — ⭐ pipeline principal (público, sem auth)
+- `POST /api/webhooks/chatwoot` — legado (público, sem auth)
+
+### Desk (Painel de Atendimento)
+- `GET /api/desk/conversations?client_id=&stage=` — lista conversas (all|bot_triage|awaiting_human|in_service|resolved)
+- `GET /api/desk/conversations/[id]?client_id=` — conversa + histórico completo
+- `POST /api/desk/conversations/[id]/action` — `{ action: 'assume'|'return'|'resolve' }`
+- `POST /api/desk/conversations/[id]/message` — `{ content }` — envia via Evolution + persiste
+- `GET /api/desk/stats?client_id=` — contagens por stage
 
 ### Clientes
 - `GET/POST /api/clients` — lista / cria cliente
 - `GET/PATCH/DELETE /api/clients/[id]` — detalhe / atualiza / deleta
 - `POST /api/clients/[id]/activate` — ativa cliente
-- `DELETE /api/clients/[id]/history` — **reseta histórico**: apaga messages, conversations, ai_pauses, appointments do cliente
+- `DELETE /api/clients/[id]/history` — reseta histórico (messages, conversations, ai_pauses, appointments)
 
 ### Auth / OAuth
 - `GET /api/auth/callback` — callback Supabase Auth
@@ -417,18 +391,66 @@ mas cada cliente só vê e afeta seu próprio calendário.
 
 `src/lib/supabase/middleware.ts` — protege todas as rotas.
 
-Rotas públicas (sem auth):
-- `/api/auth/callback`
-- `/api/auth/google/callback`
-- `/api/auth/google/public`
+Rotas públicas (sem auth middleware):
+- `/api/auth/callback`, `/api/auth/google/*`
 - `/api/health/*`
 - `/connect/*` (onboarding público)
 - rotas com `/public-qr`
-- **`/api/webhooks/chatwoot`** ← crítico, deve permanecer público
+- `/api/webhooks/chatwoot` e `/api/webhooks/evolution` ← críticos, devem permanecer públicos
+- `/api/desk/*` ← público no middleware, mas autenticado internamente via `resolveDeskUser()`
+- `/api/pipeline/*`, `/api/agenda/*`
+
+### resolveDeskUser (src/lib/desk/auth.ts)
+
+Resolve `client_id` para as APIs do Desk:
+- **Operators** (`panel_users.role = 'operator'`): `client_id` vem de `panel_users.client_id`
+- **Admins** (`panel_users.role = 'admin'`) ou usuários sem `panel_users`: `client_id` vem de `?client_id=` query param
 
 ---
 
-## Funcionalidades do painel
+## Desk — Painel de Atendimento
+
+### Componentes
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `src/app/desk/page.tsx` | Server component — resolve clientId, renderiza DeskShell |
+| `src/app/desk/layout.tsx` | Auth check, força dynamic |
+| `src/components/desk/desk-shell.tsx` | Shell 2 colunas — lista + chat, Realtime global |
+| `src/components/desk/conversation-list.tsx` | Sidebar com tabs de stage + lista de cards |
+| `src/components/desk/chat-view.tsx` | Chat com histórico, ações e input de operador |
+
+### Stages das conversas
+
+```
+bot_triage     → bot está atendendo (padrão ao criar)
+awaiting_human → bot fez handoff, aguardando operador
+in_service     → operador assumiu, pode enviar mensagens
+resolved       → finalizado
+```
+
+### Ações do operador
+
+- **Assumir** (de `bot_triage` ou `awaiting_human`): cria `ai_pauses` (24h), muda para `in_service`
+- **Devolver ao bot** (de `in_service`): remove `ai_pauses`, muda para `bot_triage`
+- **Finalizar**: remove `ai_pauses`, muda para `resolved`
+
+### Realtime
+
+- Canal `desk:{clientId}` escuta mudanças na tabela `conversations` filtradas por `client_id`
+- Canal `chat:{conversationId}` escuta INSERT em `messages` e UPDATE em `conversations`
+- Notificações via toast (Sonner) + browser Notification API para `awaiting_human`
+
+### UI/UX
+
+- Sidebar padrão abre em "Todas ativas" (exclui resolved)
+- Conversas com `stage = NULL` (legado Chatwoot) são excluídas pelo filtro `client_id` — não aparecem no Desk
+- Input de mensagem bloqueado até assumir a conversa
+- Operador pode assumir direto do `bot_triage` (não precisa esperar handoff)
+
+---
+
+## Funcionalidades do painel admin
 
 ### Dashboard
 - Lista de clientes com status visual (WhatsApp, Google, Bot)
@@ -436,45 +458,43 @@ Rotas públicas (sem auth):
 - Health check em tempo real (polling Evolution a cada 30s)
 - Audit log recente
 
-### Onboarding wizard (5 etapas)
-1. Dados do negócio (nome, responsável, email, segmento)
-2. WhatsApp — cria instância Evolution + QR code em tempo real
-3. Google Calendar — OAuth flow, seleciona calendário
-4. Configuração do bot — formulário completo com seções colapsáveis
-5. Revisão e ativação
-
 ### Página do cliente
 - Status cards (WhatsApp, Google, Bot)
 - Reconectar WhatsApp / renovar Google
 - Editar configuração do bot
-- **Pausar/Ativar** — para/retoma o bot (verificado no pipeline)
+- **Pausar/Ativar** — para/retoma o bot
 - **Resetar histórico** — apaga messages/conversations/ai_pauses/appointments para testes
-- **Apagar cliente** — remove tudo (Evolution instance, Chatwoot account, Supabase)
+- **Apagar cliente** — remove tudo
+- **Desk** — link direto para `/desk?client_id={id}`
 - Métricas básicas e audit log
 
-### Link público de onboarding
-- URL: `/connect/[token]` — expira em 48h
-- QR code em tempo real, OAuth Google, config simplificada
-- Sem login necessário
+### Pipeline
+- Kanban das conversas por stage_label (sistema legado de labels Chatwoot)
+- ⚠️ Mostra conversas **antigas** (pré-migration) que usam labels, não o campo `stage`
+- As conversas do novo pipeline Evolution (com campo `stage`) aparecem no **Desk**, não no Pipeline
 
 ---
 
 ## Stack técnica
 
 - **Framework**: Next.js 16 (App Router)
-- **Linguagem**: TypeScript (ignoreBuildErrors: true no next.config.ts — type check local)
+- **Linguagem**: TypeScript (ignoreBuildErrors: true no next.config.ts)
 - **Estilo**: Tailwind CSS + shadcn/ui
+- **UI Dialogs**: `@base-ui/react/dialog` — NÃO usar alert-dialog (não existe nesse projeto)
+- **Datas**: JavaScript nativo — `date-fns` NÃO está instalado
 - **Banco**: Supabase (PostgreSQL)
 - **Auth**: Supabase Auth (email/senha para admins)
+- **Realtime**: Supabase Realtime (postgres_changes) — usado pelo Desk
 - **Deploy**: EasyPanel — serviço `testeworkflow`, projeto `panel`
 - **Build**: Nixpacks 1.41.0
 - **Porta**: 80 (EasyPanel seta PORT=80)
 
 ### Gotchas de deploy
 - `NEXT_PUBLIC_*` devem estar no `nixpacks.toml` para build time
-- `createAiClient()` deve ser chamado DENTRO das funções, nunca no module level (causa erro no build)
-- O SIGTERM nos logs após "Ready" é o container **anterior** sendo finalizado (normal com zeroDowntime)
-- `NEXT_PUBLIC_APP_URL` com trailing slash é tratado em `getPanelWebhookUrl()` com `.replace(/\/$/, '')`
+- `createAiClient()` deve ser chamado DENTRO das funções, nunca no module level
+- O SIGTERM nos logs após "Ready" é o container **anterior** sendo finalizado (normal)
+- `NEXT_PUBLIC_APP_URL` com trailing slash é tratado com `.replace(/\/$/, '')`
+- Páginas que fazem queries Supabase precisam de `export const dynamic = 'force-dynamic'`
 
 ---
 
@@ -491,5 +511,5 @@ Rotas públicas (sem auth):
 - Variáveis sensíveis via env, nunca no código
 - Commits em português, imperativos, < 72 chars
 - Prefixo `panel_` nas tabelas do painel
-- Validação com zod
 - Loading states + toast notifications em toda operação assíncrona
+- Verificar CLAUDE.md e tabelas existentes antes de criar qualquer nova tabela ou coluna

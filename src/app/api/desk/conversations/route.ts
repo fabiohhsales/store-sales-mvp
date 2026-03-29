@@ -14,39 +14,26 @@ export async function GET(request: NextRequest) {
   console.log('[desk/conversations] clientId=%s stage=%s', deskUser.clientId, stage)
   const admin = createAdminClient()
 
+  const baseSelect = `
+    id, stage, status, labels, summary, assigned_operator_id,
+    last_incoming_at, last_outgoing_at, last_outgoing_by, created_at,
+    contacts ( id, name, phone_number )
+  `
+
   let query = admin
     .from('conversations')
-    .select(`
-      id,
-      stage,
-      status,
-      labels,
-      summary,
-      assigned_operator_id,
-      last_incoming_at,
-      last_outgoing_at,
-      last_outgoing_by,
-      created_at,
-      contacts ( id, name, phone_number )
-    `)
+    .select(baseSelect)
     .eq('client_id', deskUser.clientId)
-    .neq('stage', 'resolved')
     .order('last_incoming_at', { ascending: false, nullsFirst: false })
 
-  if (stage !== 'all' && stage !== 'resolved') {
+  if (stage === 'resolved') {
+    query = query.eq('stage', 'resolved')
+  } else if (stage !== 'all') {
+    // filtro específico: bot_triage | awaiting_human | in_service
     query = query.eq('stage', stage)
-  } else if (stage === 'resolved') {
-    query = admin
-      .from('conversations')
-      .select(`
-        id, stage, status, labels, summary, assigned_operator_id,
-        last_incoming_at, last_outgoing_at, last_outgoing_by, created_at,
-        contacts ( id, name, phone_number )
-      `)
-      .eq('client_id', deskUser.clientId)
-      .eq('stage', 'resolved')
-      .order('last_incoming_at', { ascending: false, nullsFirst: false })
-      .limit(50)
+  } else {
+    // 'all' = tudo exceto resolved (inclui stage IS NULL para conversas legadas)
+    query = query.or('stage.neq.resolved,stage.is.null')
   }
 
   const { data, error } = await query.limit(100)

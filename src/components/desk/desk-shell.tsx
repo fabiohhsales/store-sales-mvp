@@ -32,13 +32,20 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
   const [stageFilter, setStageFilter] = useState<string>('all')
   const [pendingCount, setPendingCount] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const router = useRouter()
 
   const fetchConversations = useCallback(async (stage: string) => {
+    setFetchError(null)
     const res = await fetch(`/api/desk/conversations?client_id=${clientId}&stage=${stage}`)
     if (res.ok) {
       const data = await res.json()
       setConversations(data)
+    } else {
+      const body = await res.json().catch(() => ({}))
+      const msg = body?.error ?? `HTTP ${res.status}`
+      console.error('[desk] fetchConversations error:', msg)
+      setFetchError(msg)
     }
     setLoading(false)
   }, [clientId])
@@ -146,17 +153,30 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
           )}
         </div>
 
-        <ConversationList
-          conversations={conversations}
-          selectedId={selectedId}
-          stageFilter={stageFilter}
-          loading={loading}
-          onSelect={setSelectedId}
-          onStageChange={(s) => {
-            setStageFilter(s)
-            setSelectedId(null)
-          }}
-        />
+        {fetchError ? (
+          <div className="flex flex-col items-center justify-center flex-1 gap-2 p-4 text-center">
+            <p className="text-xs font-medium text-destructive">Erro ao carregar</p>
+            <p className="text-[11px] text-muted-foreground break-all">{fetchError}</p>
+            <button
+              onClick={() => fetchConversations(stageFilter)}
+              className="mt-1 text-xs text-primary underline underline-offset-2"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        ) : (
+          <ConversationList
+            conversations={conversations}
+            selectedId={selectedId}
+            stageFilter={stageFilter}
+            loading={loading}
+            onSelect={setSelectedId}
+            onStageChange={(s) => {
+              setStageFilter(s)
+              setSelectedId(null)
+            }}
+          />
+        )}
       </aside>
 
       {/* Coluna central — chat */}
