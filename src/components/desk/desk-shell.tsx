@@ -29,7 +29,7 @@ interface Props {
 export function DeskShell({ clientId, clientName, userEmail }: Props) {
   const [conversations, setConversations] = useState<DeskConversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [stageFilter, setStageFilter] = useState<string>('awaiting_human')
+  const [stageFilter, setStageFilter] = useState<string>('bot_triage')
   const [pendingCount, setPendingCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
