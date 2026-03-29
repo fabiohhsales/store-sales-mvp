@@ -140,6 +140,7 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
     // Chamada API
     try {
       const body = {
+        conversation_id: draggedConv.id,
         chatwoot_conversation_id: draggedConv.chatwoot_conversation_id,
         from_stage: draggedConv.stage_slug,
         to_stage: targetColumnId,
@@ -167,36 +168,32 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
   }
 
   function handleMoveStage(
-    _conversationId: string,
-    chatwootId: number,
+    conversationId: string,
+    chatwootId: number | null,
     fromStage: string,
     toStage: string
   ) {
-    // Update otimista
+    // Update otimista por UUID
     setData((prev) => {
       if (!prev) return prev
       return {
         ...prev,
         conversations: prev.conversations.map((c) =>
-          c.chatwoot_conversation_id === chatwootId
-            ? { ...c, stage_slug: toStage }
-            : c
+          c.id === conversationId ? { ...c, stage_slug: toStage } : c
         ),
       }
     })
 
-    // Atualiza o conversation selecionado no modal
     setSelectedConversation((prev) =>
-      prev && prev.chatwoot_conversation_id === chatwootId
-        ? { ...prev, stage_slug: toStage }
-        : prev
+      prev && prev.id === conversationId ? { ...prev, stage_slug: toStage } : prev
     )
 
-    // API call
+    // API call — passa UUID como chave principal
     fetch('/api/pipeline/move', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        conversation_id: conversationId,
         chatwoot_conversation_id: chatwootId,
         from_stage: fromStage,
         to_stage: toStage,

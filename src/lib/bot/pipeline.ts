@@ -422,9 +422,9 @@ export async function runEvolutionPipeline(
   const contact = await upsertEvolutionContact(supabase, msg, clientContext.clientId)
   const conversation = await upsertEvolutionConversation(supabase, contact, clientContext.clientId, stageSlugs[0])
 
-  // Operador assumiu a conversa — bot não responde
-  if (conversation.stage === 'in_service') {
-    console.log(`[Pipeline] conv=${conversation.id} em atendimento humano — bot silenciado`)
+  // Bot silenciado quando humano está envolvido (awaiting ou atendendo)
+  if (conversation.stage === 'in_service' || conversation.stage === 'awaiting_human') {
+    console.log(`[Pipeline] conv=${conversation.id} stage=${conversation.stage} — bot silenciado`)
     await saveEvolutionMessage(supabase, msg, conversation, clientContext.clientId)
     return null
   }

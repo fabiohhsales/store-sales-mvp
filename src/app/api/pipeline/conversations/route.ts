@@ -14,54 +14,27 @@ export async function GET(request: NextRequest) {
     const auth = await authenticateRequest(token, clientId)
     const admin = createAdminClient()
 
-    // 1. Busca config Chatwoot — tenta panel_whatsapp_config, depois panel_clients
-    const [{ data: whatsappConfig }, { data: clientRow }] = await Promise.all([
-      admin
-        .from('panel_whatsapp_config')
-        .select('chatwoot_account_id, chatwoot_agent_token')
-        .eq('client_id', auth.client_id)
-        .maybeSingle(),
-      admin
-        .from('panel_clients')
-        .select('chatwoot_account_id, chatwoot_agent_token')
-        .eq('id', auth.client_id)
-        .maybeSingle(),
-    ])
-
-    const chatwootConfig = {
-      chatwoot_account_id:
-        whatsappConfig?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null,
-      chatwoot_agent_token:
-        whatsappConfig?.chatwoot_agent_token ?? clientRow?.chatwoot_agent_token ?? null,
-    }
-
-    if (!chatwootConfig.chatwoot_account_id) {
-      return NextResponse.json(
-        { error: 'Cliente sem configuração WhatsApp/Chatwoot' },
-        { status: 404 }
-      )
-    }
-
-    // 2. Busca stage_labels
+    // Busca stage_labels do bot config
     const botConfig = await getBotConfigByClientId(auth.client_id)
     const stageLabels = sanitizeStageLabels(botConfig?.stage_labels)
 
-    // 3. Query conversations
+    // Query conversations por client_id (novo modelo Evolution)
     let query = admin
       .from('conversations')
       .select('*, contacts!inner(name, phone_number, identifier)')
-      .eq('account_id', chatwootConfig.chatwoot_account_id)
+      .eq('client_id', auth.client_id)
+      .neq('stage', 'resolved')
 
     if (statusFilter && statusFilter !== 'all') {
       query = query.eq('status', statusFilter)
     }
 
     const { data: conversations, error: convError } = await query
-      .order('updated_at', { ascending: false })
+      .order('last_incoming_at', { ascending: false, nullsFirst: false })
 
     if (convError) throw convError
 
-    // 4. Busca appointments mais recentes por conversation
+    // Busca appointments mais recentes por conversation
     const conversationIds = (conversations || []).map((c: Record<string, unknown>) => c.id as string)
     const appointmentsMap: Record<string, Record<string, unknown>> = {}
 
@@ -74,7 +47,6 @@ export async function GET(request: NextRequest) {
 
       if (appointments) {
         for (const apt of appointments) {
-          // Mantém só o mais recente por conversation
           if (!appointmentsMap[apt.conversation_id]) {
             appointmentsMap[apt.conversation_id] = apt
           }
@@ -82,23 +54,26 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 5. Mapeia para PipelineConversation
+    // Monta conjunto de slugs válidos para identificar stage label
     const stageSlugs = new Set(stageLabels.map((s) => s.slug))
 
     const pipelineConversations: PipelineConversation[] = (conversations || []).map(
       (conv: Record<string, unknown>) => {
         const contact = conv.contacts as Record<string, unknown> | null
         const labels = (conv.labels as string[]) || []
+
+        // stage_slug: prioriza labels com prefixo etapa_, fallback para _sem_etapa
         const stageSlug = labels.find((l) => stageSlugs.has(l)) || '_sem_etapa'
+
         const apt = appointmentsMap[conv.id as string] || null
 
         return {
           id: conv.id as string,
-          chatwoot_conversation_id: conv.chatwoot_conversation_id as number,
+          chatwoot_conversation_id: (conv.chatwoot_conversation_id as number) ?? null,
           contact_name: (contact?.name as string) || null,
           contact_phone: (contact?.phone_number as string) || null,
           contact_identifier: (contact?.identifier as string) || null,
-          status: conv.status as 'pending' | 'open' | 'resolved',
+          status: (conv.status as 'pending' | 'open' | 'resolved') || 'open',
           stage_slug: stageSlug,
           labels,
           last_incoming_at: (conv.last_incoming_at as string) || null,
@@ -118,7 +93,7 @@ export async function GET(request: NextRequest) {
       }
     )
 
-    // Adiciona coluna "Sem etapa" se houver conversations sem stage
+    // Coluna "Sem etapa" se houver conversas sem stage label
     const hasUnstaged = pipelineConversations.some((c) => c.stage_slug === '_sem_etapa')
     const columns = hasUnstaged
       ? [{ slug: '_sem_etapa', display_name: 'Sem etapa' }, ...stageLabels]
@@ -127,7 +102,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       columns,
       conversations: pipelineConversations,
-      chatwootAccountId: chatwootConfig.chatwoot_account_id,
+      chatwootAccountId: null,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro interno'

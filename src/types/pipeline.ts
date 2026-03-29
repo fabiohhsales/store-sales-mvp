@@ -10,7 +10,7 @@ export interface PipelineAppointment {
 
 export interface PipelineConversation {
   id: string
-  chatwoot_conversation_id: number
+  chatwoot_conversation_id: number | null
   contact_name: string | null
   contact_phone: string | null
   contact_identifier: string | null

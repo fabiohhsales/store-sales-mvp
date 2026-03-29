@@ -5,9 +5,13 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { ConversationList } from './conversation-list'
 import { ChatView } from './chat-view'
-import { LogOut, MessageSquare, Bell, ArrowLeft } from 'lucide-react'
+import { KanbanBoard } from '@/components/pipeline/kanban-board'
+import { AgendaTable } from '@/components/agenda/agenda-table'
+import { LogOut, MessageSquare, Bell, ArrowLeft, Kanban, CalendarDays } from 'lucide-react'
 import { logout } from '@/lib/actions/auth'
 import { toast } from 'sonner'
+
+type DeskTab = 'conversations' | 'pipeline' | 'agenda'
 
 export interface DeskConversation {
   id: string
@@ -27,6 +31,7 @@ interface Props {
 }
 
 export function DeskShell({ clientId, clientName, userEmail }: Props) {
+  const [activeTab, setActiveTab] = useState<DeskTab>('conversations')
   const [conversations, setConversations] = useState<DeskConversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [stageFilter, setStageFilter] = useState<string>('all')
@@ -136,8 +141,8 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
 
   return (
     <div className="flex h-full w-full overflow-hidden">
-      {/* Coluna esquerda — fila */}
-      <aside className="hidden md:flex w-72 flex-shrink-0 flex-col border-r border-border bg-card/50">
+      {/* Coluna esquerda — fila de conversas (só na aba Conversas) */}
+      {activeTab === 'conversations' && <aside className="hidden md:flex w-72 flex-shrink-0 flex-col border-r border-border bg-card/50">
         {/* Header da sidebar */}
         <div className="flex h-14 items-center justify-between border-b border-border px-4">
           <div className="flex items-center gap-2">
@@ -177,9 +182,9 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
             }}
           />
         )}
-      </aside>
+      </aside>}
 
-      {/* Coluna central — chat */}
+      {/* Coluna central — conteúdo principal */}
       <main className="flex flex-1 flex-col overflow-hidden">
         {/* Header do Desk */}
         <header className="flex h-14 items-center justify-between border-b border-border px-4 bg-card/50 backdrop-blur-sm flex-shrink-0">
@@ -191,22 +196,53 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
             >
               <ArrowLeft size={16} />
             </a>
-            {selectedConversation ? (
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  {selectedConversation.contacts?.name ?? selectedConversation.contacts?.phone_number ?? 'Contato'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {selectedConversation.contacts?.phone_number}
-                </p>
-              </div>
-            ) : (
-              <span className="text-sm font-medium text-foreground">Painel de Atendimento</span>
-            )}
+
+            {/* Abas de navegação */}
+            <nav className="flex items-center gap-1">
+              <button
+                onClick={() => setActiveTab('conversations')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeTab === 'conversations'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                }`}
+              >
+                <MessageSquare size={13} />
+                <span className="hidden sm:inline">Conversas</span>
+                {pendingCount > 0 && activeTab !== 'conversations' && (
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-white">
+                    {pendingCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('pipeline')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeTab === 'pipeline'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                }`}
+              >
+                <Kanban size={13} />
+                <span className="hidden sm:inline">Pipeline</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('agenda')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeTab === 'agenda'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                }`}
+              >
+                <CalendarDays size={13} />
+                <span className="hidden sm:inline">Agenda</span>
+              </button>
+            </nav>
           </div>
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setActiveTab('conversations')}
               className="relative p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
               title="Notificações"
             >
@@ -230,28 +266,44 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
           </div>
         </header>
 
-        {/* Chat */}
-        {selectedId ? (
-          <ChatView
-            key={selectedId}
-            conversationId={selectedId}
-            clientId={clientId}
-            onConversationUpdate={() => fetchConversations(stageFilter)}
-          />
-        ) : (
-          <div className="flex flex-1 items-center justify-center text-center p-8">
-            <div className="space-y-2">
-              <MessageSquare size={40} className="mx-auto text-muted-foreground/40" />
-              <p className="text-sm font-medium text-muted-foreground">
-                Selecione uma conversa para atender
-              </p>
-              {pendingCount > 0 && (
-                <p className="text-xs text-destructive font-medium">
-                  {pendingCount} {pendingCount === 1 ? 'paciente aguardando' : 'pacientes aguardando'}
-                </p>
-              )}
-            </div>
+        {/* Conteúdo por aba */}
+        {activeTab === 'pipeline' && (
+          <div className="flex-1 overflow-hidden">
+            <KanbanBoard clientId={clientId} />
           </div>
+        )}
+
+        {activeTab === 'agenda' && (
+          <div className="flex-1 overflow-auto">
+            <AgendaTable clientId={clientId} />
+          </div>
+        )}
+
+        {activeTab === 'conversations' && (
+          <>
+            {selectedId ? (
+              <ChatView
+                key={selectedId}
+                conversationId={selectedId}
+                clientId={clientId}
+                onConversationUpdate={() => fetchConversations(stageFilter)}
+              />
+            ) : (
+              <div className="flex flex-1 items-center justify-center text-center p-8">
+                <div className="space-y-2">
+                  <MessageSquare size={40} className="mx-auto text-muted-foreground/40" />
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Selecione uma conversa para atender
+                  </p>
+                  {pendingCount > 0 && (
+                    <p className="text-xs text-destructive font-medium">
+                      {pendingCount} {pendingCount === 1 ? 'paciente aguardando' : 'pacientes aguardando'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>

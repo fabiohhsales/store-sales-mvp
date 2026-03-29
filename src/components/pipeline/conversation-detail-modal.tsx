@@ -27,7 +27,7 @@ interface ConversationDetailModalProps {
   columns: StageLabelConfig[]
   open: boolean
   onOpenChange: (open: boolean) => void
-  onMoveStage: (conversationId: string, chatwootId: number, fromStage: string, toStage: string) => void
+  onMoveStage: (conversationId: string, chatwootId: number | null, fromStage: string, toStage: string) => void
   clientId: string
   token?: string
   chatwootAccountId?: number | null
@@ -175,7 +175,7 @@ export function ConversationDetailModal({
           <Select
             value={conversation.stage_slug}
             onValueChange={(newStage) => {
-              if (newStage !== conversation.stage_slug) {
+              if (newStage && newStage !== conversation.stage_slug) {
                 onMoveStage(
                   conversation.id,
                   conversation.chatwoot_conversation_id,
