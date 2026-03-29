@@ -2,11 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClientRecord, updateClient, listClients } from '@/lib/db/clients'
 import { insertAuditLog } from '@/lib/db/audit-log'
-import { createChatwootAccount, createChatwootAgent, configureChatwootWebhook, ensureChatwootLabels } from '@/lib/api/chatwoot'
+import {
+  createChatwootAccount,
+  createChatwootAgent,
+  configureChatwootWebhook,
+  deleteChatwootAccount,
+  ensureChatwootLabels,
+} from '@/lib/api/chatwoot'
 import { getPanelWebhookUrl } from '@/lib/api/evolution'
 import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
 import type { PanelClientInsert, ProvisionedChatwootAgent } from '@/types/database'
 import type { ChatwootAgentRole } from '@/types/api'
+
+interface ChatwootProvisioningResult {
+  ok: boolean
+  accountId: number | null
+  loginEmail: string | null
+  error: string | null
+}
 
 function parseChatwootUsers(input: unknown): ProvisionedChatwootAgent[] {
   if (!Array.isArray(input)) return []
@@ -96,10 +109,19 @@ export async function POST(request: NextRequest) {
 
     const client = await createClientRecord(clientData)
 
-    // Provisiona account Chatwoot imediatamente após criar o cliente (não-bloqueante)
-    provisionChatwootForClient(client.id, name, email, owner_name, chatwootUsers).catch((err) =>
+    let provisioning: ChatwootProvisioningResult
+    try {
+      provisioning = await provisionChatwootForClient(client.id, name, email, owner_name, chatwootUsers)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao provisionar Chatwoot'
       console.error(`[Clients] Falha ao provisionar Chatwoot para cliente ${client.id}:`, err)
-    )
+      provisioning = {
+        ok: false,
+        accountId: null,
+        loginEmail: null,
+        error: message,
+      }
+    }
 
     await insertAuditLog({
       admin_email: user.email!,
@@ -112,10 +134,20 @@ export async function POST(request: NextRequest) {
         phone,
         business_segment,
         provisioned_agents_count: chatwootUsers.length,
+        chatwoot_provisioned: provisioning.ok,
+        chatwoot_provisioning_error: provisioning.error,
       },
     })
 
-    return NextResponse.json(client, { status: 201 })
+    return NextResponse.json(
+      {
+        ...client,
+        chatwoot_account_id: provisioning.accountId ?? client.chatwoot_account_id ?? null,
+        chatwoot_email: provisioning.loginEmail ?? client.chatwoot_email ?? null,
+        chatwoot_provisioning: provisioning,
+      },
+      { status: 201 }
+    )
   } catch (error) {
     console.error('Erro ao criar cliente:', error)
     return NextResponse.json(
@@ -143,7 +175,10 @@ async function provisionChatwootForClient(
   email: string,
   ownerName: string,
   agents: ProvisionedChatwootAgent[]
-): Promise<void> {
+) : Promise<ChatwootProvisioningResult> {
+  let createdAccountId: number | null = null
+  let createdAccountToken: string | null = null
+
   try {
     console.log(`[Clients] Provisionando Chatwoot para cliente "${name}" (${clientId})`)
 
@@ -151,6 +186,8 @@ async function provisionChatwootForClient(
     const tempInstanceName = `client-${clientId.slice(0, 8)}`
 
     const account = await withRetry(() => createChatwootAccount(name, email, ownerName, tempInstanceName))
+    createdAccountId = account.id
+    createdAccountToken = account.access_token
 
     const panelWebhookUrl = getPanelWebhookUrl()
     await withRetry(() => configureChatwootWebhook(account.id, account.access_token, panelWebhookUrl))
@@ -176,7 +213,26 @@ async function provisionChatwootForClient(
     })
 
     console.log(`[Clients] Chatwoot provisionado: Account #${account.id} para cliente ${clientId}`)
+    return {
+      ok: true,
+      accountId: account.id,
+      loginEmail: account.login_email ?? email,
+      error: null,
+    }
   } catch (err) {
+    if (createdAccountId && createdAccountToken) {
+      try {
+        const cleanup = await deleteChatwootAccount(createdAccountId, createdAccountToken)
+        if (!cleanup.deleted) {
+          console.warn(
+            `[Clients] Cleanup da account Chatwoot ${createdAccountId} falhou: ${cleanup.error ?? 'sem detalhes'}`
+          )
+        }
+      } catch (cleanupError) {
+        console.warn(`[Clients] Erro ao limpar account Chatwoot ${createdAccountId}:`, cleanupError)
+      }
+    }
+
     console.error(`[Clients] Erro ao provisionar Chatwoot para ${clientId}:`, err)
     throw err
   }

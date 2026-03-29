@@ -98,6 +98,18 @@ Validação robusta do JSON retornado pela OpenAI:
 - Atualiza `followup_cadence` na conversa baseado no output do agente
 - Suporte a handoff com condições configuráveis
 
+### 2.6 Hardening Final do Chatwoot
+
+Dois ajustes finais foram aplicados após a revisão do diff remoto:
+
+- **Regeneração segura dos Dashboard Apps**: `setup-chatwoot-apps` deixou de remover apps/tokens antigos antes do novo setup ficar pronto. Agora o fluxo cria novos tokens e novos embeds primeiro, só faz cleanup do setup anterior após sucesso completo e faz rollback apenas dos recursos recém-criados em caso de falha.
+- **Rollback no provisionamento manual**: `provision-chatwoot` agora reaproveita credenciais legadas válidas de `panel_whatsapp_config`, faz backfill em `panel_clients` e, quando uma conta nova é criada mas a persistência crítica falha depois, tenta excluir a conta recém-criada para evitar órfãos no Chatwoot.
+
+### 2.7 Testes Automatizados Adicionados Neste Hardening
+
+- `tests/setup-chatwoot-apps.route.test.ts` cobre a falha na criação do segundo Dashboard App e verifica que apps/tokens antigos permanecem válidos enquanto os novos recursos parciais são revertidos.
+- `tests/provision-chatwoot.route.test.ts` cobre a falha após `createChatwootAccount()` e verifica que `deleteChatwootAccount()` é chamado para rollback.
+
 ---
 
 ## 3. Migrations SQL

@@ -1,9 +1,24 @@
 import type { NextConfig } from "next";
 
-// Domínio do Chatwoot self-hosted (ex: https://chat.exemplo.com).
-// Precisa estar definido em CHATWOOT_URL para que o CSP frame-ancestors
-// permita que o Chatwoot renderize os iframes de Dashboard Apps.
-const chatwootOrigin = (process.env.CHATWOOT_URL ?? '').replace(/\/$/, '')
+function normalizeOrigin(rawUrl?: string): string | null {
+  if (!rawUrl) return null
+  try {
+    return new URL(rawUrl).origin
+  } catch {
+    return null
+  }
+}
+
+// Permite tanto a origem interna usada pelo servidor quanto a origem pública
+// acessada pelo navegador ao embutir os Dashboard Apps do Chatwoot.
+const chatwootFrameAncestors = Array.from(
+  new Set(
+    [
+      normalizeOrigin(process.env.CHATWOOT_URL),
+      normalizeOrigin(process.env.NEXT_PUBLIC_CHATWOOT_URL),
+    ].filter((value): value is string => Boolean(value))
+  )
+)
 
 const nextConfig: NextConfig = {
   typescript: {
@@ -18,7 +33,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: `frame-ancestors 'self'${chatwootOrigin ? ` ${chatwootOrigin}` : ''}`,
+            value: `frame-ancestors 'self'${chatwootFrameAncestors.length ? ` ${chatwootFrameAncestors.join(' ')}` : ''}`,
           },
         ],
       },

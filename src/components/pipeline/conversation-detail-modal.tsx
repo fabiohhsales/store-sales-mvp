@@ -74,15 +74,20 @@ export function ConversationDetailModal({
 }: ConversationDetailModalProps) {
   const chatwootUrl = getChatwootPublicUrl()
   const [messages, setMessages] = useState<MessageEntry[]>([])
-  const [loadingMessages, setLoadingMessages] = useState(false)
+  const [loadedConversationId, setLoadedConversationId] = useState<string | null>(null)
+
+  const loadingMessages = Boolean(
+    conversation &&
+    open &&
+    loadedConversationId !== conversation.id
+  )
 
   useEffect(() => {
     if (!conversation || !open) {
-      setMessages([])
       return
     }
 
-    setLoadingMessages(true)
+    let cancelled = false
     const params = new URLSearchParams({
       conversation_id: conversation.id,
       ...(token ? { token } : { client_id: clientId }),
@@ -90,9 +95,22 @@ export function ConversationDetailModal({
 
     fetch(`/api/pipeline/messages?${params}`)
       .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setMessages(data))
-      .catch(() => setMessages([]))
-      .finally(() => setLoadingMessages(false))
+      .then((data) => {
+        if (!cancelled) {
+          setMessages(data)
+          setLoadedConversationId(conversation.id)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMessages([])
+          setLoadedConversationId(conversation.id)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [conversation, open, clientId, token])
 
   if (!conversation) return null

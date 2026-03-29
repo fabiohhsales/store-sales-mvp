@@ -10,6 +10,8 @@ import { DEFAULT_STAGE_LABELS, sanitizeStageLabels } from '@/lib/bot/stage-label
 import type { PanelWhatsAppConfigInsert } from '@/types/database'
 import type { ChatwootAccount } from '@/types/api'
 
+type ChatwootAccountCredentials = Pick<ChatwootAccount, 'id' | 'access_token' | 'login_email'>
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -48,14 +50,13 @@ export async function POST(request: NextRequest) {
     const existingToken = client.chatwoot_agent_token ?? null
 
     try {
-      let chatwootAccount: ChatwootAccount
+      let chatwootAccount: ChatwootAccountCredentials
 
       if (existingAccountId && existingToken) {
         // Reutiliza account pré-provisionada (criada no cadastro do cliente)
         console.log(`[WhatsApp] Etapa 1: Reutilizando Account Chatwoot #${existingAccountId} para "${client.name}"`)
         chatwootAccount = {
           id: existingAccountId,
-          name: client.name,
           access_token: existingToken,
           login_email: client.chatwoot_email ?? client.email,
         }
