@@ -3,6 +3,12 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getClientById } from '@/lib/db/clients'
 
+type AdminClient = ReturnType<typeof createAdminClient>
+type ChatwootDashboardApp = { id: number; title: string }
+type EmbedTokenRow = { token: string; label: string }
+
+const EMBED_LABELS = ['Pipeline (Chatwoot)', 'Agenda (Chatwoot)'] as const
+
 function normalizeAbsoluteUrl(rawUrl: string | null | undefined, label: string): string | null {
   const trimmed = rawUrl?.trim()
   if (!trimmed) return null
@@ -72,7 +78,7 @@ async function listChatwootDashboardApps(
   chatwootBaseUrl: string,
   accountId: number,
   agentToken: string
-): Promise<Array<{ id: number; title: string }>> {
+): Promise<ChatwootDashboardApp[]> {
   try {
     const res = await fetch(
       `${chatwootBaseUrl}/api/v1/accounts/${accountId}/dashboard_apps`,
@@ -84,6 +90,61 @@ async function listChatwootDashboardApps(
     return Array.isArray(data) ? data : (data?.payload ?? [])
   } catch {
     return []
+  }
+}
+
+async function listExistingEmbedTokens(
+  admin: AdminClient,
+  clientId: string
+): Promise<EmbedTokenRow[]> {
+  const { data, error } = await admin
+    .from('panel_embed_tokens')
+    .select('token, label')
+    .eq('client_id', clientId)
+    .in('label', Array.from(EMBED_LABELS))
+
+  if (error) {
+    throw new Error(`Erro ao listar tokens embed existentes: ${error.message}`)
+  }
+
+  return (data ?? []) as EmbedTokenRow[]
+}
+
+async function createEmbedToken(
+  admin: AdminClient,
+  userId: string,
+  clientId: string,
+  label: (typeof EMBED_LABELS)[number]
+): Promise<string> {
+  const { data, error } = await admin
+    .from('panel_embed_tokens')
+    .insert({
+      user_id: userId,
+      client_id: clientId,
+      label,
+    })
+    .select('token')
+    .single()
+
+  const tokenRow = data as { token?: string } | null
+  if (error || !tokenRow?.token) {
+    const target = label === 'Pipeline (Chatwoot)' ? 'kanban' : 'agenda'
+    throw new Error(`Erro ao criar token do ${target}`)
+  }
+
+  return tokenRow.token
+}
+
+async function deleteEmbedTokens(admin: AdminClient, tokens: string[]): Promise<void> {
+  if (tokens.length === 0) return
+
+  const { error } = await admin
+    .from('panel_embed_tokens')
+    .delete()
+    .in('token', tokens)
+
+  if (error) {
+    throw new Error(`Erro ao limpar tokens embed: ${error.message}`)
   }
 }
 
@@ -174,61 +235,38 @@ export async function POST(
     const chatwootBaseUrl = getChatwootBaseUrl()
     const appBaseUrl = getPublicAppUrl(request)
     const admin = createAdminClient()
+    const existingApps = (await listChatwootDashboardApps(
+      chatwootBaseUrl,
+      chatwoot_account_id,
+      chatwoot_agent_token
+    )).filter((app) => app.title === 'Pipeline' || app.title === 'Agenda')
+    const existingTokens = await listExistingEmbedTokens(admin, id)
 
-    // ── 1. Remover Dashboard Apps antigos no Chatwoot ────────────────────────
-    // Evita proliferação de "Pipeline (2)", "Pipeline (3)" na sidebar do agente
-    const existingApps = await listChatwootDashboardApps(chatwootBaseUrl, chatwoot_account_id, chatwoot_agent_token)
-    const appsToDelete = existingApps.filter((a) =>
-      a.title === 'Pipeline' || a.title === 'Agenda'
-    )
-    await Promise.all(
-      appsToDelete.map((a) =>
-        deleteChatwootDashboardApp(chatwootBaseUrl, chatwoot_account_id, chatwoot_agent_token, a.id)
-      )
-    )
+    let kanbanToken: string | null = null
+    let agendaToken: string | null = null
 
-    // ── 2. Remover tokens embed antigos do cliente ───────────────────────────
-    // Evita acumulação de tokens órfãos ao re-executar o setup
-    await admin
-      .from('panel_embed_tokens')
-      .delete()
-      .eq('client_id', id)
-      .in('label', ['Pipeline (Chatwoot)', 'Agenda (Chatwoot)'])
+    try {
+      kanbanToken = await createEmbedToken(admin, user.id, id, 'Pipeline (Chatwoot)')
+      agendaToken = await createEmbedToken(admin, user.id, id, 'Agenda (Chatwoot)')
+    } catch (error) {
+      const createdTokens = [kanbanToken].filter((value): value is string => value != null)
 
-    // ── 3. Criar novos tokens embed ──────────────────────────────────────────
-    const { data: kanbanToken, error: errKanban } = await admin
-      .from('panel_embed_tokens')
-      .insert({
-        user_id: user.id,
-        client_id: id,
-        label: 'Pipeline (Chatwoot)',
-      })
-      .select('token')
-      .single()
+      try {
+        await deleteEmbedTokens(admin, createdTokens)
+      } catch (cleanupError) {
+        console.warn('[SetupChatwootApps] Falha ao limpar tokens recém-criados:', cleanupError)
+      }
 
-    if (errKanban || !kanbanToken) {
-      return NextResponse.json({ error: 'Erro ao criar token do kanban' }, { status: 500 })
+      const message = error instanceof Error ? error.message : 'Erro ao criar tokens embed'
+      return NextResponse.json({ error: message }, { status: 500 })
     }
 
-    const { data: agendaToken, error: errAgenda } = await admin
-      .from('panel_embed_tokens')
-      .insert({
-        user_id: user.id,
-        client_id: id,
-        label: 'Agenda (Chatwoot)',
-      })
-      .select('token')
-      .single()
-
-    if (errAgenda || !agendaToken) {
-      return NextResponse.json({ error: 'Erro ao criar token da agenda' }, { status: 500 })
-    }
-
-    // ── 4. Criar novos Dashboard Apps no Chatwoot ────────────────────────────
-    const kanbanUrl = `${appBaseUrl}/chatwoot/kanban?token=${kanbanToken.token}`
-    const agendaUrl = `${appBaseUrl}/chatwoot/agenda?token=${agendaToken.token}`
+    // ── 1. Criar novos Dashboard Apps sem derrubar o setup atual ─────────────
+    const kanbanUrl = `${appBaseUrl}/chatwoot/kanban?token=${kanbanToken}`
+    const agendaUrl = `${appBaseUrl}/chatwoot/agenda?token=${agendaToken}`
 
     let kanbanAppId: number | null = null
+    let agendaAppId: number | null = null
 
     try {
       const kanbanApp = await createChatwootDashboardApp(
@@ -247,24 +285,74 @@ export async function POST(
         'Agenda',
         agendaUrl
       )
+      agendaAppId = agendaApp.id
+
+      // ── 2. Cutover concluído: agora sim limpamos recursos antigos ─────────
+      const warnings: string[] = []
+
+      const oldAppCleanup = await Promise.allSettled(
+        existingApps.map((app) =>
+          deleteChatwootDashboardApp(
+            chatwootBaseUrl,
+            chatwoot_account_id,
+            chatwoot_agent_token,
+            app.id
+          )
+        )
+      )
+
+      const hasOldAppCleanupFailures = oldAppCleanup.some((result) => result.status === 'rejected')
+
+      oldAppCleanup.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          warnings.push(`Falha ao remover Dashboard App antigo #${existingApps[index].id}`)
+        }
+      })
+
+      if (!hasOldAppCleanupFailures) {
+        try {
+          await deleteEmbedTokens(admin, existingTokens.map((token) => token.token))
+        } catch (cleanupError) {
+          console.warn('[SetupChatwootApps] Falha ao limpar tokens antigos:', cleanupError)
+          warnings.push('Falha ao remover tokens antigos de embed')
+        }
+      } else if (existingTokens.length > 0) {
+        warnings.push('Tokens antigos foram preservados porque alguns Dashboard Apps antigos não puderam ser removidos')
+      }
 
       return NextResponse.json({
-        kanban: { token: kanbanToken.token, url: kanbanUrl, chatwoot_app_id: kanbanApp.id },
-        agenda: { token: agendaToken.token, url: agendaUrl, chatwoot_app_id: agendaApp.id },
+        kanban: { token: kanbanToken, url: kanbanUrl, chatwoot_app_id: kanbanApp.id },
+        agenda: { token: agendaToken, url: agendaUrl, chatwoot_app_id: agendaApp.id },
+        ...(warnings.length > 0 ? { warnings } : {}),
       })
     } catch (error) {
-      await admin
-        .from('panel_embed_tokens')
-        .delete()
-        .in('token', [kanbanToken.token, agendaToken.token])
+      const cleanupApps = [kanbanAppId, agendaAppId].filter((value): value is number => value != null)
+      const cleanupTokens = [kanbanToken, agendaToken].filter((value): value is string => value != null)
 
-      if (kanbanAppId != null) {
-        await deleteChatwootDashboardApp(
-          chatwootBaseUrl,
-          chatwoot_account_id,
-          chatwoot_agent_token,
-          kanbanAppId
+      const newAppCleanup = await Promise.allSettled(
+        cleanupApps.map((appId) =>
+          deleteChatwootDashboardApp(
+            chatwootBaseUrl,
+            chatwoot_account_id,
+            chatwoot_agent_token,
+            appId
+          )
         )
+      )
+
+      newAppCleanup.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.warn(
+            `[SetupChatwootApps] Falha ao limpar novo Dashboard App #${cleanupApps[index]}:`,
+            result.reason
+          )
+        }
+      })
+
+      try {
+        await deleteEmbedTokens(admin, cleanupTokens)
+      } catch (cleanupError) {
+        console.warn('[SetupChatwootApps] Falha ao limpar tokens recém-criados:', cleanupError)
       }
 
       const message = error instanceof Error ? error.message : 'Erro ao criar Dashboard Apps no Chatwoot'
