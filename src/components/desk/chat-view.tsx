@@ -114,18 +114,24 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true)
     const res = await fetch(`/api/desk/conversations/${conversationId}?client_id=${clientId}`)
     if (res.ok) {
       const data = await res.json()
       setConversation(data.conversation)
       setMessages(data.messages)
     }
-    setLoading(false)
+    if (showLoading) setLoading(false)
   }, [conversationId, clientId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(true) }, [load])
+
+  // Polling de fallback — garante atualização mesmo sem Realtime configurado no Supabase
+  useEffect(() => {
+    const interval = setInterval(() => load(false), 4000)
+    return () => clearInterval(interval)
+  }, [load])
 
   // Scroll para o final quando novas mensagens chegam
   useEffect(() => {
@@ -176,6 +182,8 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
 
       const labels = { assume: 'Conversa assumida', return: 'Devolvida ao bot', resolve: 'Finalizada' }
       toast.success(labels[action])
+      // Recarrega o estado local da conversa para refletir o novo stage imediatamente
+      await load()
       onConversationUpdate()
     } catch {
       toast.error('Erro ao executar ação')
