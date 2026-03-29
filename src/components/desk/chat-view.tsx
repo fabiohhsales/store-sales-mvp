@@ -178,15 +178,20 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       })
-      if (!res.ok) throw new Error('Falha ao executar ação')
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Erro: ${body.error ?? 'falha ao executar ação'}`)
+        return
+      }
 
-      const labels = { assume: 'Conversa assumida', return: 'Devolvida ao bot', resolve: 'Finalizada' }
+      // Aplica o novo stage diretamente sem esperar o próximo poll
+      setConversation((prev) => prev ? { ...prev, stage: body.stage } : prev)
+
+      const labels = { assume: 'Conversa assumida — você pode digitar', return: 'Bot retomou a conversa', resolve: 'Conversa finalizada' }
       toast.success(labels[action])
-      // Recarrega o estado local da conversa para refletir o novo stage imediatamente
-      await load()
       onConversationUpdate()
-    } catch {
-      toast.error('Erro ao executar ação')
+    } catch (err) {
+      toast.error('Erro de conexão ao executar ação')
     } finally {
       setActioning(false)
     }

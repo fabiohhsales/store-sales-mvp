@@ -33,6 +33,8 @@ export async function POST(
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
+  let newStage: string = conv.stage
+
   if (action === 'assume') {
     await admin.from('ai_pauses').upsert({
       conversation_id: id,
@@ -42,34 +44,48 @@ export async function POST(
       updated_at: new Date().toISOString(),
     })
 
-    const { error } = await admin.from('conversations').update({
-      stage: 'in_service',
-      assigned_operator_id: deskUser.userId,
-    }).eq('id', id)
-    if (error) console.error('[desk/action] assume update error:', error.message)
+    const { data, error } = await admin.from('conversations')
+      .update({ stage: 'in_service' })
+      .eq('id', id)
+      .select('stage')
+      .single()
+    if (error) {
+      console.error('[desk/action] assume error:', error.message)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    newStage = data.stage
   }
 
   if (action === 'return') {
     await admin.from('ai_pauses').delete().eq('conversation_id', id)
 
-    const { error } = await admin.from('conversations').update({
-      stage: 'bot_triage',
-      assigned_operator_id: null,
-    }).eq('id', id)
-    if (error) console.error('[desk/action] return update error:', error.message)
+    const { data, error } = await admin.from('conversations')
+      .update({ stage: 'bot_triage' })
+      .eq('id', id)
+      .select('stage')
+      .single()
+    if (error) {
+      console.error('[desk/action] return error:', error.message)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    newStage = data.stage
   }
 
   if (action === 'resolve') {
     await admin.from('ai_pauses').delete().eq('conversation_id', id)
 
-    const { error } = await admin.from('conversations').update({
-      stage: 'resolved',
-      status: 'resolved',
-      resolved_at: new Date().toISOString(),
-      assigned_operator_id: null,
-    }).eq('id', id)
-    if (error) console.error('[desk/action] resolve update error:', error.message)
+    const { data, error } = await admin.from('conversations')
+      .update({ stage: 'resolved', status: 'resolved', resolved_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('stage')
+      .single()
+    if (error) {
+      console.error('[desk/action] resolve error:', error.message)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    newStage = data.stage
   }
 
-  return NextResponse.json({ ok: true, action })
+  console.log(`[desk/action] conv=${id} action=${action} stage=${newStage}`)
+  return NextResponse.json({ ok: true, action, stage: newStage })
 }
