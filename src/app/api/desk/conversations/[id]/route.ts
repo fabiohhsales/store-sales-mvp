@@ -20,7 +20,7 @@ export async function GET(
     .select(`
       id, stage, status, labels, summary,
       assigned_operator_id, last_incoming_at, last_outgoing_at,
-      client_id, created_at,
+      client_id,
       contacts ( id, name, phone_number, identifier )
     `)
     .eq('id', id)
