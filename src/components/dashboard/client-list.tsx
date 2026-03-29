@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { ExternalLink } from 'lucide-react'
 import { HealthIndicator } from './health-indicator'
+import { getChatwootPublicUrl } from '@/lib/config'
 import type { PanelClientWithRelations, ClientStatus } from '@/types/database'
 
 interface ClientListProps {
@@ -43,7 +44,7 @@ function ConnectionDot({ connected, label }: { connected: boolean; label?: strin
 }
 
 export function ClientList({ clients }: ClientListProps) {
-  const chatwootUrl = process.env.NEXT_PUBLIC_CHATWOOT_URL?.replace(/\/$/, '') ?? ''
+  const chatwootUrl = getChatwootPublicUrl()
 
   if (clients.length === 0) {
     return (

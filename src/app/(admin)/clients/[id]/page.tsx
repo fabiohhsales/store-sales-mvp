@@ -8,11 +8,12 @@ import { getClientById } from '@/lib/db/clients'
 import { listAuditLogsByClientId } from '@/lib/db/audit-log'
 import { StatusCards } from '@/components/client-detail/status-cards'
 import { ClientActions } from '@/components/client-detail/client-actions'
-import { WhatsAppReconnect } from '@/components/client-detail/whatsapp-reconnect'
 import { GoogleReconnect } from '@/components/client-detail/google-reconnect'
-import { PublicLink } from '@/components/client-detail/public-link'
+import { WhatsAppConnectionPanel } from '@/components/client-detail/whatsapp-connection-panel'
 import { ClientAuditLog } from '@/components/client-detail/client-audit-log'
 import { ClientMetrics } from '@/components/client-detail/client-metrics'
+import { ChatwootAppsSetup } from '@/components/client-detail/chatwoot-apps-setup'
+import { ChatwootDiagnostic } from '@/components/client-detail/chatwoot-diagnostic'
 import type { ClientStatus } from '@/types/database'
 
 const statusLabels: Record<ClientStatus, string> = {
@@ -71,19 +72,11 @@ export default async function ClientDetailPage({
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
-          {/* Link público — sempre visível se tem instância WhatsApp */}
-          {client.panel_whatsapp_config && (
-            <PublicLink
-              instanceName={client.panel_whatsapp_config.evolution_instance_name}
-            />
-          )}
-
-          {/* WhatsApp — sempre visível se tem config */}
-          {client.panel_whatsapp_config && (
-            <WhatsAppReconnect
-              instanceName={client.panel_whatsapp_config.evolution_instance_name}
-            />
-          )}
+          <WhatsAppConnectionPanel
+            clientId={id}
+            initialInstanceName={client.panel_whatsapp_config?.evolution_instance_name}
+            clientName={client.name}
+          />
 
           {/* Google Calendar — sempre visível */}
           <GoogleReconnect
@@ -111,6 +104,17 @@ export default async function ClientDetailPage({
               <p className="text-xs text-muted-foreground">Ver agendamentos e compromissos</p>
             </div>
           </Link>
+
+          <ChatwootAppsSetup
+            clientId={id}
+            hasChatwoot={!!(client.chatwoot_account_id ?? client.panel_whatsapp_config?.chatwoot_account_id)}
+          />
+
+          <ChatwootDiagnostic
+            clientId={id}
+            accountId={client.chatwoot_account_id ?? client.panel_whatsapp_config?.chatwoot_account_id ?? null}
+            hasToken={!!(client.chatwoot_agent_token ?? client.panel_whatsapp_config?.chatwoot_agent_token)}
+          />
         </div>
 
         <div>
