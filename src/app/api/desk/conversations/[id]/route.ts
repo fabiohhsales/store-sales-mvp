@@ -21,7 +21,7 @@ export async function GET(
       id, stage, status, labels, summary,
       assigned_operator_id, last_incoming_at, last_outgoing_at,
       client_id,
-      contacts ( id, name, phone_number, identifier )
+      contacts ( id, name, phone_number, identifier, custom_data )
     `)
     .eq('id', id)
     .maybeSingle()

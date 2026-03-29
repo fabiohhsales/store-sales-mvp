@@ -33,6 +33,7 @@ import { AiBehaviorSection } from '@/components/bot-config/ai-behavior-section'
 import { FollowupSection } from '@/components/bot-config/followup-section'
 import { MessageTemplatesSection } from '@/components/bot-config/message-templates-section'
 import { HandoffSection } from '@/components/bot-config/handoff-section'
+import { IntakeSection } from '@/components/bot-config/intake-section'
 import { CalendarSection } from '@/components/bot-config/calendar-section'
 import { AdvancedSection } from '@/components/bot-config/advanced-section'
 import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
@@ -74,6 +75,11 @@ const DEFAULT_BOT_CONFIG: Partial<PanelBotConfig> = {
   handoff_on_unknown_intent: false,
   handoff_max_ai_turns: 20,
   handoff_keywords: [],
+  intake_enabled: false,
+  intake_fields: [],
+  intake_request_photos: false,
+  intake_photos_count: 5,
+  intake_handoff_after_photos: true,
   calendar_create_meet_link: false,
   calendar_send_invite_to_patient: false,
   chatwoot_auto_resolve_hours: 24,
@@ -387,6 +393,12 @@ export function EditClientForm({ client }: EditClientFormProps) {
                 <AccordionTrigger>Regras de Handoff</AccordionTrigger>
                 <AccordionContent>
                   <HandoffSection config={botConfig} onChange={handleBotChange} />
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="intake">
+                <AccordionTrigger>Intake de Pacientes</AccordionTrigger>
+                <AccordionContent>
+                  <IntakeSection config={botConfig} onChange={handleBotChange} />
                 </AccordionContent>
               </AccordionItem>
               <AccordionItem value="calendar">

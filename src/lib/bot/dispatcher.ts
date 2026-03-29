@@ -9,7 +9,41 @@ import { clearAiPause } from './agent'
 import { normalizeStageSlug } from './stage-labels'
 import type { AgentOutput } from './output-schema'
 import type { PipelineResult } from './pipeline'
-import type { PanelBotConfig } from '@/types/database'
+import type { PanelBotConfig, IntakeFieldConfig } from '@/types/database'
+
+async function saveIntakeData(
+  contactId: string,
+  intakeSave: Record<string, string>,
+  botConfig: PanelBotConfig | null
+): Promise<void> {
+  const supabase = createAdminClient()
+
+  // Get current custom_data
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('custom_data, intake_completed_at')
+    .eq('id', contactId)
+    .single()
+
+  const current = (contact?.custom_data as Record<string, string> | null) ?? {}
+  const merged = { ...current, ...intakeSave }
+
+  const updates: Record<string, unknown> = { custom_data: merged }
+
+  // Check if all required fields are now done
+  if (!contact?.intake_completed_at && botConfig?.intake_enabled) {
+    const fields = (botConfig.intake_fields as IntakeFieldConfig[] | null) ?? []
+    const requiredDone = fields
+      .filter((f) => f.required)
+      .every((f) => merged[f.key] && merged[f.key] !== '_skipped')
+    if (requiredDone) {
+      updates.intake_completed_at = new Date().toISOString()
+      console.log(`[Dispatcher] Intake completo para contact=${contactId}`)
+    }
+  }
+
+  await supabase.from('contacts').update(updates).eq('id', contactId)
+}
 
 function normalizeTag(value: string): string {
   return normalizeStageSlug(value)
@@ -107,6 +141,44 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
   // --- 2. Handoff: move conversa para fila de espera humana ---
   if (output.handoff.needs_human && conversation.stage === 'bot_triage') {
     await handleHandoff(conversation.id, output.reply, clientContext.clientId, result)
+  }
+
+  // --- 2.5. Salva dados do intake se bot coletou um campo ---
+  if (output.intake_save && Object.keys(output.intake_save).length > 0) {
+    await saveIntakeData(contact.id, output.intake_save, clientContext.botConfig)
+  }
+
+  // --- 2.6. Handoff automático ao receber fotos após intake completo ---
+  const msgContentType = result.message?.content_type
+  const intakeConfig = clientContext.botConfig
+  if (
+    msgContentType === 'image' &&
+    intakeConfig?.intake_enabled &&
+    intakeConfig?.intake_request_photos &&
+    intakeConfig?.intake_handoff_after_photos &&
+    conversation.stage === 'bot_triage'
+  ) {
+    // Increment photo count in custom_data
+    const supabase = createAdminClient()
+    const { data: contactRow } = await supabase
+      .from('contacts')
+      .select('custom_data, intake_completed_at')
+      .eq('id', contact.id)
+      .single()
+
+    if (contactRow?.intake_completed_at) {
+      const cd = (contactRow.custom_data as Record<string, string> | null) ?? {}
+      const newCount = (parseInt(String(cd._photo_count ?? '0'), 10)) + 1
+      const updatedCd = { ...cd, _photo_count: String(newCount) }
+      await supabase.from('contacts').update({ custom_data: updatedCd }).eq('id', contact.id)
+
+      if (newCount >= (intakeConfig.intake_photos_count ?? 5)) {
+        console.log(`[Dispatcher] ${newCount} fotos recebidas — handoff automático conv=${conversation.id}`)
+        await handleHandoff(conversation.id, null, clientContext.clientId, result)
+        await clearAiPause(conversation.id)
+        return
+      }
+    }
   }
 
   // --- 3. Atualiza conversa no Supabase ---

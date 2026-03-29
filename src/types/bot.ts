@@ -11,6 +11,8 @@ export interface BotContact {
   identifier: string | null
   client_id: string | null
   created_at: string
+  custom_data: Record<string, string> | null
+  intake_completed_at: string | null
 }
 
 export interface BotConversation {
@@ -158,7 +160,7 @@ export interface EvolutionWebhookPayload {
     message?: {
       conversation?: string
       extendedTextMessage?: { text: string }
-      imageMessage?: { caption?: string }
+      imageMessage?: { caption?: string; url?: string; mimetype?: string }
       audioMessage?: object
       documentMessage?: { fileName?: string }
     }
@@ -179,4 +181,5 @@ export interface NormalizedEvolutionMessage {
   content: string
   contentType: 'text' | 'image' | 'audio' | 'document' | 'unknown'
   timestamp: Date
+  mediaUrl: string | null
 }

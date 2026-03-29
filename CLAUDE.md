@@ -220,6 +220,8 @@ O `nixpacks.toml` injeta essas vars na fase de build.
 - name / phone_number / identifier (text)
 - **client_id** (uuid, FK → panel_clients) — adicionado em migration 010
 - created_at (timestamptz)
+- **custom_data** (jsonb) — dados coletados pelo intake (key-value livre) — `_photo_count` é interno
+- **intake_completed_at** (timestamptz) — quando todos os campos obrigatórios foram coletados
 - ⚠️ unique key atual: `phone_number + client_id` (Evolution pipeline)
 
 #### conversations
@@ -300,6 +302,13 @@ allow_same_day_booking (bool)
 
 **Handoff**: handoff_on_negative_sentiment, handoff_on_medical_urgency, handoff_on_unknown_intent,
 handoff_max_ai_turns, handoff_keywords (text[])
+
+**Intake**:
+- `intake_enabled` (boolean) — ativa fluxo de intake
+- `intake_fields` (jsonb) — array de IntakeFieldConfig: `[{ key, label, required }]`
+- `intake_request_photos` (boolean) — solicita fotos após intake
+- `intake_photos_count` (int) — número de fotos esperadas
+- `intake_handoff_after_photos` (boolean) — handoff automático ao receber todas as fotos
 
 **Calendar**: calendar_event_title_template, calendar_event_description_template,
 calendar_create_meet_link, calendar_send_invite_to_patient, calendar_color_id
@@ -473,6 +482,51 @@ resolved       → finalizado
 - Kanban das conversas por stage_label (sistema legado de labels Chatwoot)
 - ⚠️ Mostra conversas **antigas** (pré-migration) que usam labels, não o campo `stage`
 - As conversas do novo pipeline Evolution (com campo `stage`) aparecem no **Desk**, não no Pipeline
+
+---
+
+## Cliente ativo: ChoiExpert Hair Clinic
+
+Clínica de transplante capilar em Tessalônica, Grécia. Primeiro cliente real do sistema.
+- **instance Evolution**: `choiexpert`
+- **client_id Supabase**: `3feeb364-86f6-4a2e-9b27-450f69d25752`
+- **Idioma dos pacientes**: inglês (internacional — Holanda, Itália, etc.)
+- **Operadores**: Nina, Konstantinos (respondem como a clínica via WhatsApp)
+
+### Fluxo real de vendas da Choi
+```
+Novo lead (WhatsApp)
+  → Bot coleta: nome, email, data nasc, país, como conheceu, medicações
+  → Paciente envia 5 fotos do couro cabeludo
+  → Operador avalia fotos e agenda video consultation
+  → Operador envia plano cirúrgico (PDF) + orçamento (PDF)
+  → Paciente confirma interesse
+  → Depósito €1000 + passagem aérea (por conta do paciente)
+  → Cirurgia agendada (1 ou 2 dias conforme caso)
+  → Pacote 2 dias inclui: hotel Elizabeth Boutique + transporte
+```
+
+### Preços praticados (referência)
+- Cirurgia 1 dia: não documentado ainda
+- Cirurgia 2 dias: €5.800 (só cirurgia) / €6.000 (com hotel + transporte)
+- Depósito: €1.000 + passagem por conta do paciente
+
+### O que ainda falta implementar (backlog priorizado)
+
+**Alta prioridade:**
+1. `ai_language = EN` no bot config — pacientes são internacionais
+2. **Visualizar imagens no Desk** — paciente envia 5 fotos do couro cabeludo para avaliação; hoje aparece só `[Imagem]`
+3. **Enviar arquivo (PDF) pelo Desk** — operador precisa enviar plano cirúrgico e orçamento via WhatsApp
+4. **Intake estruturado no bot** — coletar os 6 campos básicos (nome, email, nasc, país, origem, medicações) de forma guiada
+
+**Média prioridade:**
+5. **Anotações internas no Desk** — operador escreve obs sobre o paciente que não vão pro WhatsApp (nº grafts estimado, avaliação médica)
+6. **Templates de mensagem no Desk** — 1 clique para enviar mensagens padrão (pedido de fotos, envio de plano, etc.)
+7. **Funil de stages customizado** — os stages atuais (bot_triage → awaiting_human → in_service → resolved) não refletem o pipeline real de vendas da Choi
+
+**Baixa prioridade:**
+8. Rastrear origem do lead ("Where did you hear about us")
+9. Agendamento de video consultation dedicado
 
 ---
 

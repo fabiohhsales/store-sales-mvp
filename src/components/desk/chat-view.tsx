@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Loader2, Info } from 'lucide-react'
+import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -26,15 +26,17 @@ interface Message {
   sender_type: string
   from_who: string
   created_at: string
+  evolution_message_id: string | null
 }
 
 interface ConversationDetail {
   id: string
+  contact_id: string | null
   stage: 'bot_triage' | 'awaiting_human' | 'in_service' | 'resolved'
   status: string
   summary: string | null
   labels: string[]
-  contacts: { id: string; name: string | null; phone_number: string | null; identifier: string | null } | null
+  contacts: { id: string; name: string | null; phone_number: string | null; identifier: string | null; custom_data?: Record<string, string> | null } | null
 }
 
 interface Props {
@@ -50,7 +52,7 @@ const STAGE_LABELS = {
   resolved: 'Finalizado',
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, conversationId }: { message: Message; conversationId: string }) {
   const isOutgoing = message.sender_type !== 'contact'
   const isBot = message.sender_type === 'agent_bot'
   const isOperator = message.sender_type === 'operator'
@@ -92,7 +94,18 @@ function MessageBubble({ message }: { message: Message }) {
               ? 'bg-blue-500/10 text-foreground rounded-tr-sm'
               : 'bg-secondary text-foreground rounded-tl-sm'
         }`}>
-          {message.content_type !== 'text' ? (
+          {message.content_type === 'image' ? (
+            message.evolution_message_id ? (
+              <img
+                src={`/api/desk/media?msg_id=${message.evolution_message_id}&conversation_id=${conversationId}`}
+                alt={message.content || 'Imagem'}
+                className="max-w-[220px] rounded-lg cursor-pointer"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+              />
+            ) : (
+              <span className="italic text-muted-foreground">[Imagem]</span>
+            )
+          ) : message.content_type !== 'text' ? (
             <span className="italic text-muted-foreground">{message.content}</span>
           ) : (
             <span className="whitespace-pre-wrap">{message.content}</span>
@@ -194,6 +207,16 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
       toast.error('Erro de conexão ao executar ação')
     } finally {
       setActioning(false)
+    }
+  }
+
+  async function handleClearIntake() {
+    try {
+      await fetch(`/api/desk/conversations/${conversationId}/clear-intake`, { method: 'DELETE' })
+      await load(false)
+      toast.success('Intake limpo')
+    } catch {
+      toast.error('Erro ao limpar intake')
     }
   }
 
@@ -347,10 +370,37 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
         </div>
       )}
 
+      {/* Dados do paciente coletados pelo intake */}
+      {conversation.contacts?.custom_data && Object.keys(conversation.contacts.custom_data).filter(k => !k.startsWith('_')).length > 0 && (
+        <div className="flex flex-col gap-1 px-4 py-2.5 bg-secondary/30 border-b border-border text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-foreground/70">Dados do paciente</span>
+            <button
+              onClick={handleClearIntake}
+              className="flex items-center gap-1 text-muted-foreground hover:text-destructive transition-colors"
+              title="Limpar intake (para testes)"
+            >
+              <Trash2 size={11} />
+              <span>Limpar</span>
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1">
+            {Object.entries(conversation.contacts.custom_data)
+              .filter(([k]) => !k.startsWith('_'))
+              .map(([key, value]) => (
+                <div key={key} className="flex flex-col">
+                  <span className="text-muted-foreground capitalize">{key.replace(/_/g, ' ')}</span>
+                  <span className="text-foreground font-medium truncate">{String(value) === '_skipped' ? '—' : String(value)}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* Mensagens */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+          <MessageBubble key={msg.id} message={msg} conversationId={conversationId} />
         ))}
         <div ref={bottomRef} />
       </div>

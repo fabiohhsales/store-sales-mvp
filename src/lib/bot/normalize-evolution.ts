@@ -22,6 +22,7 @@ export function normalizeEvolutionPayload(
   // Extrai texto e tipo de conteúdo
   let content = ''
   let contentType: NormalizedEvolutionMessage['contentType'] = 'unknown'
+  let mediaUrl: string | null = null
 
   if (data.message.conversation) {
     content = data.message.conversation
@@ -32,6 +33,7 @@ export function normalizeEvolutionPayload(
   } else if (data.message.imageMessage) {
     content = data.message.imageMessage.caption || '[Imagem]'
     contentType = 'image'
+    mediaUrl = data.message.imageMessage.url ?? null
   } else if (data.message.audioMessage) {
     content = '[Áudio]'
     contentType = 'audio'
@@ -54,5 +56,6 @@ export function normalizeEvolutionPayload(
     content,
     contentType,
     timestamp: new Date((data.messageTimestamp ?? Date.now() / 1000) * 1000),
+    mediaUrl,
   }
 }

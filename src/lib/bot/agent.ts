@@ -184,6 +184,9 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
     appointmentStatus: conversation.appointment_status,
     lastIncomingAt: conversation.last_incoming_at,
     lastOutgoingAt: conversation.last_outgoing_at,
+  }, {
+    custom_data: (contact as any).custom_data ?? null,
+    intake_completed_at: (contact as any).intake_completed_at ?? null,
   })
   const chatMessages = buildChatMessages(messageHistory, systemPrompt)
 

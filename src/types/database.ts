@@ -141,6 +141,12 @@ export type WorkingHours = {
   [key in 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday']: DaySchedule
 }
 
+export interface IntakeFieldConfig {
+  key: string
+  label: string
+  required: boolean
+}
+
 // --- Panel Bot Config ---
 
 export interface PanelBotConfig {
@@ -178,6 +184,13 @@ export interface PanelBotConfig {
   qualification_questions_guide: string | null
   disengagement_policy_guide: string | null
   ai_fallback_message: string | null
+
+  // Intake estruturado
+  intake_enabled: boolean
+  intake_fields: IntakeFieldConfig[]
+  intake_request_photos: boolean
+  intake_photos_count: number
+  intake_handoff_after_photos: boolean
   ai_handoff_message: string | null
 
   // Follow-up

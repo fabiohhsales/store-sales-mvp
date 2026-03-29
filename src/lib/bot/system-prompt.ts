@@ -1,7 +1,7 @@
 // Monta o system prompt dinamicamente a partir do PanelBotConfig de cada cliente.
 // Cada campo do panel_bot_config se reflete no comportamento do AI Agent.
 
-import type { PanelBotConfig, WorkingHours, ServiceConfig } from '@/types/database'
+import type { PanelBotConfig, WorkingHours, ServiceConfig, IntakeFieldConfig } from '@/types/database'
 import { sanitizeStageLabels } from './stage-labels'
 
 type PromptConversationContext = {
@@ -68,10 +68,67 @@ function trimPromptBlock(value: string | null | undefined, max = 1200): string |
   return `${content.slice(0, max)}...`
 }
 
+function buildIntakeSection(
+  config: PanelBotConfig,
+  contactCustomData: Record<string, string> | null,
+  intakeCompletedAt: string | null
+): string {
+  if (!config.intake_enabled) return ''
+  const fields = (config.intake_fields as IntakeFieldConfig[] | null) ?? []
+  if (fields.length === 0) return ''
+
+  const collected = contactCustomData ?? {}
+  const requiredDone = fields.filter((f) => f.required).every((f) => collected[f.key])
+
+  // All required fields done
+  if (requiredDone && intakeCompletedAt) {
+    if (!config.intake_request_photos) return ''
+    const photoCount = parseInt(String(collected._photo_count ?? '0'), 10)
+    if (photoCount >= config.intake_photos_count) return ''
+    const remaining = config.intake_photos_count - photoCount
+    return `\nINTAKE COMPLETO — FASE DE FOTOS:
+Dados do paciente já coletados. Solicite ${remaining} foto(s) do couro cabeludo (frente, topo, lateral esquerda, lateral direita, nuca).
+Quando o paciente enviar as fotos, a transferência para o médico ocorrerá automaticamente.
+Para campos do intake, retorne "intake_save": null`
+  }
+
+  // Build the intake prompt
+  const collectedLines = fields
+    .filter((f) => collected[f.key])
+    .map((f) => `- ${f.key}: "${collected[f.key]}" ✓`)
+    .join('\n')
+
+  const nextField = fields.find((f) => !collected[f.key])
+  const pendingFields = fields.filter((f) => !collected[f.key])
+
+  return `\nINTAKE DE DADOS DO PACIENTE (PRIORIDADE MÁXIMA):
+Colete os campos abaixo UM POR VEZ antes de qualquer outra ação.
+NUNCA pule campos obrigatórios. NUNCA pergunte dois campos ao mesmo tempo.
+
+Campos a coletar:
+${fields.map((f) => `- ${f.key}: ${f.label}${f.required ? ' (obrigatório)' : ' (opcional)'}`).join('\n')}
+
+Já coletados:
+${collectedLines || '- (nenhum ainda)'}
+
+Próximo campo a perguntar: ${nextField ? `"${nextField.label}"` : 'TODOS COLETADOS'}
+
+Campos ainda pendentes: ${pendingFields.map((f) => f.key).join(', ') || 'nenhum'}
+
+Quando o paciente responder com um valor, inclua no JSON de saída:
+"intake_save": { "${nextField?.key ?? 'campo'}": "valor_fornecido_pelo_paciente" }
+
+Se o campo for opcional e o paciente quiser pular, aceite e marque como "_skipped":
+"intake_save": { "${nextField?.key ?? 'campo'}": "_skipped" }
+
+Enquanto o intake não estiver completo, use intent="triagem" e NÃO ofereça agendamentos.`
+}
+
 export function buildSystemPrompt(
   config: PanelBotConfig,
   contactName: string,
-  context?: PromptConversationContext
+  context?: PromptConversationContext,
+  contactData?: { custom_data: Record<string, string> | null; intake_completed_at: string | null } | null
 ): string {
   const professional = config.professional_name
   const title = config.professional_title ? ` (${config.professional_title})` : ''
@@ -99,6 +156,11 @@ export function buildSystemPrompt(
   const customInstructions = config.ai_custom_instructions
     ? `\n\nINSTRUÇÕES ADICIONAIS DO PROFISSIONAL:\n${config.ai_custom_instructions}`
     : ''
+  const intakeSection = buildIntakeSection(
+    config,
+    contactData?.custom_data ?? null,
+    contactData?.intake_completed_at ?? null
+  )
   const processFlowGuide = trimPromptBlock(config.process_flow_guide)
   const objectionsGuide = trimPromptBlock(config.objections_guide)
   const qualificationQuestionsGuide = trimPromptBlock(config.qualification_questions_guide)
@@ -131,7 +193,7 @@ Use APENAS as informações deste prompt para responder. Não invente dados, pre
 Quando o paciente perguntar sobre um serviço, responda com base nas informações de SERVIÇOS DISPONÍVEIS abaixo.
 Se a informação não estiver no prompt, diga que não tem esse detalhe e ofereça agendar.
 
-${language}
+${language}${intakeSection}
 TOM DE COMUNICAÇÃO:
 ${tone}
 Máximo 1–4 linhas por resposta. Sem markdown. Seja direto e humano.
@@ -210,6 +272,7 @@ ${disengagementPolicyGuide ?? '- Não informado no painel.'}
 FORMATO DE SAÍDA OBRIGATÓRIO (responda APENAS este JSON, sem markdown):
 {
   "reply": "texto da resposta ou null",
+  "intake_save": null,
   "status_next": "pending|open|resolved",
   "labels_next": ["slug_da_etapa"],
   "classification": {
