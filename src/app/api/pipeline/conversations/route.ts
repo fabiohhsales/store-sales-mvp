@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
 
     // 4. Busca appointments mais recentes por conversation
     const conversationIds = (conversations || []).map((c: Record<string, unknown>) => c.id as string)
-    let appointmentsMap: Record<string, Record<string, unknown>> = {}
+    const appointmentsMap: Record<string, Record<string, unknown>> = {}
 
     if (conversationIds.length > 0) {
       const { data: appointments } = await admin

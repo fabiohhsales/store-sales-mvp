@@ -44,7 +44,6 @@ function normalizeAbsoluteUrl(rawUrl: string | null | undefined, label: string):
 function getChatwootBaseUrl(): string {
   return normalizeAbsoluteUrl(process.env.CHATWOOT_URL, 'CHATWOOT_URL')
 }
-
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
@@ -263,7 +262,6 @@ async function rollbackCreatedChatwootAccount(
     requiresManualCleanup: false,
   }
 }
-
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -299,7 +297,6 @@ export async function POST(
     if (wConfigError) {
       console.warn('[ProvisionChatwoot] Falha ao consultar panel_whatsapp_config:', wConfigError)
     }
-
     if (clientRow.chatwoot_account_id && clientRow.chatwoot_agent_token) {
       return NextResponse.json({
         provisioned: false,

@@ -41,6 +41,10 @@ export default async function ClientDetailPage({
   }
 
   const logs = await listAuditLogsByClientId(id, 20)
+  const chatwootPublicUrl =
+    process.env.CHATWOOT_URL?.replace(/\/$/, '') ??
+    process.env.NEXT_PUBLIC_CHATWOOT_URL?.replace(/\/$/, '') ??
+    ''
 
   return (
     <div className="space-y-6">
@@ -68,7 +72,7 @@ export default async function ClientDetailPage({
         </div>
       </div>
 
-      <StatusCards client={client} />
+      <StatusCards client={client} chatwootPublicUrl={chatwootPublicUrl} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
