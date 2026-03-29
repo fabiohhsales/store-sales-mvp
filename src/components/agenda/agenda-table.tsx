@@ -92,6 +92,9 @@ export function AgendaTable({ clientId, token }: AgendaTableProps) {
   const [periodFilter, setPeriodFilter] = useState('week')
   const [statusFilter, setStatusFilter] = useState('all')
 
+  // Contexto da conversa ativa no Chatwoot (via postMessage do Dashboard App)
+  const [activeChatwootPhone, setActiveChatwootPhone] = useState<string | null>(null)
+
   // Confirmação de ação
   const [confirmAction, setConfirmAction] = useState<{
     appointmentId: string
@@ -129,6 +132,18 @@ export function AgendaTable({ clientId, token }: AgendaTableProps) {
     setLoading(true)
     fetchAppointments()
   }, [fetchAppointments])
+
+  // Escuta o contexto da conversa ativa enviado pelo Chatwoot ao Dashboard App
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.data?.event === 'appContext') {
+        const phone: string | undefined = event.data?.data?.contact?.phone_number
+        setActiveChatwootPhone(phone ?? null)
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
 
   async function handleUpdateStatus(appointmentId: string, newStatus: string) {
     try {
@@ -237,8 +252,15 @@ export function AgendaTable({ clientId, token }: AgendaTableProps) {
             <TableBody>
               {appointments.map((apt) => {
                 const config = STATUS_CONFIG[apt.status || 'scheduled'] || STATUS_CONFIG.scheduled
+                // Destaca a linha se o telefone do contato ativo no Chatwoot corresponde
+                const isActive =
+                  activeChatwootPhone != null &&
+                  apt.contact_phone != null &&
+                  apt.contact_phone.replace(/\D/g, '').endsWith(
+                    activeChatwootPhone.replace(/\D/g, '').slice(-9)
+                  )
                 return (
-                  <TableRow key={apt.id}>
+                  <TableRow key={apt.id} className={isActive ? 'bg-primary/5 ring-1 ring-inset ring-primary/30' : ''}>
                     <TableCell className="text-sm whitespace-nowrap">
                       {formatDateTime(apt.start_at)}
                     </TableCell>
