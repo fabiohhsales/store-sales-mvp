@@ -176,7 +176,6 @@ async function handleHandoff(
   await supabase.from('conversations').update({
     stage: 'awaiting_human',
     summary,
-    updated_at: new Date().toISOString(),
   }).eq('id', conversationId)
 
   // Persiste a mensagem de handoff no histórico
@@ -227,7 +226,6 @@ async function updateConversationRecord(
     status: output.classification.status,
     labels: output.labels_next,
     followup_cadence: followupCadence ?? undefined,
-    updated_at: new Date().toISOString(),
     last_outgoing_at: output.reply ? new Date().toISOString() : undefined,
     last_outgoing_by: output.reply ? 'ai' : undefined,
   }

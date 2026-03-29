@@ -139,7 +139,6 @@ async function upsertConversation(
       .from('conversations')
       .update({
         last_incoming_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       })
       .eq('id', existing.id)
       .select()
@@ -155,7 +154,6 @@ async function upsertConversation(
       contact_id: contact.id,
       status: 'pending',
       account_id: msg.chatwootAccountId,
-      updated_at: new Date().toISOString(),
       chatwoot_contact_id: msg.chatwootContactId,
       labels: [defaultLabel],
       last_incoming_at: new Date().toISOString(),
@@ -329,7 +327,6 @@ async function upsertEvolutionConversation(
       .from('conversations')
       .update({
         last_incoming_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       })
       .eq('id', existing.id)
       .select()
@@ -347,7 +344,6 @@ async function upsertEvolutionConversation(
       stage: 'bot_triage',
       labels: [defaultLabel],
       last_incoming_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     })
     .select()
     .single()

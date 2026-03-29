@@ -34,7 +34,6 @@ export async function POST(
   }
 
   if (action === 'assume') {
-    // Para o bot pausando a conversa
     await admin.from('ai_pauses').upsert({
       conversation_id: id,
       paused_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -43,33 +42,33 @@ export async function POST(
       updated_at: new Date().toISOString(),
     })
 
-    await admin.from('conversations').update({
+    const { error } = await admin.from('conversations').update({
       stage: 'in_service',
       assigned_operator_id: deskUser.userId,
-      updated_at: new Date().toISOString(),
     }).eq('id', id)
+    if (error) console.error('[desk/action] assume update error:', error.message)
   }
 
   if (action === 'return') {
     await admin.from('ai_pauses').delete().eq('conversation_id', id)
 
-    await admin.from('conversations').update({
+    const { error } = await admin.from('conversations').update({
       stage: 'bot_triage',
       assigned_operator_id: null,
-      updated_at: new Date().toISOString(),
     }).eq('id', id)
+    if (error) console.error('[desk/action] return update error:', error.message)
   }
 
   if (action === 'resolve') {
     await admin.from('ai_pauses').delete().eq('conversation_id', id)
 
-    await admin.from('conversations').update({
+    const { error } = await admin.from('conversations').update({
       stage: 'resolved',
       status: 'resolved',
       resolved_at: new Date().toISOString(),
       assigned_operator_id: null,
-      updated_at: new Date().toISOString(),
     }).eq('id', id)
+    if (error) console.error('[desk/action] resolve update error:', error.message)
   }
 
   return NextResponse.json({ ok: true, action })

@@ -236,6 +236,7 @@ O `nixpacks.toml` injeta essas vars na fase de build.
 - **summary** (text) — resumo de triagem gerado pelo AI
 - last_incoming_at / last_outgoing_at (timestamptz)
 - last_outgoing_by / appointment_status / followup_cadence (text)
+- ⚠️ SEM coluna `updated_at` — não incluir em INSERT/UPDATE ou o Supabase retorna erro silencioso
 - ⚠️ Conversas antigas (pré-migration 010) têm `stage = NULL` e `client_id = NULL`
   — o Desk exclui essas ao filtrar por client_id
 

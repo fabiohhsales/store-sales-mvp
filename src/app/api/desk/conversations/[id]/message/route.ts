@@ -76,7 +76,6 @@ export async function POST(
   await admin.from('conversations').update({
     last_outgoing_at: new Date().toISOString(),
     last_outgoing_by: 'operator',
-    updated_at: new Date().toISOString(),
   }).eq('id', id)
 
   return NextResponse.json(message)

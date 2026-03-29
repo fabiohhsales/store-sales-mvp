@@ -44,9 +44,9 @@ interface Props {
 }
 
 const STAGE_LABELS = {
-  bot_triage: 'Com o bot',
-  awaiting_human: 'Aguardando atendimento',
-  in_service: 'Em atendimento',
+  bot_triage: 'Bot respondendo',
+  awaiting_human: 'Bot pausado — aguardando você',
+  in_service: 'Você está atendendo — bot pausado',
   resolved: 'Finalizado',
 }
 
@@ -288,7 +288,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
               className="h-8 text-xs"
             >
               {actioning ? <Loader2 size={12} className="mr-1 animate-spin" /> : <UserCheck size={12} className="mr-1" />}
-              Assumir
+              Assumir conversa
             </Button>
           )}
 
@@ -298,9 +298,9 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
               variant="outline"
               onClick={() => handleAction('return')}
               disabled={actioning}
-              className="h-8 text-xs"
+              className="h-8 text-xs border-orange-500/40 text-orange-500 hover:bg-orange-500/10"
             >
-              <Bot size={12} className="mr-1" />
+              {actioning ? <Loader2 size={12} className="mr-1 animate-spin" /> : <Bot size={12} className="mr-1" />}
               Devolver ao bot
             </Button>
           )}
@@ -360,9 +360,10 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
             </p>
           </div>
         ) : !canSend ? (
-          <div className="flex items-center justify-center py-2">
+          <div className="flex items-center justify-center py-2 gap-2">
+            <UserCheck size={13} className="text-muted-foreground/50" />
             <p className="text-xs text-muted-foreground">
-              Assuma a conversa para responder como o número
+              Clique em <strong>Assumir conversa</strong> para pausar o bot e responder como o número
             </p>
           </div>
         ) : (
