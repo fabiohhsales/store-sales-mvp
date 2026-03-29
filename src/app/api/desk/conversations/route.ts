@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
   if (!deskUser.clientId) return NextResponse.json({ error: 'client_id obrigatório' }, { status: 400 })
 
   const stage = request.nextUrl.searchParams.get('stage') ?? 'all'
+  console.log('[desk/conversations] clientId=%s stage=%s', deskUser.clientId, stage)
   const admin = createAdminClient()
 
   let query = admin
@@ -49,7 +50,11 @@ export async function GET(request: NextRequest) {
   }
 
   const { data, error } = await query.limit(100)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    console.error('[desk/conversations] query error:', error.message)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
+  console.log('[desk/conversations] returned %d conversations', (data ?? []).length)
   return NextResponse.json(data ?? [])
 }

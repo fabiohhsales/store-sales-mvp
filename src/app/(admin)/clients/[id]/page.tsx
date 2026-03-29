@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ArrowLeft, CalendarDays } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Headphones } from 'lucide-react'
 import { getClientById } from '@/lib/db/clients'
 import { listAuditLogsByClientId } from '@/lib/db/audit-log'
 import { StatusCards } from '@/components/client-detail/status-cards'
@@ -106,6 +106,20 @@ export default async function ClientDetailPage({
             <div>
               <p className="text-sm font-medium text-foreground">Agenda</p>
               <p className="text-xs text-muted-foreground">Ver agendamentos e compromissos</p>
+            </div>
+          </Link>
+
+          {/* Desk — painel de atendimento humano */}
+          <Link
+            href={`/desk?client_id=${id}`}
+            className="glass-card flex items-center gap-4 p-5 hover:bg-secondary/50 transition-colors group"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500 group-hover:bg-blue-500/20 transition-colors">
+              <Headphones size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Desk</p>
+              <p className="text-xs text-muted-foreground">Painel de atendimento humano</p>
             </div>
           </Link>
 
