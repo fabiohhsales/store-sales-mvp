@@ -118,7 +118,11 @@ export function BusinessDataStep({ onComplete }: BusinessDataStepProps) {
       }
 
       const client = await res.json()
-      toast.success('Cliente criado com sucesso')
+      if (client.chatwoot_provisioning?.ok === false) {
+        toast.warning(`Cliente criado, mas o Chatwoot falhou: ${client.chatwoot_provisioning.error}`)
+      } else {
+        toast.success('Cliente criado com sucesso')
+      }
       onComplete(client.id)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Erro ao criar cliente')

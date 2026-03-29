@@ -104,6 +104,7 @@ async function createAccountWithEmail(
     id: account.id as number,
     name: account.name as string,
     access_token: data.data?.access_token as string,
+    login_email: email,
   }
 }
 
