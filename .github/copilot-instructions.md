@@ -48,3 +48,11 @@ Use os agentes em `.github/agents/` para tarefas especializadas:
 | `devops-chatsales` | Deploy, EasyPanel, Nixpacks, variáveis de ambiente |
 | `produto-chatsales` | Roadmap, UX, especificação de funcionalidades |
 | `suporte-chatsales` | Diagnóstico de problemas de clientes |
+| `review_code` | Review de código, busca de erros e validação com lint |
+| `review_security` | Review de seguranca, autenticacao e exposicao de dados |
+| `review_tests` | Review de estrategia de testes e cobertura pre-merge |
+| `github_specialist` | Operacoes GitHub com MCP: PRs, issues, labels, releases e automacao |
+
+## Hooks
+
+- PreToolUse em `.github/hooks/review-guard.json` bloqueia comandos destrutivos em sessoes de review.
