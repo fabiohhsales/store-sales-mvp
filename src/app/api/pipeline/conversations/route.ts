@@ -14,14 +14,28 @@ export async function GET(request: NextRequest) {
     const auth = await authenticateRequest(token, clientId)
     const admin = createAdminClient()
 
-    // 1. Busca chatwoot_account_id
-    const { data: whatsappConfig, error: whatsappError } = await admin
-      .from('panel_whatsapp_config')
-      .select('chatwoot_account_id, chatwoot_agent_token')
-      .eq('client_id', auth.client_id)
-      .single()
+    // 1. Busca config Chatwoot — tenta panel_whatsapp_config, depois panel_clients
+    const [{ data: whatsappConfig }, { data: clientRow }] = await Promise.all([
+      admin
+        .from('panel_whatsapp_config')
+        .select('chatwoot_account_id, chatwoot_agent_token')
+        .eq('client_id', auth.client_id)
+        .maybeSingle(),
+      admin
+        .from('panel_clients')
+        .select('chatwoot_account_id, chatwoot_agent_token')
+        .eq('id', auth.client_id)
+        .maybeSingle(),
+    ])
 
-    if (whatsappError || !whatsappConfig?.chatwoot_account_id) {
+    const chatwootConfig = {
+      chatwoot_account_id:
+        whatsappConfig?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null,
+      chatwoot_agent_token:
+        whatsappConfig?.chatwoot_agent_token ?? clientRow?.chatwoot_agent_token ?? null,
+    }
+
+    if (!chatwootConfig.chatwoot_account_id) {
       return NextResponse.json(
         { error: 'Cliente sem configuração WhatsApp/Chatwoot' },
         { status: 404 }
@@ -36,7 +50,7 @@ export async function GET(request: NextRequest) {
     let query = admin
       .from('conversations')
       .select('*, contacts!inner(name, phone_number, identifier)')
-      .eq('account_id', whatsappConfig.chatwoot_account_id)
+      .eq('account_id', chatwootConfig.chatwoot_account_id)
 
     if (statusFilter && statusFilter !== 'all') {
       query = query.eq('status', statusFilter)
@@ -110,7 +124,11 @@ export async function GET(request: NextRequest) {
       ? [{ slug: '_sem_etapa', display_name: 'Sem etapa' }, ...stageLabels]
       : stageLabels
 
-    return NextResponse.json({ columns, conversations: pipelineConversations })
+    return NextResponse.json({
+      columns,
+      conversations: pipelineConversations,
+      chatwootAccountId: chatwootConfig.chatwoot_account_id,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro interno'
     const status = message.includes('autorizado') || message.includes('inválido') ? 401 : 500

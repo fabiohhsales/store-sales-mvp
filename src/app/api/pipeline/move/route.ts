@@ -18,14 +18,28 @@ export async function POST(request: NextRequest) {
     const auth = await authenticateRequest(token || null, client_id || null)
     const admin = createAdminClient()
 
-    // 1. Busca chatwoot config
-    const { data: whatsappConfig } = await admin
-      .from('panel_whatsapp_config')
-      .select('chatwoot_account_id, chatwoot_agent_token')
-      .eq('client_id', auth.client_id)
-      .single()
+    // 1. Busca config Chatwoot — tenta panel_whatsapp_config, depois panel_clients
+    const [{ data: whatsappConfig }, { data: clientRow }] = await Promise.all([
+      admin
+        .from('panel_whatsapp_config')
+        .select('chatwoot_account_id, chatwoot_agent_token')
+        .eq('client_id', auth.client_id)
+        .maybeSingle(),
+      admin
+        .from('panel_clients')
+        .select('chatwoot_account_id, chatwoot_agent_token')
+        .eq('id', auth.client_id)
+        .maybeSingle(),
+    ])
 
-    if (!whatsappConfig?.chatwoot_account_id || !whatsappConfig?.chatwoot_agent_token) {
+    const chatwootConfig = {
+      chatwoot_account_id:
+        whatsappConfig?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null,
+      chatwoot_agent_token:
+        whatsappConfig?.chatwoot_agent_token ?? clientRow?.chatwoot_agent_token ?? null,
+    }
+
+    if (!chatwootConfig.chatwoot_account_id || !chatwootConfig.chatwoot_agent_token) {
       return NextResponse.json(
         { error: 'Cliente sem configuração Chatwoot' },
         { status: 404 }
@@ -37,7 +51,7 @@ export async function POST(request: NextRequest) {
       .from('conversations')
       .select('id, labels')
       .eq('chatwoot_conversation_id', chatwoot_conversation_id)
-      .eq('account_id', whatsappConfig.chatwoot_account_id)
+      .eq('account_id', chatwootConfig.chatwoot_account_id)
       .single()
 
     if (!conversation) {
@@ -59,8 +73,8 @@ export async function POST(request: NextRequest) {
 
     // 4. Atualiza no Chatwoot via API
     await updateConversationLabels(
-      whatsappConfig.chatwoot_account_id,
-      whatsappConfig.chatwoot_agent_token,
+      chatwootConfig.chatwoot_account_id,
+      chatwootConfig.chatwoot_agent_token,
       chatwoot_conversation_id,
       newLabels
     )
