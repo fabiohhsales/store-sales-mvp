@@ -10,6 +10,8 @@ interface PipelineColumnProps {
   conversations: PipelineConversation[]
   colorIndex: number
   onCardClick: (conversation: PipelineConversation) => void
+  /** ID da conversa ativa no Chatwoot (para highlight) */
+  activeChatwootId?: number | null
 }
 
 const COLUMN_COLORS = [
@@ -29,6 +31,7 @@ export function PipelineColumn({
   conversations,
   colorIndex,
   onCardClick,
+  activeChatwootId,
 }: PipelineColumnProps) {
   const { isOver, setNodeRef } = useDroppable({ id })
   const color = COLUMN_COLORS[colorIndex % COLUMN_COLORS.length]
@@ -62,6 +65,7 @@ export function PipelineColumn({
               key={conv.id}
               conversation={conv}
               onClick={onCardClick}
+              isActive={activeChatwootId != null && conv.chatwoot_conversation_id === activeChatwootId}
             />
           ))
         )}

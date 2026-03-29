@@ -42,6 +42,9 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
   const [selectedConversation, setSelectedConversation] = useState<PipelineConversation | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
+  // Contexto da conversa ativa no Chatwoot (via postMessage do Dashboard App)
+  const [activeChatwootId, setActiveChatwootId] = useState<number | null>(null)
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -77,6 +80,22 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
     const interval = setInterval(fetchData, 30000)
     return () => clearInterval(interval)
   }, [fetchData])
+
+  // Escuta o contexto da conversa ativa enviado pelo Chatwoot ao Dashboard App
+  // Referência: https://www.chatwoot.com/docs/product/others/dashboard-apps
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      // Chatwoot envia { event: 'appContext', data: { conversation, contact, currentAgent } }
+      if (event.data?.event === 'appContext') {
+        const convId = event.data?.data?.conversation?.id
+        if (typeof convId === 'number') {
+          setActiveChatwootId(convId)
+        }
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
 
   // Filtro local por nome/telefone
   const filteredConversations = useMemo(() => {
@@ -246,6 +265,7 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
               )}
               colorIndex={index}
               onCardClick={handleCardClick}
+              activeChatwootId={activeChatwootId}
             />
           ))}
         </div>

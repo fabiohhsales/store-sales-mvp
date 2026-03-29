@@ -10,6 +10,8 @@ interface PipelineCardProps {
   conversation: PipelineConversation
   onClick: (conversation: PipelineConversation) => void
   isOverlay?: boolean
+  /** Conversa atualmente aberta pelo agente no Chatwoot (via postMessage) */
+  isActive?: boolean
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -38,7 +40,7 @@ function formatDate(dateStr: string): string {
   })
 }
 
-export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardProps) {
+export function PipelineCard({ conversation, onClick, isOverlay, isActive }: PipelineCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: conversation.id,
     data: { conversation },
@@ -62,6 +64,7 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
         ${STATUS_COLORS[conversation.status] || 'border-l-gray-300'}
         ${isDragging ? 'opacity-50' : ''}
         ${isOverlay ? 'shadow-lg rotate-2' : ''}
+        ${isActive ? 'ring-2 ring-primary shadow-md' : ''}
       `}
     >
       <div className="space-y-2">
