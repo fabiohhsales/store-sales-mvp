@@ -29,7 +29,7 @@ interface Props {
 export function DeskShell({ clientId, clientName, userEmail }: Props) {
   const [conversations, setConversations] = useState<DeskConversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [stageFilter, setStageFilter] = useState<string>('bot_triage')
+  const [stageFilter, setStageFilter] = useState<string>('all')
   const [pendingCount, setPendingCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
@@ -96,17 +96,18 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
         // Atualiza lista local sem refetch completo
         setConversations((prev) => {
           const exists = prev.find((c) => c.id === updated.id)
+          const matchesFilter =
+            stageFilter === 'all'
+              ? updated.stage !== 'resolved'
+              : updated.stage === stageFilter
+
           if (!exists) {
             // Nova conversa — só adiciona se bate com o filtro atual
-            if (stageFilter === 'all' || updated.stage === stageFilter) {
-              return [updated, ...prev]
-            }
+            if (matchesFilter) return [updated, ...prev]
             return prev
           }
           // Conversa existente — remove se saiu do filtro, atualiza se continua
-          if (stageFilter !== 'all' && updated.stage !== stageFilter) {
-            return prev.filter((c) => c.id !== updated.id)
-          }
+          if (!matchesFilter) return prev.filter((c) => c.id !== updated.id)
           return prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
         })
 

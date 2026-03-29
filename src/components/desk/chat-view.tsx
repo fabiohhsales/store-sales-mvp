@@ -244,7 +244,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
   if (!conversation) return null
 
   const stage = conversation.stage
-  const canAssume = stage === 'awaiting_human'
+  const canAssume = stage === 'awaiting_human' || stage === 'bot_triage'
   const canReturn = stage === 'in_service'
   const canSend = stage === 'in_service'
   const isResolved = stage === 'resolved'
@@ -354,9 +354,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
         ) : !canSend ? (
           <div className="flex items-center justify-center py-2">
             <p className="text-xs text-muted-foreground">
-              {canAssume
-                ? 'Assuma a conversa para responder'
-                : 'Bot está atendendo'}
+              Assuma a conversa para responder como o número
             </p>
           </div>
         ) : (

@@ -1,11 +1,12 @@
 'use client'
 
-import { Bot, Clock, UserCheck, CheckCheck } from 'lucide-react'
+import { Bot, Clock, UserCheck, CheckCheck, MessageSquare } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import type { DeskConversation } from './desk-shell'
 
 const STAGES = [
+  { key: 'all',            label: 'Todas ativas', icon: MessageSquare, color: 'text-foreground' },
   { key: 'awaiting_human', label: 'Aguardando', icon: Clock, color: 'text-destructive' },
   { key: 'in_service',     label: 'Em atendimento', icon: UserCheck, color: 'text-blue-500' },
   { key: 'bot_triage',     label: 'Com o bot', icon: Bot, color: 'text-muted-foreground' },
@@ -86,7 +87,9 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
           <div className="flex flex-col items-center justify-center h-32 text-center px-4">
             <currentStage.icon size={24} className="text-muted-foreground/40 mb-2" />
             <p className="text-xs text-muted-foreground">
-              Nenhuma conversa em {currentStage.label.toLowerCase()}
+              {currentStage.key === 'all'
+                ? 'Nenhuma conversa ativa'
+                : `Nenhuma conversa em ${currentStage.label.toLowerCase()}`}
             </p>
           </div>
         ) : (
@@ -135,6 +138,11 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                       </p>
                     )}
 
+                    {stageFilter === 'all' && !isUrgent && conv.stage === 'in_service' && (
+                      <Badge variant="default" className="mt-1.5 h-4 text-[10px] px-1.5">
+                        Em atendimento
+                      </Badge>
+                    )}
                     {isUrgent && (
                       <Badge variant="destructive" className="mt-1.5 h-4 text-[10px] px-1.5">
                         Aguardando atendimento
