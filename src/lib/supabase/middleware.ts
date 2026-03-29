@@ -37,13 +37,15 @@ export async function updateSession(request: NextRequest) {
   const isPublicConnect = request.nextUrl.pathname.startsWith('/connect/')
   const isPublicQRApi = request.nextUrl.pathname.includes('/public-qr')
   const isChatwootWebhook = request.nextUrl.pathname === '/api/webhooks/chatwoot'
+  const isEvolutionWebhook = request.nextUrl.pathname === '/api/webhooks/evolution'
+  const isDeskApi = request.nextUrl.pathname.startsWith('/api/desk/')
   const isChatwootEmbed = request.nextUrl.pathname.startsWith('/chatwoot/')
   const isEmbedAuthApi = request.nextUrl.pathname === '/api/chatwoot/auth'
   const isPipelineApi = request.nextUrl.pathname.startsWith('/api/pipeline/')
   const isAgendaApi = request.nextUrl.pathname.startsWith('/api/agenda/')
 
   // Allow public routes
-  if (isAuthCallback || isAuthGoogleCallback || isAuthGooglePublic || isHealthApi || isPublicConnect || isPublicQRApi || isChatwootWebhook || isChatwootEmbed || isEmbedAuthApi || isPipelineApi || isAgendaApi) {
+  if (isAuthCallback || isAuthGoogleCallback || isAuthGooglePublic || isHealthApi || isPublicConnect || isPublicQRApi || isChatwootWebhook || isEvolutionWebhook || isChatwootEmbed || isEmbedAuthApi || isPipelineApi || isAgendaApi || isDeskApi) {
     return supabaseResponse
   }
 

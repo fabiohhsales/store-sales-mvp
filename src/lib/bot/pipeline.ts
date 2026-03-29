@@ -1,9 +1,13 @@
 // Pipeline base: identifica cliente, faz upsert de contact/conversation, salva mensagem.
 // Etapa 1 — sem AI. A saída será consumida pelas etapas seguintes.
+//
+// runBasePipeline   — pipeline legado (Chatwoot). Mantido para compatibilidade.
+// runEvolutionPipeline — novo pipeline direto da Evolution API (sem Chatwoot).
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import type {
   NormalizedWebhookMessage,
+  NormalizedEvolutionMessage,
   BotContact,
   BotConversation,
   BotMessage,
@@ -203,6 +207,241 @@ async function getMessageHistory(
 
   return ((data ?? []) as BotMessage[]).reverse()
 }
+
+// =============================================================================
+// Pipeline Evolution — sem dependência do Chatwoot
+// =============================================================================
+
+async function resolveClientByInstance(instanceName: string): Promise<ClientContext | null> {
+  const supabase = createAdminClient()
+
+  const { data: wConfig } = await supabase
+    .from('panel_whatsapp_config')
+    .select('*')
+    .eq('evolution_instance_name', instanceName)
+    .maybeSingle()
+
+  if (!wConfig) {
+    console.warn(`[Pipeline] Instância não encontrada: ${instanceName}`)
+    return null
+  }
+
+  const { data: clientRow } = await supabase
+    .from('panel_clients')
+    .select('status')
+    .eq('id', wConfig.client_id)
+    .maybeSingle()
+
+  if (clientRow?.status !== 'active') {
+    console.log(`[Pipeline] client=${wConfig.client_id} status=${clientRow?.status} — bot pausado`)
+    return null
+  }
+
+  const [{ data: botConfig }, { data: googleConfig }] = await Promise.all([
+    supabase.from('panel_bot_config').select('*').eq('client_id', wConfig.client_id).maybeSingle(),
+    supabase.from('panel_google_config').select('*').eq('client_id', wConfig.client_id).maybeSingle(),
+  ])
+
+  return {
+    clientId: wConfig.client_id as string,
+    whatsappConfig: wConfig as PanelWhatsAppConfig,
+    botConfig: botConfig as PanelBotConfig | null,
+    googleConfig: googleConfig as PanelGoogleConfig | null,
+  }
+}
+
+async function upsertEvolutionContact(
+  supabase: ReturnType<typeof createAdminClient>,
+  msg: NormalizedEvolutionMessage,
+  clientId: string
+): Promise<BotContact> {
+  // Tenta buscar pelo telefone + cliente (chave natural)
+  const { data: existing } = await supabase
+    .from('contacts')
+    .select('*')
+    .eq('phone_number', msg.phoneNumber)
+    .eq('client_id', clientId)
+    .maybeSingle()
+
+  if (existing) {
+    // Atualiza nome se mudou (pushName pode mudar)
+    if (existing.name !== msg.contactName && msg.contactName) {
+      const { data: updated } = await supabase
+        .from('contacts')
+        .update({ name: msg.contactName })
+        .eq('id', existing.id)
+        .select()
+        .single()
+      return (updated ?? existing) as BotContact
+    }
+    return existing as BotContact
+  }
+
+  const { data: created, error } = await supabase
+    .from('contacts')
+    .insert({
+      id: crypto.randomUUID(),
+      name: msg.contactName || msg.phoneNumber,
+      phone_number: msg.phoneNumber,
+      identifier: msg.remoteJid,
+      client_id: clientId,
+      created_at: new Date().toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) {
+    // Race condition: outro processo criou antes — busca pelo telefone
+    if (error.code === '23505') {
+      const { data: byPhone } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('phone_number', msg.phoneNumber)
+        .eq('client_id', clientId)
+        .maybeSingle()
+      if (byPhone) return byPhone as BotContact
+    }
+    throw new Error(`Falha ao criar contato Evolution: ${error.message}`)
+  }
+
+  return created as BotContact
+}
+
+async function upsertEvolutionConversation(
+  supabase: ReturnType<typeof createAdminClient>,
+  contact: BotContact,
+  clientId: string,
+  defaultLabel: string
+): Promise<BotConversation> {
+  // Uma conversa aberta por contato+cliente (stage != 'resolved')
+  const { data: existing } = await supabase
+    .from('conversations')
+    .select('*')
+    .eq('contact_id', contact.id)
+    .eq('client_id', clientId)
+    .neq('stage', 'resolved')
+    .order('last_incoming_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (existing) {
+    const { data: updated } = await supabase
+      .from('conversations')
+      .update({
+        last_incoming_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .select()
+      .single()
+    return (updated ?? existing) as BotConversation
+  }
+
+  const { data: created, error } = await supabase
+    .from('conversations')
+    .insert({
+      id: crypto.randomUUID(),
+      contact_id: contact.id,
+      client_id: clientId,
+      status: 'open',
+      stage: 'bot_triage',
+      labels: [defaultLabel],
+      last_incoming_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Falha ao criar conversa Evolution: ${error.message}`)
+  return created as BotConversation
+}
+
+async function saveEvolutionMessage(
+  supabase: ReturnType<typeof createAdminClient>,
+  msg: NormalizedEvolutionMessage,
+  conversation: BotConversation,
+  clientId: string
+): Promise<BotMessage> {
+  // Deduplicação: ignora se a mensagem já foi processada
+  const { data: duplicate } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('evolution_message_id', msg.messageId)
+    .maybeSingle()
+
+  if (duplicate) {
+    console.log(`[Pipeline] Mensagem duplicada ignorada: ${msg.messageId}`)
+    const { data: existing } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('evolution_message_id', msg.messageId)
+      .single()
+    return existing as BotMessage
+  }
+
+  const { data: saved, error } = await supabase
+    .from('messages')
+    .insert({
+      id: crypto.randomUUID(),
+      evolution_message_id: msg.messageId,
+      conversation_id: conversation.id,
+      client_id: clientId,
+      content: msg.content,
+      content_type: msg.contentType,
+      sender_type: 'contact',
+      from_who: 'lead',
+      created_at: msg.timestamp.toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) {
+    // Race condition de duplicata — retorna a existente
+    if (error.code === '23505') {
+      const { data: existing } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('evolution_message_id', msg.messageId)
+        .single()
+      if (existing) return existing as BotMessage
+    }
+    throw new Error(`Falha ao salvar mensagem Evolution: ${error.message}`)
+  }
+
+  return saved as BotMessage
+}
+
+export async function runEvolutionPipeline(
+  msg: NormalizedEvolutionMessage
+): Promise<PipelineResult | null> {
+  const clientContext = await resolveClientByInstance(msg.instanceName)
+  if (!clientContext) return null
+
+  // Bloqueia processamento se a conversa está em atendimento humano
+  // (verificado depois de ter a conversa — veja abaixo)
+
+  const supabase = createAdminClient()
+  const stageSlugs = stageLabelSlugs(clientContext.botConfig?.stage_labels)
+
+  const contact = await upsertEvolutionContact(supabase, msg, clientContext.clientId)
+  const conversation = await upsertEvolutionConversation(supabase, contact, clientContext.clientId, stageSlugs[0])
+
+  // Operador assumiu a conversa — bot não responde
+  if (conversation.stage === 'in_service') {
+    console.log(`[Pipeline] conv=${conversation.id} em atendimento humano — bot silenciado`)
+    await saveEvolutionMessage(supabase, msg, conversation, clientContext.clientId)
+    return null
+  }
+
+  const message = await saveEvolutionMessage(supabase, msg, conversation, clientContext.clientId)
+  const messageHistory = await getMessageHistory(supabase, conversation.id)
+
+  return { clientContext, contact, conversation, message, messageHistory }
+}
+
+// =============================================================================
+// Pipeline legado (Chatwoot) — mantido para compatibilidade
+// =============================================================================
 
 // --- Entry point público ---
 

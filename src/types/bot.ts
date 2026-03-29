@@ -1,23 +1,26 @@
 // Tipos das tabelas existentes do bot (contacts, conversations, messages, appointments, ai_pauses)
-// e do payload do webhook do Chatwoot
+// e dos payloads de webhook (Chatwoot legado + Evolution API)
 
 // --- Tabelas existentes (NÃO são panel_*, NÃO modificar o schema) ---
 
 export interface BotContact {
   id: string
-  chatwoot_id: number
+  chatwoot_id: number | null
   name: string | null
   phone_number: string | null
   identifier: string | null
+  client_id: string | null
   created_at: string
 }
 
 export interface BotConversation {
   id: string
-  chatwoot_conversation_id: number
+  chatwoot_conversation_id: number | null
   contact_id: string
   status: 'pending' | 'open' | 'resolved'
-  account_id: number
+  account_id: number | null
+  client_id: string | null
+  stage: 'bot_triage' | 'awaiting_human' | 'in_service' | 'resolved'
   updated_at: string
   chatwoot_contact_id: number | null
   labels: string[]
@@ -28,18 +31,23 @@ export interface BotConversation {
   followup_cadence: string | null
   last_followup_at: string | null
   pending_slots: Array<{ label: string; startISO: string; endISO: string }> | null
+  assigned_operator_id: string | null
+  resolved_at: string | null
+  summary: string | null
 }
 
 export interface BotMessage {
   id: string
-  chatwoot_message_id: number
+  chatwoot_message_id: number | null
+  evolution_message_id: string | null
   conversation_id: string
   content: string | null
   content_type: string
   sender_type: string
   created_at: string
   from_who: 'lead' | 'human' | 'ai'
-  chatwoot_conversation_id: string
+  client_id: string | null
+  chatwoot_conversation_id: string | null
   source_id: string | null
 }
 
@@ -121,7 +129,7 @@ export interface ChatwootWebhookPayload {
   }
 }
 
-// Dados normalizados extraídos do webhook para uso no pipeline
+// Dados normalizados extraídos do webhook Chatwoot para uso no pipeline (legado)
 export interface NormalizedWebhookMessage {
   chatwootAccountId: number
   chatwootConversationId: number
@@ -133,4 +141,42 @@ export interface NormalizedWebhookMessage {
   messageContent: string
   contentType: 'text' | 'audio' | 'image'
   attachments: Array<{ data_url: string; file_type: string }>
+}
+
+// --- Payload da Evolution API (webhook direto, sem Chatwoot) ---
+
+export interface EvolutionWebhookPayload {
+  event: string
+  instance: string // nome da instância (= evolution_instance_name)
+  data: {
+    key: {
+      remoteJid: string   // "5532999999999@s.whatsapp.net"
+      fromMe: boolean
+      id: string          // message ID único da Evolution
+    }
+    pushName?: string     // nome do contato no WhatsApp
+    message?: {
+      conversation?: string
+      extendedTextMessage?: { text: string }
+      imageMessage?: { caption?: string }
+      audioMessage?: object
+      documentMessage?: { fileName?: string }
+    }
+    messageType?: string  // "conversation" | "extendedTextMessage" | etc.
+    messageTimestamp?: number
+  }
+  // connection.update
+  state?: 'open' | 'close' | 'connecting'
+}
+
+// Dados normalizados da Evolution API para uso no pipeline
+export interface NormalizedEvolutionMessage {
+  instanceName: string
+  remoteJid: string      // "5532999999999@s.whatsapp.net"
+  phoneNumber: string    // apenas números: "5532999999999"
+  contactName: string
+  messageId: string
+  content: string
+  contentType: 'text' | 'image' | 'audio' | 'document' | 'unknown'
+  timestamp: Date
 }

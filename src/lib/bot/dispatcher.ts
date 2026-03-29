@@ -1,10 +1,9 @@
 // Dispatcher: roteia o AgentOutput após a decisão da IA.
-// Envia resposta WhatsApp, salva mensagem da IA, atualiza Chatwoot.
+// Envia resposta WhatsApp via Evolution API, salva mensagem no Supabase.
 // Etapa 3 (calendário) será chamada daqui quando agenda_check=true.
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
-import { updateConversationStatus, updateConversationLabels } from '@/lib/api/chatwoot'
 import { handleAgendaCheck, handleAgendaCreate } from './calendar-agent'
 import { clearAiPause } from './agent'
 import { normalizeStageSlug } from './stage-labels'
@@ -98,39 +97,16 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
           identifier,
           output.reply
         )
-        await saveAiMessage(conversation.id, conversation.chatwoot_conversation_id, output.reply)
+        await saveAiMessage(conversation.id, clientContext.clientId, output.reply)
       } catch (err) {
         console.error('[Dispatcher] Falha ao enviar WhatsApp:', err)
       }
     }
   }
 
-  // --- 2. Atualiza status e labels no Chatwoot (Account isolada do cliente) ---
-  const accountId = whatsappConfig.chatwoot_account_id
-  const accountToken = whatsappConfig.chatwoot_agent_token
-
-  if (accountId && accountToken) {
-    try {
-      if (output.status_next !== 'pending') {
-        await updateConversationStatus(
-          accountId,
-          accountToken,
-          conversation.chatwoot_conversation_id,
-          output.status_next
-        )
-      }
-
-      if (output.labels_next.length > 0) {
-        await updateConversationLabels(
-          accountId,
-          accountToken,
-          conversation.chatwoot_conversation_id,
-          output.labels_next
-        )
-      }
-    } catch (err) {
-      console.error('[Dispatcher] Falha ao atualizar Chatwoot:', err)
-    }
+  // --- 2. Handoff: move conversa para fila de espera humana ---
+  if (output.handoff.needs_human && conversation.stage === 'bot_triage') {
+    await handleHandoff(conversation.id, output.reply, clientContext.clientId, result)
   }
 
   // --- 3. Atualiza conversa no Supabase ---
@@ -152,22 +128,90 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
 // Salva a mensagem de resposta da IA na tabela messages
 async function saveAiMessage(
   conversationId: string,
-  chatwootConversationId: number,
+  clientId: string,
   reply: string
 ): Promise<void> {
   const supabase = createAdminClient()
   await supabase.from('messages').insert({
     id: crypto.randomUUID(),
-    chatwoot_message_id: 0, // preenchido depois quando Chatwoot confirmar
     conversation_id: conversationId,
+    client_id: clientId,
     content: reply,
     content_type: 'text',
     sender_type: 'agent_bot',
-    created_at: new Date().toISOString(),
     from_who: 'ai',
-    chatwoot_conversation_id: String(chatwootConversationId),
-    source_id: null,
+    created_at: new Date().toISOString(),
   })
+}
+
+// Move a conversa para awaiting_human, envia mensagem de handoff ao paciente e persiste resumo
+async function handleHandoff(
+  conversationId: string,
+  handoffMessage: string | null,
+  clientId: string,
+  result: PipelineResult
+): Promise<void> {
+  const supabase = createAdminClient()
+  const { clientContext, contact } = result
+  const { whatsappConfig, botConfig } = clientContext
+
+  // Usa a mensagem de handoff do botConfig como fallback
+  const messageToSend = handoffMessage
+    || botConfig?.ai_handoff_message
+    || 'Vou te transferir para nossa equipe. Um momento, por favor.'
+
+  // Envia a mensagem de handoff ao paciente via Evolution
+  const identifier = contact.identifier ?? contact.phone_number
+  if (identifier && whatsappConfig.evolution_instance_name) {
+    try {
+      await sendTextMessage(whatsappConfig.evolution_instance_name, identifier, messageToSend)
+    } catch (err) {
+      console.error('[Dispatcher] Falha ao enviar mensagem de handoff:', err)
+    }
+  }
+
+  // Gera resumo da triagem para o operador
+  const summary = await generateTriageSummary(result.messageHistory)
+
+  await supabase.from('conversations').update({
+    stage: 'awaiting_human',
+    summary,
+    updated_at: new Date().toISOString(),
+  }).eq('id', conversationId)
+
+  // Persiste a mensagem de handoff no histórico
+  await saveAiMessage(conversationId, clientId, messageToSend)
+
+  console.log(`[Dispatcher] Handoff: conv=${conversationId} → awaiting_human`)
+}
+
+// Gera resumo da triagem via IA para exibir ao operador humano
+async function generateTriageSummary(messages: import('@/types/bot').BotMessage[]): Promise<string> {
+  try {
+    const { createAiClient } = await import('@/lib/ai/client')
+    const openai = createAiClient()
+
+    const history = messages
+      .map((m) => `${m.sender_type === 'contact' ? 'Paciente' : 'Bot'}: ${m.content ?? ''}`)
+      .join('\n')
+
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL_MINI ?? 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `Resuma a conversa abaixo em 2-3 linhas objetivas para o atendente humano.
+Inclua: motivo do contato, dados coletados e motivo do encaminhamento. Seja direto e conciso.`,
+        },
+        { role: 'user', content: history },
+      ],
+      max_tokens: 200,
+    })
+
+    return response.choices[0].message.content ?? 'Triagem sem resumo disponível.'
+  } catch {
+    return 'Triagem sem resumo disponível.'
+  }
 }
 
 // Atualiza status, labels e timestamps na tabela conversations
