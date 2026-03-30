@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip } from 'lucide-react'
+import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -59,6 +59,12 @@ interface OperatorNote {
   operator_email: string
   operator_name: string | null
   created_at: string
+}
+
+interface CannedResponse {
+  id: string
+  shortcut: string
+  content: string
 }
 
 interface Props {
@@ -180,6 +186,11 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
   const [uploadLoading, setUploadLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Respostas rápidas (canned responses)
+  const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>([])
+  const [cannedPopoverOpen, setCannedPopoverOpen] = useState(false)
+  const [cannedHighlight, setCannedHighlight] = useState(0)
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const notesBottomRef = useRef<HTMLDivElement>(null)
@@ -238,12 +249,25 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
     }
   }, [conversationId])
 
+  const loadCannedResponses = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/clients/${clientId}/canned-responses`)
+      if (res.ok) {
+        const data = await res.json()
+        setCannedResponses(Array.isArray(data) ? data : [])
+      }
+    } catch {
+      // silencioso — respostas rápidas não bloqueiam o chat
+    }
+  }, [clientId])
+
   useEffect(() => {
     void load(true)
     void loadProfile(true)
     void loadAssign()
     void loadNotes(true)
-  }, [load, loadProfile, loadAssign, loadNotes])
+    void loadCannedResponses()
+  }, [load, loadProfile, loadAssign, loadNotes, loadCannedResponses])
 
   // Polling de fallback
   useEffect(() => {
@@ -425,7 +449,55 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
     }
   }
 
+  // Filtra respostas rápidas pelo que o usuário digitou após "/"
+  const cannedQuery = input.startsWith('/') ? input.slice(1).toLowerCase() : null
+  const filteredCanned = cannedQuery !== null
+    ? cannedResponses.filter((r) => r.shortcut.includes(cannedQuery) || r.content.toLowerCase().includes(cannedQuery))
+    : []
+
+  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value
+    setInput(val)
+    const query = val.startsWith('/') ? val.slice(1).toLowerCase() : null
+    if (query !== null) {
+      const matches = cannedResponses.filter((r) => r.shortcut.includes(query) || r.content.toLowerCase().includes(query))
+      setCannedPopoverOpen(matches.length > 0)
+      setCannedHighlight(0)
+    } else {
+      setCannedPopoverOpen(false)
+    }
+  }
+
+  function applyCanned(response: CannedResponse) {
+    setInput(response.content)
+    setCannedPopoverOpen(false)
+    setCannedHighlight(0)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (cannedPopoverOpen && filteredCanned.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setCannedHighlight((h) => (h + 1) % filteredCanned.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setCannedHighlight((h) => (h - 1 + filteredCanned.length) % filteredCanned.length)
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        applyCanned(filteredCanned[cannedHighlight])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setCannedPopoverOpen(false)
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
@@ -682,7 +754,29 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
                     </p>
                   </div>
                 ) : (
-                  <div className="flex items-end gap-2">
+                  <div className="relative flex items-end gap-2">
+                    {/* Popover de respostas rápidas */}
+                    {cannedPopoverOpen && filteredCanned.length > 0 && (
+                      <div className="absolute bottom-full left-0 mb-2 w-full max-h-52 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-50">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-muted/40">
+                          <Zap size={11} className="text-primary" />
+                          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Respostas rápidas</span>
+                        </div>
+                        {filteredCanned.map((r, idx) => (
+                          <button
+                            key={r.id}
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); applyCanned(r) }}
+                            className={`w-full flex flex-col gap-0.5 px-3 py-2 text-left transition-colors ${
+                              idx === cannedHighlight ? 'bg-primary/10' : 'hover:bg-secondary/60'
+                            }`}
+                          >
+                            <span className="text-xs font-medium text-primary">/{r.shortcut}</span>
+                            <span className="text-xs text-muted-foreground line-clamp-2">{r.content}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -693,9 +787,9 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
                     <Textarea
                       ref={textareaRef}
                       value={input}
-                      onChange={(e) => setInput(e.target.value)}
+                      onChange={handleInputChange}
                       onKeyDown={handleKeyDown}
-                      placeholder="Digite uma mensagem... (Enter para enviar)"
+                      placeholder="Digite uma mensagem ou / para respostas rápidas…"
                       className="min-h-[44px] max-h-32 resize-none text-sm"
                       rows={1}
                       disabled={sending}
