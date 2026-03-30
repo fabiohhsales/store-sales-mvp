@@ -66,10 +66,17 @@ async function runPipeline(msg: import('@/types/bot').NormalizedEvolutionMessage
   }
 }
 
+// Debounce: evita DB writes repetidos para o mesmo estado
+const lastKnownState = new Map<string, string>()
+
 // Sincroniza o status de conexão da instância com panel_whatsapp_config
 async function handleConnectionUpdate(payload: EvolutionWebhookPayload) {
   const { instance, state } = payload
   if (!state) return
+
+  // Ignora se o estado não mudou desde o último evento
+  if (lastKnownState.get(instance) === state) return
+  lastKnownState.set(instance, state)
 
   const supabase = createAdminClient()
 

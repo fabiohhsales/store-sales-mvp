@@ -67,7 +67,6 @@ export async function POST(req: NextRequest) {
   }
 
   console.log(`[Webhook] Recebido event=${payload.event} account=${payload.account?.id} msg_type=${payload.message_type}`)
-  console.log('[Webhook] payload.conversation:', JSON.stringify(payload.conversation))
 
   const normalized = normalizePayload(payload)
   if (!normalized) {

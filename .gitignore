@@ -44,9 +44,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# project instructions (contem credenciais)
-CLAUDE.md
-
 # docs de infra (contem credenciais e workflows n8n)
 docs/infra/
 

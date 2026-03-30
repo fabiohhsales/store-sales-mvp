@@ -553,10 +553,29 @@ Novo lead (WhatsApp)
 
 ---
 
+## Migrations de banco
+
+As migrations ficam em `supabase/migrations/` e são aplicadas **automaticamente** ao subir o app
+(`npm run start` executa `node scripts/migrate.mjs` antes do `next start`).
+
+O script rastreia o que já foi aplicado na tabela `_schema_migrations`. Toda vez que o EasyPanel
+faz deploy, as migrations novas são rodadas antes do app aceitar requests.
+
+### Para criar uma nova migration
+1. Crie o arquivo `supabase/migrations/NNN_nome.sql` com numeração sequencial
+2. Escreva o SQL com `IF NOT EXISTS` / `IF EXISTS` para ser idempotente
+3. Faça o commit junto com o código que depende dela — o deploy roda tudo junto
+
+⚠️ **Nunca** fazer deploy de código que depende de coluna/tabela nova sem criar a migration
+antes — o app vai quebrar silenciosamente (queries retornam erro, tela em branco no Desk, etc).
+
+---
+
 ## Comandos
 
 - `npm run dev` — Dev server
 - `npm run build` — Build de produção
+- `npm run start` — Roda migrations pendentes e sobe o app
 - `npm run lint` — ESLint
 
 ## Convenções
