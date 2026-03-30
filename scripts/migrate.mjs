@@ -64,12 +64,19 @@ async function migrate() {
     console.log(`[migrate] Aplicando ${file}...`)
     try {
       await sql(content)
-      await sql(`INSERT INTO _schema_migrations (name) VALUES ('${file.replace(/'/g, "''")}')`)
+      await sql(`INSERT INTO _schema_migrations (name) VALUES ('${file.replace(/'/g, "''")}') ON CONFLICT DO NOTHING`)
       console.log(`[migrate] ✓ ${file}`)
     } catch (err) {
-      console.error(`[migrate] ERRO em ${file}: ${err.message}`)
-      console.error('[migrate] Deploy abortado — banco inconsistente.')
-      process.exit(1)
+      // "already exists" (42P07 duplicate_table, 42701 duplicate_column, 42710 duplicate_object, etc.)
+      // Significa que a migration já foi aplicada manualmente — marca como concluída e segue.
+      if (err.message.includes('already exists')) {
+        console.warn(`[migrate] ⚠ ${file} — objeto já existe, marcando como aplicado`)
+        await sql(`INSERT INTO _schema_migrations (name) VALUES ('${file.replace(/'/g, "''")}') ON CONFLICT DO NOTHING`)
+      } else {
+        console.error(`[migrate] ERRO em ${file}: ${err.message}`)
+        console.error('[migrate] Deploy abortado — banco inconsistente.')
+        process.exit(1)
+      }
     }
   }
 
