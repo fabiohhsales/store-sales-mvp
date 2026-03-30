@@ -120,10 +120,10 @@ Se status ≠ `'active'`, ignora silenciosamente.
 
 `src/lib/bot/system-prompt.ts` injeta no prompt:
 - Nome do profissional, título, negócio
-- Serviços com modalidade expandida (`"ambos"` → `"presencial ou teleconsulta (online)"`)
+- Serviços com modalidade expandida (`"ambos"` → `"in-person or online"`)
 - Horários de atendimento formatados
 - Tom de comunicação (formal/professional_friendly/casual/empathetic)
-- Idioma (`ai_language` — ex: `"EN"` força respostas em inglês)
+- **Idioma**: prompt base é **inglês**. Para clientes não-inglês, injeta override `"You MUST respond only in {lang}. Never use English."` — `ai_language` com valor `"pt-BR"`, `"es"`, etc.
 - Instruções customizadas do profissional
 - Regras de handoff, labels de etapa, formato JSON obrigatório
 - **Anti-alucinação**: instrução explícita de usar só dados do prompt
@@ -251,6 +251,7 @@ O `nixpacks.toml` injeta essas vars na fase de build.
 - content / content_type / sender_type / from_who (text)
 - chatwoot_conversation_id / source_id (text, nullable)
 - created_at (timestamptz)
+- **media_url** (text, nullable) — adicionado em migration 015: path no bucket `desk-media` do Supabase Storage
 
 #### panel_users — NOVA (migration 010)
 - id (uuid, PK = auth.users.id)
@@ -309,6 +310,7 @@ handoff_max_ai_turns, handoff_keywords (text[])
 - `intake_request_photos` (boolean) — solicita fotos após intake
 - `intake_photos_count` (int) — número de fotos esperadas
 - `intake_handoff_after_photos` (boolean) — handoff automático ao receber todas as fotos
+- `intake_photo_guide_url` (text, nullable) — URL pública da imagem guia de ângulos; enviada automaticamente pelo bot ao entrar na fase de fotos
 
 **Calendar**: calendar_event_title_template, calendar_event_description_template,
 calendar_create_meet_link, calendar_send_invite_to_patient, calendar_color_id
@@ -376,6 +378,8 @@ Scopes: calendar, calendar.events
 - `GET /api/desk/conversations/[id]?client_id=` — conversa + histórico completo
 - `POST /api/desk/conversations/[id]/action` — `{ action: 'assume'|'return'|'resolve' }`
 - `POST /api/desk/conversations/[id]/message` — `{ content }` — envia via Evolution + persiste
+- `POST /api/desk/conversations/[id]/send-media` — `{ base64, mimetype, caption?, file_name? }` — envia mídia via Evolution + upload Storage + persiste
+- `GET /api/desk/media?msg_id=&conversation_id=` — serve mídia: signed URL do Storage (se `media_url` salvo) ou fallback Evolution API
 - `GET /api/desk/stats?client_id=` — contagens por stage
 
 ### Clientes
@@ -511,22 +515,25 @@ Novo lead (WhatsApp)
 - Cirurgia 2 dias: €5.800 (só cirurgia) / €6.000 (com hotel + transporte)
 - Depósito: €1.000 + passagem por conta do paciente
 
+### O que já foi implementado
+
+- ✅ **Bot responde em inglês por padrão** — system prompt base em inglês; override via `ai_language` para outros idiomas
+- ✅ **Visualizar imagens no Desk** — fotos recebidas são salvas no Supabase Storage (bucket `desk-media`) e exibidas no chat via signed URL; fallback para Evolution se mídia antiga
+- ✅ **Enviar arquivo (PDF/imagem) pelo Desk** — botão de clipe no chat; upload para Storage + envio via Evolution
+- ✅ **Bot envia imagem guia de fotos** — ao completar o intake, dispatcher envia automaticamente o `intake_photo_guide_url` antes de pedir as fotos
+- ✅ **Intake estruturado** — coleta campos um por vez antes de qualquer ação; configurável por cliente
+
 ### O que ainda falta implementar (backlog priorizado)
 
 **Alta prioridade:**
-1. `ai_language = EN` no bot config — pacientes são internacionais
-2. **Visualizar imagens no Desk** — paciente envia 5 fotos do couro cabeludo para avaliação; hoje aparece só `[Imagem]`
-3. **Enviar arquivo (PDF) pelo Desk** — operador precisa enviar plano cirúrgico e orçamento via WhatsApp
-4. **Intake estruturado no bot** — coletar os 6 campos básicos (nome, email, nasc, país, origem, medicações) de forma guiada
+1. **Funil de stages customizado** — os stages atuais (bot_triage → awaiting_human → in_service → resolved) não refletem o pipeline real de vendas da Choi
 
 **Média prioridade:**
-5. **Anotações internas no Desk** — operador escreve obs sobre o paciente que não vão pro WhatsApp (nº grafts estimado, avaliação médica)
-6. **Templates de mensagem no Desk** — 1 clique para enviar mensagens padrão (pedido de fotos, envio de plano, etc.)
-7. **Funil de stages customizado** — os stages atuais (bot_triage → awaiting_human → in_service → resolved) não refletem o pipeline real de vendas da Choi
+2. **Anotações internas no Desk** — operador escreve obs sobre o paciente que não vão pro WhatsApp (nº grafts estimado, avaliação médica) — já existe migration 012
+3. **Templates de mensagem no Desk** — 1 clique para enviar mensagens padrão (pedido de fotos, envio de plano, etc.) — já existe migration 013/014
 
 **Baixa prioridade:**
-8. Rastrear origem do lead ("Where did you hear about us")
-9. Agendamento de video consultation dedicado
+4. Agendamento de video consultation dedicado
 
 ---
 
@@ -550,6 +557,7 @@ Novo lead (WhatsApp)
 - O SIGTERM nos logs após "Ready" é o container **anterior** sendo finalizado (normal)
 - `NEXT_PUBLIC_APP_URL` com trailing slash é tratado com `.replace(/\/$/, '')`
 - Páginas que fazem queries Supabase precisam de `export const dynamic = 'force-dynamic'`
+- `nixpacks.toml` tem `[start] cmd = "npm run start"` explícito — sem isso o nixpacks pode não detectar corretamente
 
 ---
 
@@ -568,6 +576,15 @@ faz deploy, as migrations novas são rodadas antes do app aceitar requests.
 
 ⚠️ **Nunca** fazer deploy de código que depende de coluna/tabela nova sem criar a migration
 antes — o app vai quebrar silenciosamente (queries retornam erro, tela em branco no Desk, etc).
+
+### Comportamento do migrate.mjs em primeiro deploy
+O script tolera erros de "already exists" (`42P07`, `42701`, etc.) — marca a migration como aplicada e continua.
+Isso resolve o caso onde o banco já existia antes do script ser criado.
+
+### Supabase Storage — bucket desk-media
+Criado na migration 015. Bucket **privado** — nunca expõe URLs públicas diretas.
+Acesso via signed URLs geradas pelo servidor (expiram em 1h).
+Usado para: fotos recebidas dos pacientes, PDFs/imagens enviados por operadores.
 
 ---
 
