@@ -7,11 +7,13 @@ import { ConversationList } from './conversation-list'
 import { ChatView } from './chat-view'
 import { KanbanBoard } from '@/components/pipeline/kanban-board'
 import { AgendaTable } from '@/components/agenda/agenda-table'
-import { LogOut, MessageSquare, Bell, ArrowLeft, Kanban, CalendarDays } from 'lucide-react'
+import { AnalyticsView } from './analytics-view'
+import { MyCannedResponsesPanel } from './my-canned-responses-panel'
+import { LogOut, MessageSquare, Bell, ArrowLeft, Kanban, CalendarDays, BarChart3, Zap } from 'lucide-react'
 import { logout } from '@/lib/actions/auth'
 import { toast } from 'sonner'
 
-type DeskTab = 'conversations' | 'pipeline' | 'agenda'
+type DeskTab = 'conversations' | 'pipeline' | 'agenda' | 'analytics'
 
 export interface DeskConversation {
   id: string
@@ -28,9 +30,10 @@ interface Props {
   clientId: string
   clientName: string
   userEmail: string
+  userId: string
 }
 
-export function DeskShell({ clientId, clientName, userEmail }: Props) {
+export function DeskShell({ clientId, clientName, userEmail, userId }: Props) {
   const [activeTab, setActiveTab] = useState<DeskTab>('conversations')
   const [conversations, setConversations] = useState<DeskConversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -39,6 +42,7 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
   const [stageCounts, setStageCounts] = useState<{ bot_triage: number; awaiting_human: number; in_service: number }>({ bot_triage: 0, awaiting_human: 0, in_service: 0 })
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [myShortcutsOpen, setMyShortcutsOpen] = useState(false)
   const router = useRouter()
 
   const fetchConversations = useCallback(async (stage: string) => {
@@ -182,6 +186,7 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
             stageFilter={stageFilter}
             loading={loading}
             stageCounts={stageCounts}
+            currentUserId={userId}
             onSelect={setSelectedId}
             onStageChange={(s) => {
               setStageFilter(s)
@@ -244,10 +249,28 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
                 <CalendarDays size={13} />
                 <span className="hidden sm:inline">Agenda</span>
               </button>
+              <button
+                onClick={() => setActiveTab('analytics')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeTab === 'analytics'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                }`}
+              >
+                <BarChart3 size={13} />
+                <span className="hidden sm:inline">Analytics</span>
+              </button>
             </nav>
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMyShortcutsOpen(true)}
+              className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              title="Meus atalhos pessoais"
+            >
+              <Zap size={16} />
+            </button>
             <button
               onClick={() => setActiveTab('conversations')}
               className="relative p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
@@ -278,6 +301,10 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
           <div className="flex-1 overflow-hidden">
             <KanbanBoard clientId={clientId} />
           </div>
+        )}
+
+        {activeTab === 'analytics' && (
+          <AnalyticsView clientId={clientId} />
         )}
 
         {activeTab === 'agenda' && (
@@ -313,6 +340,13 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
           </>
         )}
       </main>
+
+      {/* Painel de atalhos pessoais */}
+      <MyCannedResponsesPanel
+        clientId={clientId}
+        open={myShortcutsOpen}
+        onOpenChange={setMyShortcutsOpen}
+      />
     </div>
   )
 }

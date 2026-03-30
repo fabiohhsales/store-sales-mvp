@@ -21,6 +21,7 @@ interface Props {
   stageFilter: string
   loading: boolean
   stageCounts?: { bot_triage: number; awaiting_human: number; in_service: number }
+  currentUserId?: string
   onSelect: (id: string) => void
   onStageChange: (stage: string) => void
 }
@@ -92,7 +93,7 @@ function getWaitingBadge(date: string | null): { label: string; className: strin
   }
 }
 
-export function ConversationList({ conversations, selectedId, stageFilter, loading, stageCounts, onSelect, onStageChange }: Props) {
+export function ConversationList({ conversations, selectedId, stageFilter, loading, stageCounts, currentUserId, onSelect, onStageChange }: Props) {
   const currentStage = STAGES.find((s) => s.key === stageFilter) ?? STAGES[0]
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -184,6 +185,7 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
               const name = conv.contacts?.name ?? conv.contacts?.phone_number ?? 'Desconhecido'
               const isAwaitingHuman = conv.stage === 'awaiting_human'
               const waitingBadge = isAwaitingHuman ? getWaitingBadge(conv.last_incoming_at) : null
+              const isAssignedToMe = !!(currentUserId && conv.assigned_operator_id === currentUserId)
 
               return (
                 <button
@@ -235,6 +237,14 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                         className={`mt-1.5 h-4 px-1.5 text-[10px] ${waitingBadge.className}`}
                       >
                         {waitingBadge.label}
+                      </Badge>
+                    )}
+                    {isAssignedToMe && (
+                      <Badge
+                        variant="outline"
+                        className="mt-1.5 h-4 px-1.5 text-[10px] border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                      >
+                        Você
                       </Badge>
                     )}
                   </div>

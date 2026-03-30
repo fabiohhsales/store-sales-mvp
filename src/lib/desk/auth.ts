@@ -1,6 +1,6 @@
 // Resolve o client_id do usuário autenticado para as APIs do Desk.
 // Operadores: client_id vem de panel_users.
-// Admins sem panel_users: usam ?client_id= da query string.
+// Admins: client_id vem de ?client_id= na query string.
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -19,7 +19,6 @@ export async function resolveDeskUser(request: NextRequest): Promise<DeskUser | 
 
   const admin = createAdminClient()
 
-  // Verifica se existe entrada em panel_users
   const { data: panelUser } = await admin
     .from('panel_users')
     .select('role, client_id')
@@ -35,10 +34,20 @@ export async function resolveDeskUser(request: NextRequest): Promise<DeskUser | 
     return { userId: user.id, clientId, isAdmin: true }
   }
 
-  // Fallback: usuário autenticado sem panel_users = admin legado (acesso total).
-  // TODO: Remover este fallback após todos os admins terem registro em panel_users.
-  //       Ver /api/clients/[id]/operators para criar registros via UI.
+  // Usuário autenticado sem panel_users: auto-provisiona como admin.
+  // Garante que admins legados obtenham seu registro na primeira chamada,
+  // eliminando o fallback nas chamadas seguintes.
+  const email = user.email ?? `${user.id}@unknown`
+  const { error } = await admin
+    .from('panel_users')
+    .insert({ id: user.id, email, role: 'admin', client_id: null })
+  if (error && error.code !== '23505') {
+    // 23505 = unique_violation (registro já existe — race condition, ok)
+    console.error('[desk/auth] Erro ao auto-provisionar admin:', error.message)
+  } else {
+    console.info(`[desk/auth] Admin ${email} auto-provisionado em panel_users`)
+  }
+
   const clientId = request.nextUrl.searchParams.get('client_id') ?? ''
-  console.warn(`[desk/auth] Usuário ${user.id} sem panel_users — tratado como admin legado`)
   return { userId: user.id, clientId, isAdmin: true }
 }

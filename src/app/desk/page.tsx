@@ -77,6 +77,7 @@ export default async function DeskPage({
       clientId={clientId}
       clientName={clientName}
       userEmail={user.email ?? ''}
+      userId={user.id}
     />
   )
 }
