@@ -6,17 +6,14 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createAiClient, AI_MODEL } from '@/lib/ai/client'
 import { buildSystemPrompt } from './system-prompt'
 import { safeParseAgentOutput, fallbackOutput } from './output-schema'
-import { listChatwootStageLabels } from '@/lib/api/chatwoot'
+
 import { sanitizeStageLabels, stageLabelSlugs } from './stage-labels'
 import type { AgentOutput } from './output-schema'
 import type { PipelineResult } from './pipeline'
 import type { BotMessage } from '@/types/bot'
-import type { PanelBotConfig, StageLabelConfig } from '@/types/database'
+import type { PanelBotConfig } from '@/types/database'
 
 const AI_PAUSE_MINUTES = 10
-const LABEL_SYNC_CACHE_TTL_MS = 2 * 60 * 1000
-
-const runtimeStageLabelsCache = new Map<string, { syncedAt: number; labels: StageLabelConfig[] }>()
 
 // --- AI Pause ---
 
@@ -78,78 +75,12 @@ function buildChatMessages(
   return messages
 }
 
-function mergeRuntimeStageLabels(
-  localLabels: StageLabelConfig[] | null | undefined,
-  remoteLabels: StageLabelConfig[]
-): StageLabelConfig[] {
-  const local = sanitizeStageLabels(localLabels)
-  const remote = sanitizeStageLabels(remoteLabels)
-
-  const localCadenceBySlug = new Map<string, StageLabelConfig['followup_cadence']>()
-  for (const item of local) {
-    localCadenceBySlug.set(item.slug, item.followup_cadence ?? null)
-  }
-
-  const merged: StageLabelConfig[] = remote.map((item) => ({
-    ...item,
-    followup_cadence: localCadenceBySlug.get(item.slug) ?? item.followup_cadence ?? null,
-  }))
-
-  const mergedSlugs = new Set(merged.map((item) => item.slug))
-  for (const item of local) {
-    if (!mergedSlugs.has(item.slug)) {
-      merged.push(item)
-    }
-  }
-
-  return sanitizeStageLabels(merged)
-}
-
-async function resolveRuntimeBotConfig(result: PipelineResult): Promise<PanelBotConfig> {
+function resolveRuntimeBotConfig(result: PipelineResult): PanelBotConfig {
   const baseConfig = result.clientContext.botConfig
   if (!baseConfig) {
     throw new Error('bot_config_not_found')
   }
-
-  const accountId = result.clientContext.whatsappConfig.chatwoot_account_id
-  const accountToken = result.clientContext.whatsappConfig.chatwoot_agent_token
-
-  if (!accountId || !accountToken) {
-    return baseConfig
-  }
-
-  const now = Date.now()
-  const cacheKey = result.clientContext.clientId
-  const cached = runtimeStageLabelsCache.get(cacheKey)
-
-  if (cached && now - cached.syncedAt < LABEL_SYNC_CACHE_TTL_MS) {
-    return {
-      ...baseConfig,
-      stage_labels: mergeRuntimeStageLabels(baseConfig.stage_labels, cached.labels),
-    }
-  }
-
-  try {
-    const remoteLabels = await listChatwootStageLabels(accountId, accountToken)
-    const sanitizedRemote = sanitizeStageLabels(remoteLabels)
-
-    runtimeStageLabelsCache.set(cacheKey, {
-      syncedAt: now,
-      labels: sanitizedRemote,
-    })
-
-    return {
-      ...baseConfig,
-      stage_labels: mergeRuntimeStageLabels(baseConfig.stage_labels, sanitizedRemote),
-    }
-  } catch (err) {
-    console.warn(
-      `[Agent] Falha no sync runtime de labels client=${result.clientContext.clientId}; usando config local`,
-      err
-    )
-
-    return baseConfig
-  }
+  return baseConfig
 }
 
 // --- Chamada principal ---
@@ -173,7 +104,7 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
   // Seta a trava antes de processar (evita execução dupla)
   await setAiPause(conversation.id)
 
-  const runtimeBotConfig = await resolveRuntimeBotConfig(result)
+  const runtimeBotConfig = resolveRuntimeBotConfig(result)
   const stageCurrent = (conversation.labels ?? []).find((label) => label.startsWith('etapa_')) ?? null
 
   const systemPrompt = buildSystemPrompt(runtimeBotConfig, contact.name ?? 'Paciente', {

@@ -36,6 +36,7 @@ import { HandoffSection } from '@/components/bot-config/handoff-section'
 import { IntakeSection } from '@/components/bot-config/intake-section'
 import { CalendarSection } from '@/components/bot-config/calendar-section'
 import { AdvancedSection } from '@/components/bot-config/advanced-section'
+import { OperatorsSection } from '@/components/client-detail/operators-section'
 import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
 import type { PanelClientWithRelations, PanelBotConfig, WorkingHours, ProvisionedChatwootAgent } from '@/types/database'
 import type { ChatwootAgentRole } from '@/types/api'
@@ -216,6 +217,8 @@ export function EditClientForm({ client }: EditClientFormProps) {
 
   return (
     <div className="space-y-6">
+      <OperatorsSection clientId={client.id} />
+
       {/* Agentes Chatwoot */}
       <Card>
         <CardHeader>

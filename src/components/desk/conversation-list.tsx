@@ -1,8 +1,10 @@
 'use client'
 
-import { Bot, Clock, UserCheck, CheckCheck, MessageSquare } from 'lucide-react'
+import { useState } from 'react'
+import { Bot, Clock, UserCheck, CheckCheck, MessageSquare, Search } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import type { DeskConversation } from './desk-shell'
 
 const STAGES = [
@@ -18,6 +20,7 @@ interface Props {
   selectedId: string | null
   stageFilter: string
   loading: boolean
+  stageCounts?: { bot_triage: number; awaiting_human: number; in_service: number }
   onSelect: (id: string) => void
   onStageChange: (stage: string) => void
 }
@@ -42,11 +45,82 @@ function relativeTime(date: string | null): string {
   }
 }
 
-export function ConversationList({ conversations, selectedId, stageFilter, loading, onSelect, onStageChange }: Props) {
+function getWaitingBadge(date: string | null): { label: string; className: string } {
+  if (!date) {
+    return {
+      label: 'Espera',
+      className: 'border-border bg-muted/40 text-muted-foreground',
+    }
+  }
+
+  const timestamp = new Date(date).getTime()
+  if (Number.isNaN(timestamp)) {
+    return {
+      label: 'Espera',
+      className: 'border-border bg-muted/40 text-muted-foreground',
+    }
+  }
+
+  const mins = Math.max(0, Math.floor((Date.now() - timestamp) / 60000))
+  const hours = Math.floor(mins / 60)
+  const days = Math.floor(hours / 24)
+  const wait = mins < 1
+    ? 'agora'
+    : mins < 60
+      ? `${mins}min`
+      : hours < 24
+        ? `${hours}h`
+        : `${days}d`
+
+  if (mins < 15) {
+    return {
+      label: `Espera ${wait}`,
+      className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+    }
+  }
+
+  if (mins < 60) {
+    return {
+      label: `Espera ${wait}`,
+      className: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+    }
+  }
+
+  return {
+    label: `Espera ${wait}`,
+    className: 'border-destructive/30 bg-destructive/10 text-destructive',
+  }
+}
+
+export function ConversationList({ conversations, selectedId, stageFilter, loading, stageCounts, onSelect, onStageChange }: Props) {
   const currentStage = STAGES.find((s) => s.key === stageFilter) ?? STAGES[0]
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const visibleConversations = searchQuery.trim()
+    ? conversations.filter((c) => {
+        const q = searchQuery.toLowerCase()
+        return (
+          (c.contacts?.name?.toLowerCase().includes(q)) ||
+          (c.contacts?.phone_number?.includes(q))
+        )
+      })
+    : conversations
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Busca */}
+      <div className="px-2 pt-2 pb-1">
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Buscar por nome ou telefone…"
+            className="h-8 pl-7 text-xs"
+          />
+        </div>
+      </div>
+
       {/* Tabs de stage */}
       <div className="flex flex-col gap-0.5 p-2 border-b border-border">
         {STAGES.map((stage) => {
@@ -63,7 +137,16 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
               }`}
             >
               <Icon size={15} className={isActive ? stage.color : ''} />
-              {stage.label}
+              <span className="flex-1">{stage.label}</span>
+              {stageCounts && stage.key !== 'all' && stage.key !== 'resolved' && (stageCounts as Record<string, number>)[stage.key] > 0 && (
+                <span className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                  stage.key === 'awaiting_human'
+                    ? 'bg-destructive/15 text-destructive'
+                    : 'bg-muted text-muted-foreground'
+                }`}>
+                  {(stageCounts as Record<string, number>)[stage.key]}
+                </span>
+              )}
             </button>
           )
         })}
@@ -83,21 +166,24 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
               </div>
             ))}
           </div>
-        ) : conversations.length === 0 ? (
+        ) : visibleConversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-center px-4">
             <currentStage.icon size={24} className="text-muted-foreground/40 mb-2" />
             <p className="text-xs text-muted-foreground">
-              {currentStage.key === 'all'
-                ? 'Nenhuma conversa ativa'
-                : `Nenhuma conversa em ${currentStage.label.toLowerCase()}`}
+              {searchQuery.trim()
+                ? 'Nenhum resultado para esta busca'
+                : currentStage.key === 'all'
+                  ? 'Nenhuma conversa ativa'
+                  : `Nenhuma conversa em ${currentStage.label.toLowerCase()}`}
             </p>
           </div>
         ) : (
           <div className="space-y-0.5 p-2">
-            {conversations.map((conv) => {
+            {visibleConversations.map((conv) => {
               const isSelected = conv.id === selectedId
               const name = conv.contacts?.name ?? conv.contacts?.phone_number ?? 'Desconhecido'
-              const isUrgent = conv.stage === 'awaiting_human'
+              const isAwaitingHuman = conv.stage === 'awaiting_human'
+              const waitingBadge = isAwaitingHuman ? getWaitingBadge(conv.last_incoming_at) : null
 
               return (
                 <button
@@ -111,7 +197,7 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                 >
                   {/* Avatar */}
                   <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                    isUrgent ? 'bg-destructive/15 text-destructive' :
+                    isAwaitingHuman ? 'bg-destructive/15 text-destructive' :
                     isSelected ? 'bg-primary/15 text-primary' :
                     'bg-secondary text-muted-foreground'
                   }`}>
@@ -120,7 +206,7 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <span className={`text-sm font-medium truncate ${isUrgent ? 'text-foreground' : 'text-foreground/90'}`}>
+                      <span className={`text-sm font-medium truncate ${isAwaitingHuman ? 'text-foreground' : 'text-foreground/90'}`}>
                         {name}
                       </span>
                       <span className="text-[10px] text-muted-foreground flex-shrink-0">
@@ -138,14 +224,17 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                       </p>
                     )}
 
-                    {stageFilter === 'all' && !isUrgent && conv.stage === 'in_service' && (
+                    {stageFilter === 'all' && !isAwaitingHuman && conv.stage === 'in_service' && (
                       <Badge variant="default" className="mt-1.5 h-4 text-[10px] px-1.5">
                         Em atendimento
                       </Badge>
                     )}
-                    {isUrgent && (
-                      <Badge variant="destructive" className="mt-1.5 h-4 text-[10px] px-1.5">
-                        Aguardando atendimento
+                    {isAwaitingHuman && waitingBadge && (
+                      <Badge
+                        variant="outline"
+                        className={`mt-1.5 h-4 px-1.5 text-[10px] ${waitingBadge.className}`}
+                      >
+                        {waitingBadge.label}
                       </Badge>
                     )}
                   </div>
