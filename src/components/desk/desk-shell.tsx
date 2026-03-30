@@ -36,6 +36,7 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [stageFilter, setStageFilter] = useState<string>('all')
   const [pendingCount, setPendingCount] = useState(0)
+  const [stageCounts, setStageCounts] = useState<{ bot_triage: number; awaiting_human: number; in_service: number }>({ bot_triage: 0, awaiting_human: 0, in_service: 0 })
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const router = useRouter()
@@ -60,6 +61,11 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
     if (res.ok) {
       const data = await res.json()
       setPendingCount(data.awaiting_human ?? 0)
+      setStageCounts({
+        bot_triage: data.bot_triage ?? 0,
+        awaiting_human: data.awaiting_human ?? 0,
+        in_service: data.in_service ?? 0,
+      })
     }
   }, [clientId])
 
@@ -175,6 +181,7 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
             selectedId={selectedId}
             stageFilter={stageFilter}
             loading={loading}
+            stageCounts={stageCounts}
             onSelect={setSelectedId}
             onStageChange={(s) => {
               setStageFilter(s)

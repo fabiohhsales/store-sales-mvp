@@ -19,7 +19,6 @@ import { PipelineFilters } from './pipeline-filters'
 import { ConversationDetailModal } from './conversation-detail-modal'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { PipelineConversation, PipelineData } from '@/types/pipeline'
-import type { StageLabelConfig } from '@/types/database'
 
 interface KanbanBoardProps {
   clientId: string
@@ -41,9 +40,6 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
   // Modal
   const [selectedConversation, setSelectedConversation] = useState<PipelineConversation | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
-
-  // Contexto da conversa ativa no Chatwoot (via postMessage do Dashboard App)
-  const [activeChatwootId, setActiveChatwootId] = useState<number | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -80,22 +76,6 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
     const interval = setInterval(fetchData, 30000)
     return () => clearInterval(interval)
   }, [fetchData])
-
-  // Escuta o contexto da conversa ativa enviado pelo Chatwoot ao Dashboard App
-  // Referência: https://www.chatwoot.com/docs/product/others/dashboard-apps
-  useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      // Chatwoot envia { event: 'appContext', data: { conversation, contact, currentAgent } }
-      if (event.data?.event === 'appContext') {
-        const convId = event.data?.data?.conversation?.id
-        if (typeof convId === 'number') {
-          setActiveChatwootId(convId)
-        }
-      }
-    }
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
-  }, [])
 
   // Filtro local por nome/telefone
   const filteredConversations = useMemo(() => {
@@ -141,7 +121,9 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
     try {
       const body = {
         conversation_id: draggedConv.id,
-        chatwoot_conversation_id: draggedConv.chatwoot_conversation_id,
+        ...(typeof draggedConv.chatwoot_conversation_id === 'number'
+          ? { chatwoot_conversation_id: draggedConv.chatwoot_conversation_id }
+          : {}),
         from_stage: draggedConv.stage_slug,
         to_stage: targetColumnId,
         ...(token ? { token } : { client_id: clientId }),
@@ -173,28 +155,33 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
     fromStage: string,
     toStage: string
   ) {
-    // Update otimista por UUID
+    // Update otimista
     setData((prev) => {
       if (!prev) return prev
       return {
         ...prev,
         conversations: prev.conversations.map((c) =>
-          c.id === conversationId ? { ...c, stage_slug: toStage } : c
+          c.id === conversationId
+            ? { ...c, stage_slug: toStage }
+            : c
         ),
       }
     })
 
+    // Atualiza o conversation selecionado no modal
     setSelectedConversation((prev) =>
-      prev && prev.id === conversationId ? { ...prev, stage_slug: toStage } : prev
+      prev && prev.id === conversationId
+        ? { ...prev, stage_slug: toStage }
+        : prev
     )
 
-    // API call — passa UUID como chave principal
+    // API call
     fetch('/api/pipeline/move', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         conversation_id: conversationId,
-        chatwoot_conversation_id: chatwootId,
+        ...(typeof chatwootId === 'number' ? { chatwoot_conversation_id: chatwootId } : {}),
         from_stage: fromStage,
         to_stage: toStage,
         ...(token ? { token } : { client_id: clientId }),
@@ -262,7 +249,6 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
               )}
               colorIndex={index}
               onCardClick={handleCardClick}
-              activeChatwootId={activeChatwootId}
             />
           ))}
         </div>

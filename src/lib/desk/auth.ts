@@ -26,17 +26,19 @@ export async function resolveDeskUser(request: NextRequest): Promise<DeskUser | 
     .eq('id', user.id)
     .maybeSingle()
 
-  if (panelUser) {
-    if (panelUser.role === 'operator' && panelUser.client_id) {
-      return { userId: user.id, clientId: panelUser.client_id, isAdmin: false }
-    }
-    if (panelUser.role === 'admin') {
-      const clientId = request.nextUrl.searchParams.get('client_id') ?? ''
-      return { userId: user.id, clientId, isAdmin: true }
-    }
+  if (panelUser?.role === 'operator' && panelUser.client_id) {
+    return { userId: user.id, clientId: panelUser.client_id, isAdmin: false }
   }
 
-  // Usuário autenticado sem panel_users = admin legado
+  if (panelUser?.role === 'admin') {
+    const clientId = request.nextUrl.searchParams.get('client_id') ?? ''
+    return { userId: user.id, clientId, isAdmin: true }
+  }
+
+  // Fallback: usuário autenticado sem panel_users = admin legado (acesso total).
+  // TODO: Remover este fallback após todos os admins terem registro em panel_users.
+  //       Ver /api/clients/[id]/operators para criar registros via UI.
   const clientId = request.nextUrl.searchParams.get('client_id') ?? ''
+  console.warn(`[desk/auth] Usuário ${user.id} sem panel_users — tratado como admin legado`)
   return { userId: user.id, clientId, isAdmin: true }
 }

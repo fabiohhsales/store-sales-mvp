@@ -1,0 +1,111 @@
+// POST /api/desk/conversations/[id]/send-media
+// Operador envia imagem/documento via Evolution API e persiste no Supabase.
+// Body: { base64: string, mimetype: string, caption?: string, file_name?: string }
+// Tipos suportados: image/*, application/pdf, video/mp4, audio/*
+
+import { NextRequest, NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveDeskUser } from '@/lib/desk/auth'
+import { sendMediaMessage } from '@/lib/api/evolution'
+
+// Mapeia mimetype → mediatype da Evolution
+function resolveMediatype(mimetype: string): 'image' | 'document' | 'audio' | 'video' {
+  if (mimetype.startsWith('image/')) return 'image'
+  if (mimetype.startsWith('video/')) return 'video'
+  if (mimetype.startsWith('audio/')) return 'audio'
+  return 'document'
+}
+
+// Limite de payload: 10 MB em base64 (~7.5 MB de arquivo)
+const MAX_BASE64_BYTES = 10 * 1024 * 1024
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const deskUser = await resolveDeskUser(request)
+  if (!deskUser) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+
+  const body = await request.json()
+  const { base64, mimetype, caption, file_name } = body as {
+    base64?: string
+    mimetype?: string
+    caption?: string
+    file_name?: string
+  }
+
+  if (!base64 || !mimetype) {
+    return NextResponse.json({ error: 'base64 e mimetype são obrigatórios' }, { status: 400 })
+  }
+  if (Buffer.byteLength(base64, 'utf8') > MAX_BASE64_BYTES) {
+    return NextResponse.json({ error: 'Arquivo excede o limite de 10 MB' }, { status: 413 })
+  }
+
+  const admin = createAdminClient()
+
+  // Carrega conversa + instância Evolution
+  const { data: conv } = await admin
+    .from('conversations')
+    .select(`
+      id, client_id, stage,
+      contacts ( phone_number, identifier ),
+      panel_clients!client_id (
+        panel_whatsapp_config ( evolution_instance_name )
+      )
+    `)
+    .eq('id', id)
+    .maybeSingle()
+
+  if (!conv) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
+  if (!deskUser.isAdmin && conv.client_id !== deskUser.clientId) {
+    return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
+  }
+  if (conv.stage !== 'in_service') {
+    return NextResponse.json({ error: 'Operador deve assumir a conversa antes de enviar mídia' }, { status: 422 })
+  }
+
+  const contact = conv.contacts as { phone_number: string | null; identifier: string | null } | null
+  const instanceName = (conv as Record<string, unknown>)
+    ?.panel_clients?.panel_whatsapp_config?.evolution_instance_name as string | null
+
+  if (!instanceName) {
+    return NextResponse.json({ error: 'Instância WhatsApp não configurada' }, { status: 422 })
+  }
+
+  const identifier = contact?.identifier ?? contact?.phone_number
+  if (!identifier) {
+    return NextResponse.json({ error: 'Contato sem número WhatsApp' }, { status: 422 })
+  }
+
+  const mediatype = resolveMediatype(mimetype)
+
+  // Envia via Evolution API
+  await sendMediaMessage(instanceName, identifier, mediatype, mimetype, base64, caption, file_name)
+
+  // Persiste no Supabase como mensagem de conteúdo 'image' ou 'document'
+  const contentType = mediatype === 'image' ? 'image' : 'document'
+  const { data: message, error } = await admin
+    .from('messages')
+    .insert({
+      id: crypto.randomUUID(),
+      conversation_id: id,
+      client_id: conv.client_id,
+      content: caption ?? file_name ?? `[${contentType}]`,
+      content_type: contentType,
+      sender_type: 'operator',
+      from_who: 'human',
+      created_at: new Date().toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await admin.from('conversations').update({
+    last_outgoing_at: new Date().toISOString(),
+    last_outgoing_by: 'operator',
+  }).eq('id', id)
+
+  return NextResponse.json(message)
+}
