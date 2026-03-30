@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Loader2, BarChart3, Clock, AlertTriangle, CheckCircle2, Users, TrendingUp } from 'lucide-react'
+import { Loader2, BarChart3, Clock, AlertTriangle, CheckCircle2, Users, TrendingUp, Download } from 'lucide-react'
 
 interface AnalyticsData {
   period: string
@@ -81,6 +81,7 @@ export function AnalyticsView({ clientId }: Props) {
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<Period>('week')
+  const [exporting, setExporting] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -93,6 +94,27 @@ export function AnalyticsView({ clientId }: Props) {
   }, [clientId, period])
 
   useEffect(() => { void load() }, [load])
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const res = await fetch(`/api/desk/analytics/export?client_id=${clientId}&period=${period}`)
+      if (!res.ok) throw new Error('Falha ao gerar export')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `conversas-${period}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      // silencioso — o navegador já exibe o erro no console
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const periodLabel = { today: 'Hoje', week: 'Últimos 7 dias', month: 'Este mês' }[period]
 
@@ -108,20 +130,31 @@ export function AnalyticsView({ clientId }: Props) {
           <h1 className="text-lg font-semibold text-foreground">Analytics</h1>
           <p className="text-xs text-muted-foreground mt-0.5">SLA e métricas operacionais</p>
         </div>
-        <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
-          {(['today', 'week', 'month'] as Period[]).map((p) => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                period === p
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-              }`}
-            >
-              {{ today: 'Hoje', week: '7 dias', month: 'Mês' }[p]}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
+            {(['today', 'week', 'month'] as Period[]).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  period === p
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                }`}
+              >
+                {{ today: 'Hoje', week: '7 dias', month: 'Mês' }[p]}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50"
+            title="Exportar CSV das conversas resolvidas"
+          >
+            {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            CSV
+          </button>
         </div>
       </div>
 

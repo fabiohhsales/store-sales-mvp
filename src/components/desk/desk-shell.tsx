@@ -30,9 +30,10 @@ interface Props {
   clientId: string
   clientName: string
   userEmail: string
+  userId: string
 }
 
-export function DeskShell({ clientId, clientName, userEmail }: Props) {
+export function DeskShell({ clientId, clientName, userEmail, userId }: Props) {
   const [activeTab, setActiveTab] = useState<DeskTab>('conversations')
   const [conversations, setConversations] = useState<DeskConversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -185,6 +186,7 @@ export function DeskShell({ clientId, clientName, userEmail }: Props) {
             stageFilter={stageFilter}
             loading={loading}
             stageCounts={stageCounts}
+            currentUserId={userId}
             onSelect={setSelectedId}
             onStageChange={(s) => {
               setStageFilter(s)
