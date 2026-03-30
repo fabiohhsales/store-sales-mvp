@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "NODE_OPTIONS='--max-old-space-size=1536' next build",
-    "start": "node scripts/migrate.mjs && next start",
+    "start": "next start",
     "lint": "eslint",
     "test": "vitest run"
   },
