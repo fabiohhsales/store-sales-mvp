@@ -15,6 +15,62 @@ import type {
 import type { PanelWhatsAppConfig, PanelBotConfig, PanelGoogleConfig } from '@/types/database'
 import { stageLabelSlugs } from './stage-labels'
 
+// Baixa mídia da Evolution e faz upload para o Supabase Storage.
+// Retorna o storage path (ex: "clientId/convId/msgId.jpg") ou null se falhar.
+async function uploadMediaToStorage(
+  instanceName: string,
+  remoteJid: string,
+  messageId: string,
+  clientId: string,
+  conversationId: string,
+  mimetype: string
+): Promise<string | null> {
+  const evolutionUrl = process.env.EVOLUTION_API_URL?.replace(/\/$/, '')
+  const evolutionKey = process.env.EVOLUTION_API_KEY
+  if (!evolutionUrl || !evolutionKey) return null
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+
+    const res = await fetch(`${evolutionUrl}/message/getBase64FromMediaMessage/${instanceName}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
+      body: JSON.stringify({ message: { key: { remoteJid, fromMe: false, id: messageId } } }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout))
+
+    if (!res.ok) {
+      console.warn(`[Pipeline] Mídia não disponível na Evolution: msg=${messageId} status=${res.status}`)
+      return null
+    }
+
+    const data = await res.json()
+    const base64 = data.base64 as string | undefined
+    const resolvedMime = (data.mimetype as string | undefined) ?? mimetype
+    if (!base64) return null
+
+    const ext = resolvedMime.split('/')[1]?.split(';')[0] ?? 'bin'
+    const storagePath = `${clientId}/${conversationId}/${messageId}.${ext}`
+    const buffer = Buffer.from(base64, 'base64')
+
+    const supabase = createAdminClient()
+    const { error } = await supabase.storage
+      .from('desk-media')
+      .upload(storagePath, buffer, { contentType: resolvedMime, upsert: false })
+
+    if (error && !error.message.includes('already exists')) {
+      console.error('[Pipeline] Erro ao fazer upload para Storage:', error.message)
+      return null
+    }
+
+    return storagePath
+  } catch (err) {
+    console.warn('[Pipeline] Falha ao baixar/enviar mídia:', err)
+    return null
+  }
+}
+
 // --- Contexto do cliente resolvido a partir do chatwoot_account_id ---
 
 export interface ClientContext {
@@ -404,7 +460,26 @@ async function saveEvolutionMessage(
     throw new Error(`Falha ao salvar mensagem Evolution: ${error.message}`)
   }
 
-  return saved as BotMessage
+  const message = saved as BotMessage
+
+  // Para imagens e documentos, faz upload para o Supabase Storage (persistência além do cache da Evolution)
+  if (msg.contentType === 'image' || msg.contentType === 'document') {
+    const mimetype = msg.contentType === 'image' ? 'image/jpeg' : 'application/octet-stream'
+    const storagePath = await uploadMediaToStorage(
+      msg.instanceName,
+      msg.remoteJid,
+      msg.messageId,
+      clientId,
+      conversation.id,
+      mimetype
+    )
+    if (storagePath) {
+      await supabase.from('messages').update({ media_url: storagePath }).eq('id', message.id)
+      message.media_url = storagePath
+    }
+  }
+
+  return message
 }
 
 export async function runEvolutionPipeline(

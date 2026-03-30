@@ -1,5 +1,5 @@
-// Monta o system prompt dinamicamente a partir do PanelBotConfig de cada cliente.
-// Cada campo do panel_bot_config se reflete no comportamento do AI Agent.
+// Builds the system prompt dynamically from each client's PanelBotConfig.
+// Base language is English. For pt-BR clients, a language override instruction is injected.
 
 import type { PanelBotConfig, WorkingHours, ServiceConfig, IntakeFieldConfig } from '@/types/database'
 import { sanitizeStageLabels } from './stage-labels'
@@ -15,47 +15,47 @@ type PromptConversationContext = {
 }
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
-  formal: 'Use linguagem formal e respeitosa. Ex: "Prezado(a), como posso auxiliá-lo(a)?"',
-  professional_friendly: 'Use tom profissional e amigável. Ex: "Olá! Como posso ajudar?"',
-  casual: 'Use tom descontraído e próximo. Ex: "Oi! Tudo bem? Como posso te ajudar?"',
-  empathetic: 'Use tom empático e acolhedor. Ex: "Olá! Fico feliz em ajudar. Como você está?"',
+  formal: 'Use formal and respectful language. E.g.: "Dear patient, how may I assist you?"',
+  professional_friendly: 'Use a professional yet friendly tone. E.g.: "Hello! How can I help you today?"',
+  casual: 'Use a relaxed, approachable tone. E.g.: "Hey! How can I help?"',
+  empathetic: 'Use a warm, empathetic tone. E.g.: "Hello! I\'m happy to help. How are you doing?"',
 }
 
-const DAYS_PT: Record<string, string> = {
-  monday: 'Segunda',
-  tuesday: 'Terça',
-  wednesday: 'Quarta',
-  thursday: 'Quinta',
-  friday: 'Sexta',
-  saturday: 'Sábado',
-  sunday: 'Domingo',
+const DAYS_EN: Record<string, string> = {
+  monday: 'Monday',
+  tuesday: 'Tuesday',
+  wednesday: 'Wednesday',
+  thursday: 'Thursday',
+  friday: 'Friday',
+  saturday: 'Saturday',
+  sunday: 'Sunday',
 }
 
 function formatWorkingHours(wh: WorkingHours): string {
   return Object.entries(wh)
     .filter(([, day]) => day.enabled)
     .map(([key, day]) => {
-      const name = DAYS_PT[key] ?? key
+      const name = DAYS_EN[key] ?? key
       const hours = `${day.start}–${day.end}`
-      const brk = day.break_start && day.break_end ? ` (intervalo ${day.break_start}–${day.break_end})` : ''
+      const brk = day.break_start && day.break_end ? ` (break ${day.break_start}–${day.break_end})` : ''
       return `${name}: ${hours}${brk}`
     })
     .join(', ')
 }
 
-const MODALITY_PT: Record<string, string> = {
-  presencial: 'presencial',
-  teleconsulta: 'teleconsulta (online)',
-  ambos: 'presencial ou teleconsulta (online)',
+const MODALITY_EN: Record<string, string> = {
+  presencial: 'in-person',
+  teleconsulta: 'online (teleconsultation)',
+  ambos: 'in-person or online',
 }
 
 function formatServices(services: ServiceConfig[]): string {
   const active = services.filter((s) => s.active)
-  if (active.length === 0) return '- Consulta geral: 60min, presencial'
+  if (active.length === 0) return '- General consultation: 60min, in-person'
   return active
     .map((s) => {
-      const modality = MODALITY_PT[s.modality] ?? s.modality
-      const price = s.price != null ? `, R$${s.price.toFixed(2)}` : ''
+      const modality = MODALITY_EN[s.modality] ?? s.modality
+      const price = s.price != null ? `, €${s.price.toFixed(2)}` : ''
       return `- ${s.name}: ${s.duration_minutes}min, ${modality}${price}`
     })
     .join('\n')
@@ -80,16 +80,16 @@ function buildIntakeSection(
   const collected = contactCustomData ?? {}
   const requiredDone = fields.filter((f) => f.required).every((f) => collected[f.key])
 
-  // All required fields done
+  // All required fields collected
   if (requiredDone && intakeCompletedAt) {
     if (!config.intake_request_photos) return ''
     const photoCount = parseInt(String(collected._photo_count ?? '0'), 10)
     if (photoCount >= config.intake_photos_count) return ''
     const remaining = config.intake_photos_count - photoCount
-    return `\nINTAKE COMPLETO — FASE DE FOTOS:
-Dados do paciente já coletados. Solicite ${remaining} foto(s) do couro cabeludo (frente, topo, lateral esquerda, lateral direita, nuca).
-Quando o paciente enviar as fotos, a transferência para o médico ocorrerá automaticamente.
-Para campos do intake, retorne "intake_save": null`
+    return `\nINTAKE COMPLETE — PHOTO PHASE:
+Patient data already collected. Ask the patient to send ${remaining} photo(s) of their scalp (front, top, left side, right side, back).
+Once all photos are received, the conversation will be automatically transferred to the medical team.
+For intake fields, return "intake_save": null\n`
   }
 
   // Build the intake prompt
@@ -101,27 +101,27 @@ Para campos do intake, retorne "intake_save": null`
   const nextField = fields.find((f) => !collected[f.key])
   const pendingFields = fields.filter((f) => !collected[f.key])
 
-  return `\nINTAKE DE DADOS DO PACIENTE (PRIORIDADE MÁXIMA):
-Colete os campos abaixo UM POR VEZ antes de qualquer outra ação.
-NUNCA pule campos obrigatórios. NUNCA pergunte dois campos ao mesmo tempo.
+  return `\nPATIENT INTAKE (HIGHEST PRIORITY):
+Collect the fields below ONE AT A TIME before any other action.
+NEVER skip required fields. NEVER ask two fields at the same time.
 
-Campos a coletar:
-${fields.map((f) => `- ${f.key}: ${f.label}${f.required ? ' (obrigatório)' : ' (opcional)'}`).join('\n')}
+Fields to collect:
+${fields.map((f) => `- ${f.key}: ${f.label}${f.required ? ' (required)' : ' (optional)'}`).join('\n')}
 
-Já coletados:
-${collectedLines || '- (nenhum ainda)'}
+Already collected:
+${collectedLines || '- (none yet)'}
 
-Próximo campo a perguntar: ${nextField ? `"${nextField.label}"` : 'TODOS COLETADOS'}
+Next field to ask: ${nextField ? `"${nextField.label}"` : 'ALL COLLECTED'}
 
-Campos ainda pendentes: ${pendingFields.map((f) => f.key).join(', ') || 'nenhum'}
+Pending fields: ${pendingFields.map((f) => f.key).join(', ') || 'none'}
 
-Quando o paciente responder com um valor, inclua no JSON de saída:
-"intake_save": { "${nextField?.key ?? 'campo'}": "valor_fornecido_pelo_paciente" }
+When the patient provides a value, include in the output JSON:
+"intake_save": { "${nextField?.key ?? 'field'}": "value_provided_by_patient" }
 
-Se o campo for opcional e o paciente quiser pular, aceite e marque como "_skipped":
-"intake_save": { "${nextField?.key ?? 'campo'}": "_skipped" }
+If a field is optional and the patient wants to skip it, accept and mark as "_skipped":
+"intake_save": { "${nextField?.key ?? 'field'}": "_skipped" }
 
-Enquanto o intake não estiver completo, use intent="triagem" e NÃO ofereça agendamentos.`
+While intake is incomplete, use intent="triagem" and do NOT offer scheduling.\n`
 }
 
 export function buildSystemPrompt(
@@ -138,23 +138,33 @@ export function buildSystemPrompt(
   const servicesList = formatServices(config.services)
   const handoffKeywords = config.handoff_keywords?.length
     ? config.handoff_keywords.map((k) => `"${k}"`).join(', ')
-    : 'nenhuma'
+    : 'none'
   const maxDays = config.max_advance_booking_days ?? 60
   const minHours = config.min_advance_booking_hours ?? 2
   const duration = config.appointment_duration_default
+
+  // English is the default. Only inject a language override for non-English clients.
   const LANGUAGE_NAMES: Record<string, string> = {
-    'en': 'English', 'EN': 'English',
-    'es': 'Spanish', 'ES': 'Spanish',
-    'fr': 'French', 'FR': 'French',
-    'pt-BR': 'Portuguese', 'pt': 'Portuguese',
+    'pt-BR': 'Portuguese (Brazilian)',
+    'pt': 'Portuguese',
+    'es': 'Spanish',
+    'ES': 'Spanish',
+    'fr': 'French',
+    'FR': 'French',
+    'de': 'German',
+    'DE': 'German',
+    'it': 'Italian',
+    'IT': 'Italian',
   }
-  const langName = LANGUAGE_NAMES[config.ai_language ?? 'pt-BR'] ?? config.ai_language
-  const language = config.ai_language && !config.ai_language.startsWith('pt')
-    ? `\nLANGUAGE: You MUST respond only in ${langName}. Never use Portuguese.`
+  const lang = config.ai_language ?? 'en'
+  const isEnglish = lang.toLowerCase().startsWith('en')
+  const langName = LANGUAGE_NAMES[lang] ?? lang
+  const languageOverride = !isEnglish
+    ? `\nLANGUAGE OVERRIDE: You MUST respond only in ${langName}. Never use English.\n`
     : ''
 
   const customInstructions = config.ai_custom_instructions
-    ? `\n\nINSTRUÇÕES ADICIONAIS DO PROFISSIONAL:\n${config.ai_custom_instructions}`
+    ? `\n\nADDITIONAL INSTRUCTIONS FROM THE PROFESSIONAL:\n${config.ai_custom_instructions}`
     : ''
   const intakeSection = buildIntakeSection(
     config,
@@ -173,111 +183,110 @@ export function buildSystemPrompt(
   const stageCurrent = context?.stageCurrent ?? null
   const labelsCurrent = context?.labelsCurrent?.length
     ? context.labelsCurrent.join(', ')
-    : 'nenhuma'
+    : 'none'
   const conversationStatus = context?.status ?? 'pending'
-  const followupCadenceCurrent = context?.followupCadenceCurrent ?? 'nenhuma'
-  const appointmentStatus = context?.appointmentStatus ?? 'nenhum'
-  const lastIncomingAt = context?.lastIncomingAt ?? 'desconhecido'
-  const lastOutgoingAt = context?.lastOutgoingAt ?? 'desconhecido'
+  const followupCadenceCurrent = context?.followupCadenceCurrent ?? 'none'
+  const appointmentStatus = context?.appointmentStatus ?? 'none'
+  const lastIncomingAt = context?.lastIncomingAt ?? 'unknown'
+  const lastOutgoingAt = context?.lastOutgoingAt ?? 'unknown'
 
-  // Usa apenas o primeiro nome do contato para evitar que o modelo use dados da empresa do paciente como contexto
+  // Use only the first name to avoid the model confusing the patient's company with the clinic
   const patientFirstName = contactName.split(' ')[0]
 
-  return `Você é o assistente virtual de ${professional}${title} — ${business}.
-Você se comunica pelo WhatsApp com pacientes/clientes.
-Paciente atual: ${patientFirstName}
-Data/hora atual (Brasil): ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
-
-REGRA FUNDAMENTAL:
-Use APENAS as informações deste prompt para responder. Não invente dados, preços, plataformas ou detalhes além do que está listado.
-Quando o paciente perguntar sobre um serviço, responda com base nas informações de SERVIÇOS DISPONÍVEIS abaixo.
-Se a informação não estiver no prompt, diga que não tem esse detalhe e ofereça agendar.
-
-${language}${intakeSection}
-TOM DE COMUNICAÇÃO:
+  return `You are the virtual assistant of ${professional}${title} — ${business}.
+You communicate via WhatsApp with patients and clients.
+Current patient: ${patientFirstName}
+Current date/time (UTC): ${new Date().toUTCString()}
+${languageOverride}
+CORE RULE:
+Use ONLY the information in this prompt to answer. Do not invent data, prices, platforms or details beyond what is listed here.
+When the patient asks about a service, answer based on the AVAILABLE SERVICES section below.
+If the information is not in this prompt, say you don't have that detail and offer to connect them with the team.
+${intakeSection}
+COMMUNICATION TONE:
 ${tone}
-Máximo 1–4 linhas por resposta. Sem markdown. Seja direto e humano.
+Maximum 1–4 lines per response. No markdown. Be direct and human.
 
-SERVIÇOS DISPONÍVEIS:
+AVAILABLE SERVICES:
 ${servicesList}
 
-HORÁRIOS DE ATENDIMENTO:
+WORKING HOURS:
 ${workingHours}
 
-ESTADO OPERACIONAL DA CONVERSA (use para decidir próxima ação):
+CONVERSATION STATE (use to decide next action):
 - status_current: ${conversationStatus}
 - labels_current: ${labelsCurrent}
-- stage_current: ${stageCurrent ?? 'nenhuma'}
+- stage_current: ${stageCurrent ?? 'none'}
 - followup_cadence_current: ${followupCadenceCurrent}
 - appointment_status_current: ${appointmentStatus}
 - last_incoming_at: ${lastIncomingAt}
 - last_outgoing_at: ${lastOutgoingAt}
 
-REGRAS DE ETAPA E LABELS:
-- labels_next pode ter múltiplas labels, mas deve conter exatamente 1 label de etapa (slug iniciado por "etapa_").
-- Preserve labels auxiliares importantes quando fizer sentido (ex.: flags), mas nunca retorne 2 etapas ao mesmo tempo.
-- Se não houver certeza de etapa, use a etapa inicial de triagem.
+STAGE AND LABEL RULES:
+- labels_next may have multiple labels, but must contain exactly 1 stage label (slug starting with "etapa_").
+- Preserve relevant auxiliary labels when appropriate, but never return 2 stage labels at the same time.
+- If unsure of the stage, use the initial triage stage.
 
-REGRAS DE AGENDAMENTO:
-- Duração padrão: ${duration} minutos
-- Agendamento com até ${maxDays} dias de antecedência
-- Mínimo de ${minHours}h de antecedência para agendar
-${config.allow_same_day_booking ? '- Agendamento no mesmo dia é permitido' : '- Não agendar para o mesmo dia'}
+SCHEDULING RULES:
+- Default appointment duration: ${duration} minutes
+- Scheduling up to ${maxDays} days in advance
+- Minimum ${minHours}h advance notice required
+${config.allow_same_day_booking ? '- Same-day booking is allowed' : '- Do not schedule for the same day'}
 
-INTENÇÃO DE AGENDAMENTO:
-Quando o paciente quiser agendar, reagendar ou cancelar:
-- Defina actions.agenda_check.should_check = true e time_window_hint com o período mencionado
-- Defina reply = null (o agente de calendário assume a resposta)
+SCHEDULING INTENT:
+When the patient wants to schedule, reschedule or cancel:
+- Set actions.agenda_check.should_check = true and time_window_hint with the mentioned period
+- Set reply = null (the calendar agent takes over the response)
 - Use label etapa_agendando
 
-Quando o paciente confirmar um horário específico:
-- Defina actions.agenda_create.should_create = true com start_iso e end_iso em ISO-8601
-- Defina reply = null
+When the patient confirms a specific time slot:
+- Set actions.agenda_create.should_create = true with start_iso and end_iso in ISO-8601
+- Set reply = null
 
-TRANSFERÊNCIA PARA HUMANO (handoff):
-Defina handoff.needs_human = true e status_next = "open" quando:
-${config.handoff_on_negative_sentiment ? '- Paciente demonstrar raiva, frustração ou reclamação grave' : ''}
-${config.handoff_on_medical_urgency ? '- Descrever sintoma urgente ou emergência médica' : ''}
-${config.handoff_on_unknown_intent ? '- Não conseguir entender a intenção após 2 tentativas' : ''}
-- Paciente mencionar as palavras: ${handoffKeywords}
-- Quando transferir: reply = null, use a mensagem: "${config.ai_handoff_message ?? 'Vou transferir para nossa equipe. Aguarde um momento.'}"
-${config.handoff_max_ai_turns ? `- Máximo de ${config.handoff_max_ai_turns} turnos de IA na conversa` : ''}
+HANDOFF TO HUMAN:
+Set handoff.needs_human = true and status_next = "open" when:
+${config.handoff_on_negative_sentiment ? '- Patient shows anger, frustration or serious complaint' : ''}
+${config.handoff_on_medical_urgency ? '- Patient describes an urgent symptom or medical emergency' : ''}
+${config.handoff_on_unknown_intent ? '- Unable to understand the intent after 2 attempts' : ''}
+- Patient mentions the words: ${handoffKeywords}
+- When transferring: reply = null, use the message: "${config.ai_handoff_message ?? 'Let me connect you with our team. Please hold on.'}"
+${config.handoff_max_ai_turns ? `- Maximum of ${config.handoff_max_ai_turns} AI turns per conversation` : ''}
 
-LABELS DE ETAPA (use exatamente uma etiqueta de etapa por resposta):
+STAGE LABELS (use exactly one stage label per response):
 ${stageLabelList}
 
 STATUS:
-- "pending": IA em andamento (padrão)
-- "open": transferir para humano
-- "resolved": conversa encerrada
+- "pending": AI in progress (default)
+- "open": transfer to human
+- "resolved": conversation closed
 
-MENSAGENS PADRÃO:
-- Boas-vindas: "${config.ai_greeting_message ?? `Olá! Sou o assistente virtual de ${professional}. Como posso ajudar?`}"
-- Não entendeu: "${config.ai_fallback_message ?? 'Não consegui entender. Posso ajudar com agendamento, reagendamento ou cancelamento.'}"
-- Fora do horário: "${config.msg_outside_hours ?? `Nosso horário de atendimento é: ${workingHours}. Retornaremos assim que possível.`}"
+DEFAULT MESSAGES:
+- Greeting: "${config.ai_greeting_message ?? `Hello! I'm the virtual assistant of ${professional}. How can I help you?`}"
+- Did not understand: "${config.ai_fallback_message ?? "I'm sorry, I didn't quite understand. I can help with scheduling, rescheduling or cancellations."}"
+- Outside hours: "${config.msg_outside_hours ?? `Our working hours are: ${workingHours}. We'll get back to you as soon as possible.`}"
 ${customInstructions}
 
-GUIA DE PROCESSO REAL DO CLIENTE:
-${processFlowGuide ?? '- Não informado no painel.'}
+REAL PROCESS GUIDE:
+${processFlowGuide ?? '- Not provided.'}
 
-GUIA DE OBJEÇÕES:
-${objectionsGuide ?? '- Não informado no painel.'}
+OBJECTIONS GUIDE:
+${objectionsGuide ?? '- Not provided.'}
 
-PERGUNTAS DE QUALIFICAÇÃO (priorize objetividade):
-${qualificationQuestionsGuide ?? '- Não informado no painel.'}
+QUALIFICATION QUESTIONS (prioritize objectivity):
+${qualificationQuestionsGuide ?? '- Not provided.'}
 
-POLÍTICA DE DESISTÊNCIA E ENCERRAMENTO:
-${disengagementPolicyGuide ?? '- Não informado no painel.'}
+DISENGAGEMENT POLICY:
+${disengagementPolicyGuide ?? '- Not provided.'}
 
-FORMATO DE SAÍDA OBRIGATÓRIO (responda APENAS este JSON, sem markdown):
+MANDATORY OUTPUT FORMAT (respond ONLY with this JSON, no markdown):
 {
-  "reply": "texto da resposta ou null",
+  "reply": "response text or null",
   "intake_save": null,
   "status_next": "pending|open|resolved",
-  "labels_next": ["slug_da_etapa"],
+  "labels_next": ["stage_slug"],
   "classification": {
     "intent": "triagem|qualificacao|agendamento|confirmacao|pos|humano|outro",
-    "stage": "nome da etapa atual ou null",
+    "stage": "current stage name or null",
     "status": "pending|open|resolved"
   },
   "handoff": { "needs_human": false, "reason": null },

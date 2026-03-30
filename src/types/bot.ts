@@ -51,6 +51,7 @@ export interface BotMessage {
   client_id: string | null
   chatwoot_conversation_id: string | null
   source_id: string | null
+  media_url: string | null
 }
 
 export interface BotAppointment {
@@ -162,7 +163,7 @@ export interface EvolutionWebhookPayload {
       extendedTextMessage?: { text: string }
       imageMessage?: { caption?: string; url?: string; mimetype?: string }
       audioMessage?: object
-      documentMessage?: { fileName?: string }
+      documentMessage?: { fileName?: string; mimetype?: string; caption?: string }
     }
     messageType?: string  // "conversation" | "extendedTextMessage" | etc.
     messageTimestamp?: number

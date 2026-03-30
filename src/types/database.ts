@@ -191,6 +191,7 @@ export interface PanelBotConfig {
   intake_request_photos: boolean
   intake_photos_count: number
   intake_handoff_after_photos: boolean
+  intake_photo_guide_url: string | null
   ai_handoff_message: string | null
 
   // Follow-up

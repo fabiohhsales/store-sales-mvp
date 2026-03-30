@@ -147,6 +147,28 @@ export async function sendMediaMessage(
   })
 }
 
+export async function sendMediaByUrl(
+  instanceName: string,
+  remoteJid: string,
+  mediatype: 'image' | 'document' | 'audio' | 'video',
+  mimetype: string,
+  mediaUrl: string,
+  caption?: string,
+  fileName?: string
+): Promise<void> {
+  await evolutionFetch(`/message/sendMedia/${instanceName}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      number: remoteJid,
+      mediatype,
+      mimetype,
+      mediaUrl,
+      caption: caption ?? undefined,
+      fileName: fileName ?? undefined,
+    }),
+  })
+}
+
 export async function setWebhook(
   instanceName: string,
   webhookUrl: string

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap } from 'lucide-react'
+import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +35,7 @@ interface Message {
   from_who: string
   created_at: string
   evolution_message_id: string | null
+  media_url: string | null
 }
 
 interface ConversationDetail {
@@ -143,6 +144,20 @@ function MessageBubble({ message, conversationId }: { message: Message; conversa
               />
             ) : (
               <span className="italic text-muted-foreground">[Imagem]</span>
+            )
+          ) : message.content_type === 'document' ? (
+            message.evolution_message_id ? (
+              <a
+                href={`/api/desk/media?msg_id=${message.evolution_message_id}&conversation_id=${conversationId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-sm underline underline-offset-2"
+              >
+                <FileText size={15} className="flex-shrink-0" />
+                <span>{message.content || 'Documento'}</span>
+              </a>
+            ) : (
+              <span className="italic text-muted-foreground">{message.content || '[Documento]'}</span>
             )
           ) : message.content_type !== 'text' ? (
             <span className="italic text-muted-foreground">{message.content}</span>

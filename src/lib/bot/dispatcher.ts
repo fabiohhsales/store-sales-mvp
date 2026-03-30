@@ -3,7 +3,7 @@
 // Etapa 3 (calendário) será chamada daqui quando agenda_check=true.
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendTextMessage } from '@/lib/api/evolution'
+import { sendTextMessage, sendMediaByUrl } from '@/lib/api/evolution'
 import { handleAgendaCheck, handleAgendaCreate } from './calendar-agent'
 import { clearAiPause } from './agent'
 import { normalizeStageSlug } from './stage-labels'
@@ -15,10 +15,9 @@ async function saveIntakeData(
   contactId: string,
   intakeSave: Record<string, string>,
   botConfig: PanelBotConfig | null
-): Promise<void> {
+): Promise<{ justCompleted: boolean }> {
   const supabase = createAdminClient()
 
-  // Get current custom_data
   const { data: contact } = await supabase
     .from('contacts')
     .select('custom_data, intake_completed_at')
@@ -29,8 +28,8 @@ async function saveIntakeData(
   const merged = { ...current, ...intakeSave }
 
   const updates: Record<string, unknown> = { custom_data: merged }
+  let justCompleted = false
 
-  // Check if all required fields are now done
   if (!contact?.intake_completed_at && botConfig?.intake_enabled) {
     const fields = (botConfig.intake_fields as IntakeFieldConfig[] | null) ?? []
     const requiredDone = fields
@@ -38,11 +37,13 @@ async function saveIntakeData(
       .every((f) => merged[f.key] && merged[f.key] !== '_skipped')
     if (requiredDone) {
       updates.intake_completed_at = new Date().toISOString()
+      justCompleted = true
       console.log(`[Dispatcher] Intake completo para contact=${contactId}`)
     }
   }
 
   await supabase.from('contacts').update(updates).eq('id', contactId)
+  return { justCompleted }
 }
 
 function normalizeTag(value: string): string {
@@ -145,7 +146,31 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
 
   // --- 2.5. Salva dados do intake se bot coletou um campo ---
   if (output.intake_save && Object.keys(output.intake_save).length > 0) {
-    await saveIntakeData(contact.id, output.intake_save, clientContext.botConfig)
+    const { justCompleted } = await saveIntakeData(contact.id, output.intake_save, clientContext.botConfig)
+
+    // Se o intake acabou de ser completado e há imagem guia de fotos configurada, envia agora
+    const botConfig = clientContext.botConfig
+    if (
+      justCompleted &&
+      botConfig?.intake_request_photos &&
+      botConfig?.intake_photo_guide_url
+    ) {
+      const identifier = contact.identifier ?? contact.phone_number
+      if (identifier && whatsappConfig.evolution_instance_name) {
+        try {
+          await sendMediaByUrl(
+            whatsappConfig.evolution_instance_name,
+            identifier,
+            'image',
+            'image/jpeg',
+            botConfig.intake_photo_guide_url
+          )
+          console.log(`[Dispatcher] Imagem guia de fotos enviada para contact=${contact.id}`)
+        } catch (err) {
+          console.error('[Dispatcher] Falha ao enviar imagem guia:', err)
+        }
+      }
+    }
   }
 
   // --- 2.6. Handoff automático ao receber fotos após intake completo ---

@@ -83,6 +83,24 @@ export async function POST(
   // Envia via Evolution API
   await sendMediaMessage(instanceName, identifier, mediatype, mimetype, base64, caption, file_name)
 
+  // Upload para Supabase Storage para persistência
+  let storagePath: string | null = null
+  try {
+    const ext = mimetype.split('/')[1]?.split(';')[0] ?? 'bin'
+    const msgId = crypto.randomUUID()
+    storagePath = `${conv.client_id}/${id}/out-${msgId}.${ext}`
+    const buffer = Buffer.from(base64, 'base64')
+    const { error: uploadError } = await admin.storage
+      .from('desk-media')
+      .upload(storagePath, buffer, { contentType: mimetype, upsert: false })
+    if (uploadError) {
+      console.warn('[send-media] Erro ao fazer upload para Storage:', uploadError.message)
+      storagePath = null
+    }
+  } catch {
+    storagePath = null
+  }
+
   // Persiste no Supabase como mensagem de conteúdo 'image' ou 'document'
   const contentType = mediatype === 'image' ? 'image' : 'document'
   const { data: message, error } = await admin
@@ -95,6 +113,7 @@ export async function POST(
       content_type: contentType,
       sender_type: 'operator',
       from_who: 'human',
+      media_url: storagePath,
       created_at: new Date().toISOString(),
     })
     .select()
