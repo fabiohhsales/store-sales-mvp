@@ -65,6 +65,7 @@ interface CannedResponse {
   id: string
   shortcut: string
   content: string
+  personal?: boolean
 }
 
 interface Props {
@@ -186,8 +187,10 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
   const [uploadLoading, setUploadLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Respostas rápidas (canned responses)
+  // Respostas rápidas (cliente)
   const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>([])
+  // Respostas rápidas pessoais (operador logado)
+  const [personalCannedResponses, setPersonalCannedResponses] = useState<CannedResponse[]>([])
   const [cannedPopoverOpen, setCannedPopoverOpen] = useState(false)
   const [cannedHighlight, setCannedHighlight] = useState(0)
 
@@ -261,13 +264,26 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
     }
   }, [clientId])
 
+  const loadPersonalCannedResponses = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/desk/my-canned-responses?client_id=${clientId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setPersonalCannedResponses(Array.isArray(data) ? data : [])
+      }
+    } catch {
+      // silencioso
+    }
+  }, [clientId])
+
   useEffect(() => {
     void load(true)
     void loadProfile(true)
     void loadAssign()
     void loadNotes(true)
     void loadCannedResponses()
-  }, [load, loadProfile, loadAssign, loadNotes, loadCannedResponses])
+    void loadPersonalCannedResponses()
+  }, [load, loadProfile, loadAssign, loadNotes, loadCannedResponses, loadPersonalCannedResponses])
 
   // Polling de fallback
   useEffect(() => {
@@ -449,10 +465,16 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
     }
   }
 
-  // Filtra respostas rápidas pelo que o usuário digitou após "/"
+  // Mescla respostas pessoais (priority) + de cliente, filtra pelo query após "/"
   const cannedQuery = input.startsWith('/') ? input.slice(1).toLowerCase() : null
+  const allCannedMerged: CannedResponse[] = [
+    ...personalCannedResponses.map((r) => ({ ...r, personal: true })),
+    ...cannedResponses.map((r) => ({ ...r, personal: false })),
+  ]
   const filteredCanned = cannedQuery !== null
-    ? cannedResponses.filter((r) => r.shortcut.includes(cannedQuery) || r.content.toLowerCase().includes(cannedQuery))
+    ? allCannedMerged.filter(
+        (r) => r.shortcut.includes(cannedQuery) || r.content.toLowerCase().includes(cannedQuery)
+      )
     : []
 
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -460,7 +482,11 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
     setInput(val)
     const query = val.startsWith('/') ? val.slice(1).toLowerCase() : null
     if (query !== null) {
-      const matches = cannedResponses.filter((r) => r.shortcut.includes(query) || r.content.toLowerCase().includes(query))
+      const merged = [
+        ...personalCannedResponses.map((r) => ({ ...r, personal: true })),
+        ...cannedResponses.map((r) => ({ ...r, personal: false })),
+      ]
+      const matches = merged.filter((r) => r.shortcut.includes(query) || r.content.toLowerCase().includes(query))
       setCannedPopoverOpen(matches.length > 0)
       setCannedHighlight(0)
     } else {
@@ -764,14 +790,21 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
                         </div>
                         {filteredCanned.map((r, idx) => (
                           <button
-                            key={r.id}
+                            key={`${r.personal ? 'p' : 'c'}-${r.id}`}
                             type="button"
                             onMouseDown={(e) => { e.preventDefault(); applyCanned(r) }}
                             className={`w-full flex flex-col gap-0.5 px-3 py-2 text-left transition-colors ${
                               idx === cannedHighlight ? 'bg-primary/10' : 'hover:bg-secondary/60'
                             }`}
                           >
-                            <span className="text-xs font-medium text-primary">/{r.shortcut}</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-medium text-primary">/{r.shortcut}</span>
+                              {r.personal && (
+                                <span className="text-[9px] font-semibold uppercase tracking-wide px-1 py-0.5 rounded bg-primary/15 text-primary leading-none">
+                                  Meu
+                                </span>
+                              )}
+                            </div>
                             <span className="text-xs text-muted-foreground line-clamp-2">{r.content}</span>
                           </button>
                         ))}
