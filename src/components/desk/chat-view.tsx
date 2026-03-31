@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText } from 'lucide-react'
+import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -202,6 +202,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
   const [customDataDraft, setCustomDataDraft] = useState<Record<string, string>>({})
   const [sending, setSending] = useState(false)
   const [actioning, setActioning] = useState(false)
+  const [checkingAvailability, setCheckingAvailability] = useState(false)
 
   // Atribuição de operador (B6)
   const [operators, setOperators] = useState<OperatorOption[]>([])
@@ -364,6 +365,28 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [conversationId, onConversationUpdate])
+
+  async function handleAvailabilitySearch() {
+    setCheckingAvailability(true)
+    try {
+      const res = await fetch(`/api/desk/conversations/${conversationId}/availability`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ time_window_hint: 'próximos 7 dias' }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(`Erro: ${body.error ?? 'falha ao buscar disponibilidades'}`)
+        return
+      }
+      toast.success('Disponibilidades enviadas para o paciente')
+      await load(false)
+    } catch {
+      toast.error('Falha de conexão ao buscar disponibilidades')
+    } finally {
+      setCheckingAvailability(false)
+    }
+  }
 
   async function handleAction(action: 'assume' | 'return' | 'resolve') {
     setActioning(true)
@@ -688,6 +711,14 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
               className="h-8 text-xs border-orange-500/40 text-orange-500 hover:bg-orange-500/10">
               {actioning ? <Loader2 size={12} className="mr-1 animate-spin" /> : <Bot size={12} className="mr-1" />}
               Devolver ao bot
+            </Button>
+          )}
+
+          {canSend && (
+            <Button size="sm" variant="outline" onClick={handleAvailabilitySearch} disabled={checkingAvailability}
+              className="h-8 text-xs">
+              {checkingAvailability ? <Loader2 size={12} className="mr-1 animate-spin" /> : <CalendarSearch size={12} className="mr-1" />}
+              Disponibilidades
             </Button>
           )}
 

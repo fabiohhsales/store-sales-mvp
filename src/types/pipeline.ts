@@ -19,7 +19,12 @@ export interface PipelineConversation {
   labels: string[]
   last_incoming_at: string | null
   last_outgoing_at: string | null
+  stage_entered_at: string | null
   followup_cadence: string | null
+  summary: string | null
+  intake_fields_filled: number
+  intake_fields_total: number
+  temperature: 'hot' | 'warm' | 'cold'
   appointment_status: string | null
   appointment: PipelineAppointment | null
 }

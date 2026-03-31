@@ -47,6 +47,7 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
   const alerts: SOCAlert[] = []
   const url = `/clients/${client.id}`
   const id = client.id as string
+  const supabase = await createClient()
 
   if (client.status === 'paused') {
     alerts.push({
@@ -146,6 +147,36 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
       message: 'Bot sem configuração — system prompt vazio',
       action_url: url,
     })
+  }
+
+  // Detecta bot potencialmente inativo: recebeu mensagem, mas não respondeu por 6h+
+  if (client.status === 'active') {
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+    const { data: staleConversations } = await supabase
+      .from('conversations')
+      .select('id, last_incoming_at, last_outgoing_at')
+      .eq('client_id', client.id)
+      .neq('stage', 'resolved')
+      .not('last_incoming_at', 'is', null)
+      .lt('last_incoming_at', sixHoursAgo)
+
+    const inactiveCount = (staleConversations ?? []).filter((row) => {
+      if (!row.last_incoming_at) return false
+      if (!row.last_outgoing_at) return true
+      return new Date(row.last_outgoing_at).getTime() < new Date(row.last_incoming_at).getTime()
+    }).length
+
+    if (inactiveCount > 0) {
+      alerts.push({
+        id: `${id}:bot_inactive`,
+        client_id: id,
+        client_name: client.name,
+        severity: 'warning',
+        type: 'bot_inactive',
+        message: `Bot sem resposta recente em ${inactiveCount} conversa(s) (>= 6h)`,
+        action_url: url,
+      })
+    }
   }
 
   return alerts

@@ -3,7 +3,7 @@
 import { useDraggable } from '@dnd-kit/core'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Calendar, Clock, MessageCircle } from 'lucide-react'
+import { Calendar, Clock, MessageCircle, Thermometer } from 'lucide-react'
 import type { PipelineConversation } from '@/types/pipeline'
 
 interface PipelineCardProps {
@@ -38,6 +38,23 @@ function formatDate(dateStr: string): string {
   })
 }
 
+function stageAge(dateStr: string | null): string {
+  if (!dateStr) return ''
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 60) return `${mins}min na etapa`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h na etapa`
+  const days = Math.floor(hours / 24)
+  return `${days}d na etapa`
+}
+
+function temperatureClass(t: PipelineConversation['temperature']): string {
+  if (t === 'hot') return 'bg-red-500/10 text-red-500 border-red-500/20'
+  if (t === 'warm') return 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+  return 'bg-sky-500/10 text-sky-500 border-sky-500/20'
+}
+
 export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: conversation.id,
@@ -49,6 +66,9 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
     : undefined
 
   const lastActivity = conversation.last_incoming_at || conversation.last_outgoing_at
+  const intakePct = conversation.intake_fields_total > 0
+    ? Math.round((conversation.intake_fields_filled / conversation.intake_fields_total) * 100)
+    : null
 
   return (
     <Card
@@ -77,8 +97,12 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
           )}
         </div>
 
-        {/* Última atividade + followup */}
+        {/* Última atividade + temperatura + followup */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline" className={`text-[10px] px-1 py-0 ${temperatureClass(conversation.temperature)}`}>
+            <Thermometer className="h-2.5 w-2.5 mr-0.5" />
+            {conversation.temperature === 'hot' ? 'Quente' : conversation.temperature === 'warm' ? 'Morno' : 'Frio'}
+          </Badge>
           {lastActivity && (
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
@@ -92,6 +116,25 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
             </Badge>
           )}
         </div>
+
+        {conversation.summary && (
+          <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+            {conversation.summary}
+          </p>
+        )}
+
+        {conversation.stage_entered_at && (
+          <p className="text-[11px] text-muted-foreground">
+            {stageAge(conversation.stage_entered_at)}
+          </p>
+        )}
+
+        {intakePct !== null && (
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Intake</span>
+            <span>{conversation.intake_fields_filled}/{conversation.intake_fields_total} ({intakePct}%)</span>
+          </div>
+        )}
 
         {/* Appointment */}
         {conversation.appointment && (

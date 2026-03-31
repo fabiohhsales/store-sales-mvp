@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { ConversationList } from './conversation-list'
 import { ChatView } from './chat-view'
+import { DeskErrorBoundary } from './_internal/desk-error-boundary'
 import { KanbanBoard } from '@/components/pipeline/kanban-board'
 import { AgendaTable } from '@/components/agenda/agenda-table'
 import { AnalyticsView } from './analytics-view'
@@ -316,12 +317,14 @@ export function DeskShell({ clientId, clientName, userEmail, userId }: Props) {
         {activeTab === 'conversations' && (
           <>
             {selectedId ? (
-              <ChatView
-                key={selectedId}
-                conversationId={selectedId}
-                clientId={clientId}
-                onConversationUpdate={() => fetchConversations(stageFilter)}
-              />
+              <DeskErrorBoundary>
+                <ChatView
+                  key={selectedId}
+                  conversationId={selectedId}
+                  clientId={clientId}
+                  onConversationUpdate={() => fetchConversations(stageFilter)}
+                />
+              </DeskErrorBoundary>
             ) : (
               <div className="flex flex-1 items-center justify-center text-center p-8">
                 <div className="space-y-2">
