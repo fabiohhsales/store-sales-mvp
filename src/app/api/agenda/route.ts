@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
         start_at, end_at, modality, status, meet_link,
         google_event_id, confirmation_sent_at, confirmation_response,
         created_at,
-        contacts!inner(name, phone_number),
+        contacts(name, phone_number),
         conversations!inner(client_id)
       `)
       .eq('conversations.client_id', auth.client_id)
@@ -39,7 +39,14 @@ export async function GET(request: NextRequest) {
     const { data: appointments, error } = await query
       .order('start_at', { ascending: true })
 
-    if (error) throw error
+    if (error) {
+      console.error('[agenda/route] Supabase error:', error)
+      throw error
+    }
+
+    if (!appointments || appointments.length === 0) {
+      console.log(`[agenda/route] No appointments returned for client: ${auth.client_id}. Check if conversations!inner matched anything. Params: dateFrom=${dateFrom}, dateTo=${dateTo}`)
+    }
 
     const result = (appointments || []).map((apt: Record<string, unknown>) => {
       const contact = apt.contacts as Record<string, unknown> | null

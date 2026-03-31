@@ -62,8 +62,12 @@ export async function GET(request: NextRequest) {
         const contact = conv.contacts as Record<string, unknown> | null
         const labels = (conv.labels as string[]) || []
 
-        // stage_slug: prioriza labels com prefixo etapa_, fallback para _sem_etapa
-        const stageSlug = labels.find((l) => stageSlugs.has(l)) || '_sem_etapa'
+        let stageSlug = '_sem_etapa'
+        if (conv.stage && typeof conv.stage === 'string' && stageSlugs.has(conv.stage)) {
+          stageSlug = conv.stage
+        } else {
+          stageSlug = labels.find((l) => stageSlugs.has(l)) || '_sem_etapa'
+        }
 
         const apt = appointmentsMap[conv.id as string] || null
 
