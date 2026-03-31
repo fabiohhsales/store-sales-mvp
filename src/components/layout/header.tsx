@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { LogOut, User, Search, Plus, Bell } from 'lucide-react'
+import { LogOut, User, Search, Plus, Bell, MessageSquarePlus } from 'lucide-react'
+import { NewConversationModal } from './new-conversation-modal'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +19,7 @@ interface HeaderProps {
 
 export function Header({ userEmail }: HeaderProps) {
   const [mode, setMode] = useState<'admin' | 'client'>('admin')
+  const [newConvOpen, setNewConvOpen] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('sidebar-mode')
@@ -25,6 +27,7 @@ export function Header({ userEmail }: HeaderProps) {
   }, [])
 
   return (
+    <>
     <header className="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-background/60 backdrop-blur-xl z-30 sticky top-0 shadow-sm transition-all duration-300">
       <div className="flex items-center gap-3">
         <MobileNav />
@@ -50,6 +53,15 @@ export function Header({ userEmail }: HeaderProps) {
             <Plus size={16} />
             <span className="hidden sm:inline">Novo Cliente</span>
           </Link>
+        )}
+        {mode === 'client' && (
+          <button
+            onClick={() => setNewConvOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-b from-primary/90 to-primary text-primary-foreground text-sm font-medium shadow-md shadow-primary/20 hover:brightness-110 active:scale-[0.98] transition-all duration-300"
+          >
+            <MessageSquarePlus size={16} />
+            <span className="hidden sm:inline">Nova Conversa</span>
+          </button>
         )}
 
         <button className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
@@ -83,5 +95,8 @@ export function Header({ userEmail }: HeaderProps) {
         </div>
       </div>
     </header>
+
+    <NewConversationModal open={newConvOpen} onOpenChange={setNewConvOpen} />
+    </>
   )
 }

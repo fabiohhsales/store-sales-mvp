@@ -97,11 +97,12 @@ export async function GET(request: NextRequest) {
       }
     )
 
-    // Coluna "Sem etapa" se houver conversas sem stage label
+    // Sempre retorna TODAS as stageLabels como colunas (mesmo sem cards)
+    const columns = [...stageLabels]
     const hasUnstaged = pipelineConversations.some((c) => c.stage_slug === '_sem_etapa')
-    const columns = hasUnstaged
-      ? [{ slug: '_sem_etapa', display_name: 'Sem etapa' }, ...stageLabels]
-      : stageLabels
+    if (hasUnstaged) {
+      columns.unshift({ slug: '_sem_etapa', display_name: 'Sem etapa', followup_cadence: null })
+    }
 
     return NextResponse.json({
       columns,

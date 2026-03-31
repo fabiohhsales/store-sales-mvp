@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AgendaTable } from '@/components/agenda/agenda-table'
+import { AgendaCalendar } from '@/components/agenda/agenda-calendar'
 import {
   Select,
   SelectContent,
@@ -9,6 +10,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { CalendarDays, List } from 'lucide-react'
 
 interface ClientOption {
   id: string
@@ -22,32 +25,69 @@ interface Props {
 
 export function AgendaPageClient({ clients, initialClientId }: Props) {
   const [clientId, setClientId] = useState(initialClientId)
+  const [view, setView] = useState<'calendar' | 'list'>('calendar')
+  const [mode, setMode] = useState<'admin' | 'client'>('admin')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebar-mode')
+    if (saved === 'client' || saved === 'admin') setMode(saved)
+  }, [])
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className={`flex items-center ${mode === 'admin' ? 'justify-between' : 'justify-center'} flex-wrap gap-3`}>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Agenda</h1>
-        {clients.length > 1 && (
-          <Select value={clientId} onValueChange={setClientId}>
-            <SelectTrigger className="w-[260px]">
-              <SelectValue placeholder="Selecione um cliente" />
-            </SelectTrigger>
-            <SelectContent>
-              {clients.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        {clients.length === 1 && (
-          <span className="text-sm text-muted-foreground">{clients[0].name}</span>
-        )}
+
+        <div className="flex items-center gap-3">
+          {/* View toggle */}
+          <div className="flex items-center border rounded-lg overflow-hidden">
+            <Button
+              variant={view === 'calendar' ? 'default' : 'ghost'}
+              size="sm"
+              className="rounded-none h-8"
+              onClick={() => setView('calendar')}
+            >
+              <CalendarDays className="h-4 w-4 mr-1" />
+              Calendário
+            </Button>
+            <Button
+              variant={view === 'list' ? 'default' : 'ghost'}
+              size="sm"
+              className="rounded-none h-8"
+              onClick={() => setView('list')}
+            >
+              <List className="h-4 w-4 mr-1" />
+              Lista
+            </Button>
+          </div>
+
+          {/* Client selector (admin only) */}
+          {mode === 'admin' && clients.length > 1 && (
+            <Select value={clientId} onValueChange={(val) => val && setClientId(val)}>
+              <SelectTrigger className="w-[260px]">
+                <SelectValue placeholder="Selecione um cliente" />
+              </SelectTrigger>
+              <SelectContent>
+                {clients.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {mode === 'admin' && clients.length === 1 && (
+            <span className="text-sm text-muted-foreground">{clients[0].name}</span>
+          )}
+        </div>
       </div>
 
       {clientId ? (
-        <AgendaTable clientId={clientId} />
+        view === 'calendar' ? (
+          <AgendaCalendar clientId={clientId} />
+        ) : (
+          <AgendaTable clientId={clientId} />
+        )
       ) : (
         <div className="flex flex-1 items-center justify-center py-20 text-muted-foreground">
           <p>Nenhum cliente ativo encontrado.</p>

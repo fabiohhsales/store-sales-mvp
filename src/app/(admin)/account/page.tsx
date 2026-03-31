@@ -1,14 +1,7 @@
-import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { listClients } from '@/lib/db/clients'
-import { listAuditLogsByClientId } from '@/lib/db/audit-log'
-import { StatusCards } from '@/components/client-detail/status-cards'
-import { WhatsAppReconnect } from '@/components/client-detail/whatsapp-reconnect'
-import { GoogleReconnect } from '@/components/client-detail/google-reconnect'
-import { PublicLink } from '@/components/client-detail/public-link'
-import { ClientMetrics } from '@/components/client-detail/client-metrics'
+import { OperatorDashboard } from '@/components/account/operator-dashboard'
 import type { ClientStatus } from '@/types/database'
 import { createClient } from '@/lib/supabase/server'
 
@@ -27,6 +20,7 @@ export default async function AccountPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   let clients = await listClients()
+  let isOperator = false
 
   if (user) {
     const { data: panelUser } = await supabase
@@ -37,22 +31,27 @@ export default async function AccountPage() {
 
     if (panelUser?.role === 'operator' && panelUser.client_id) {
       clients = clients.filter(c => c.id === panelUser.client_id)
+      isOperator = true
     }
   }
 
   const active = clients.filter((c) => c.status === 'active' || c.status === 'paused')
 
   if (active.length === 0) {
-    // No active clients — redirect to clients list
     redirect('/clients')
   }
 
+  // Operador com 1 cliente: mostra dashboard do operador
+  if (active.length === 1 && isOperator) {
+    return <OperatorDashboard clientId={active[0].id} clientName={active[0].name} />
+  }
+
+  // Admin com 1 cliente: redireciona para a página de detalhe
   if (active.length === 1) {
-    // Single client — show their page directly
     redirect(`/clients/${active[0].id}`)
   }
 
-  // Multiple active clients — show a picker
+  // Múltiplos clientes — show a picker
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold tracking-tight text-foreground">Minha Conta</h1>
@@ -61,7 +60,7 @@ export default async function AccountPage() {
           <a
             key={client.id}
             href={`/clients/${client.id}`}
-            className="glass-card p-5 hover:border-primary/50 transition-colors block"
+            className="rounded-lg border bg-card p-5 hover:border-primary/50 transition-colors block"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
