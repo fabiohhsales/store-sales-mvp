@@ -27,17 +27,20 @@ export function PipelineFilters({
 }: PipelineFiltersProps) {
   return (
     <div className="flex items-center gap-3 flex-wrap">
-      <Select value={statusFilter} onValueChange={onStatusChange}>
-        <SelectTrigger className="w-[160px]">
-          <SelectValue placeholder="Status" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">Todos</SelectItem>
-          <SelectItem value="pending">Pendente</SelectItem>
-          <SelectItem value="open">Aberto</SelectItem>
-          <SelectItem value="resolved">Resolvido</SelectItem>
-        </SelectContent>
-      </Select>
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Status:</span>
+        <Select value={statusFilter} onValueChange={(val) => val && onStatusChange(val)}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Selecione..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="pending">Pendente</SelectItem>
+            <SelectItem value="open">Aberto</SelectItem>
+            <SelectItem value="resolved">Resolvido</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="relative flex-1 max-w-xs">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />

@@ -1,5 +1,5 @@
 'use client'
-
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { LogOut, User, Search, Plus, Bell } from 'lucide-react'
 import {
@@ -17,8 +17,15 @@ interface HeaderProps {
 }
 
 export function Header({ userEmail }: HeaderProps) {
+  const [mode, setMode] = useState<'admin' | 'client'>('admin')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebar-mode')
+    if (saved === 'client' || saved === 'admin') setMode(saved)
+  }, [])
+
   return (
-    <header className="h-14 border-b border-border flex items-center justify-between px-6 bg-card/50 backdrop-blur-sm">
+    <header className="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-background/60 backdrop-blur-xl z-30 sticky top-0 shadow-sm transition-all duration-300">
       <div className="flex items-center gap-3">
         <MobileNav />
         <div className="relative w-80 hidden md:block">
@@ -35,13 +42,15 @@ export function Header({ userEmail }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <Link
-          href="/clients/new"
-          className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity active:scale-[0.97]"
-        >
-          <Plus size={16} />
-          <span className="hidden sm:inline">Novo Cliente</span>
-        </Link>
+        {mode === 'admin' && (
+          <Link
+            href="/clients/new"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-b from-primary/90 to-primary text-primary-foreground text-sm font-medium shadow-md shadow-primary/20 hover:brightness-110 active:scale-[0.98] transition-all duration-300"
+          >
+            <Plus size={16} />
+            <span className="hidden sm:inline">Novo Cliente</span>
+          </Link>
+        )}
 
         <button className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
           <Bell size={18} />

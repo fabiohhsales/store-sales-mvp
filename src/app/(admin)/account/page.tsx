@@ -10,6 +10,7 @@ import { GoogleReconnect } from '@/components/client-detail/google-reconnect'
 import { PublicLink } from '@/components/client-detail/public-link'
 import { ClientMetrics } from '@/components/client-detail/client-metrics'
 import type { ClientStatus } from '@/types/database'
+import { createClient } from '@/lib/supabase/server'
 
 const statusLabels: Record<ClientStatus, string> = {
   draft: 'Rascunho',
@@ -22,7 +23,23 @@ const statusLabels: Record<ClientStatus, string> = {
 }
 
 export default async function AccountPage() {
-  const clients = await listClients()
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  let clients = await listClients()
+
+  if (user) {
+    const { data: panelUser } = await supabase
+      .from('panel_users')
+      .select('role, client_id')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (panelUser?.role === 'operator' && panelUser.client_id) {
+      clients = clients.filter(c => c.id === panelUser.client_id)
+    }
+  }
+
   const active = clients.filter((c) => c.status === 'active' || c.status === 'paused')
 
   if (active.length === 0) {

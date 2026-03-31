@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { KanbanBoard } from '@/components/pipeline/kanban-board'
 import {
   Select,
@@ -22,13 +22,19 @@ interface Props {
 
 export function PipelinePageClient({ clients, initialClientId }: Props) {
   const [clientId, setClientId] = useState(initialClientId)
+  const [mode, setMode] = useState<'admin' | 'client'>('admin')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebar-mode')
+    if (saved === 'client' || saved === 'admin') setMode(saved)
+  }, [])
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Pipeline</h1>
-        {clients.length > 1 && (
-          <Select value={clientId} onValueChange={setClientId}>
+    <div className="flex h-[calc(100vh-6rem)] flex-col gap-4 animate-fade-in">
+      <div className={`flex items-center ${mode === 'admin' ? 'justify-between' : 'justify-center'} min-h-[40px]`}>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground/90">Pipeline</h1>
+        {mode === 'admin' && clients.length > 1 && (
+          <Select value={clientId} onValueChange={(val) => val && setClientId(val)}>
             <SelectTrigger className="w-[260px]">
               <SelectValue placeholder="Selecione um cliente" />
             </SelectTrigger>
@@ -41,7 +47,7 @@ export function PipelinePageClient({ clients, initialClientId }: Props) {
             </SelectContent>
           </Select>
         )}
-        {clients.length === 1 && (
+        {mode === 'admin' && clients.length === 1 && (
           <span className="text-sm text-muted-foreground">{clients[0].name}</span>
         )}
       </div>
