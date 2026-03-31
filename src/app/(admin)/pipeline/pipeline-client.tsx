@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { KanbanBoard } from '@/components/pipeline/kanban-board'
+import { Button } from '@/components/ui/button'
+import { MessageSquarePlus } from 'lucide-react'
+import { NewConversationModal } from '@/components/layout/new-conversation-modal'
 import {
   Select,
   SelectContent,
@@ -23,6 +26,8 @@ interface Props {
 export function PipelinePageClient({ clients, initialClientId }: Props) {
   const [clientId, setClientId] = useState(initialClientId)
   const [mode, setMode] = useState<'admin' | 'client'>('admin')
+  const [newConversationOpen, setNewConversationOpen] = useState(false)
+  const [refreshToken, setRefreshToken] = useState(0)
 
   useEffect(() => {
     const saved = localStorage.getItem('sidebar-mode')
@@ -31,8 +36,13 @@ export function PipelinePageClient({ clients, initialClientId }: Props) {
 
   return (
     <div className="flex h-[calc(100vh-6rem)] flex-col gap-4 animate-fade-in">
-      <div className={`flex items-center ${mode === 'admin' ? 'justify-between' : 'justify-center'} min-h-[40px]`}>
+      <div className={`flex items-center ${mode === 'admin' ? 'justify-between' : 'justify-center'} min-h-[40px] gap-3`}>
         <h1 className="text-3xl font-semibold tracking-tight text-foreground/90">Pipeline</h1>
+        <div className="ml-auto flex items-center gap-3">
+          <Button onClick={() => setNewConversationOpen(true)}>
+            <MessageSquarePlus className="h-4 w-4 mr-2" />
+            Nova conversa
+          </Button>
         {mode === 'admin' && clients.length > 1 && (
           <Select value={clientId} onValueChange={(val) => val && setClientId(val)}>
             <SelectTrigger className="w-[260px]">
@@ -50,17 +60,25 @@ export function PipelinePageClient({ clients, initialClientId }: Props) {
         {mode === 'admin' && clients.length === 1 && (
           <span className="text-sm text-muted-foreground">{clients[0].name}</span>
         )}
+        </div>
       </div>
 
       {clientId ? (
         <div className="flex-1 overflow-hidden">
-          <KanbanBoard clientId={clientId} />
+          <KanbanBoard clientId={clientId} refreshToken={refreshToken} />
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <p>Nenhum cliente ativo encontrado.</p>
         </div>
       )}
+
+      <NewConversationModal
+        open={newConversationOpen}
+        onOpenChange={setNewConversationOpen}
+        onSuccess={() => setRefreshToken((v) => v + 1)}
+        clientId={clientId}
+      />
     </div>
   )
 }

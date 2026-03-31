@@ -32,12 +32,13 @@ interface Props {
   clientName: string
   userEmail: string
   userId: string
+  initialConversationId?: string | null
 }
 
-export function DeskShell({ clientId, clientName, userEmail, userId }: Props) {
+export function DeskShell({ clientId, clientName, userEmail, userId, initialConversationId = null }: Props) {
   const [activeTab, setActiveTab] = useState<DeskTab>('conversations')
   const [conversations, setConversations] = useState<DeskConversation[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialConversationId)
   const [stageFilter, setStageFilter] = useState<string>('all')
   const [pendingCount, setPendingCount] = useState(0)
   const [stageCounts, setStageCounts] = useState<{ bot_triage: number; awaiting_human: number; in_service: number }>({ bot_triage: 0, awaiting_human: 0, in_service: 0 })

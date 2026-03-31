@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { updateConversationLabels } from '@/lib/api/chatwoot'
+import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,6 +32,24 @@ export async function POST(request: NextRequest) {
 
     const auth = await authenticateRequest(token || null, client_id || null)
     const admin = createAdminClient()
+
+    const { data: botConfigRow } = await admin
+      .from('panel_bot_config')
+      .select('stage_labels')
+      .eq('client_id', auth.client_id)
+      .maybeSingle()
+
+    const stageLabels = sanitizeStageLabels(botConfigRow?.stage_labels)
+    const validStageSlugs = new Set(stageLabels.map((s) => s.slug))
+    const stageSlugsForLabels = new Set([...validStageSlugs, '_sem_etapa'])
+
+    if (from_stage !== '_sem_etapa' && !validStageSlugs.has(from_stage)) {
+      return NextResponse.json({ error: 'from_stage inválido para o cliente' }, { status: 400 })
+    }
+
+    if (to_stage !== '_sem_etapa' && !validStageSlugs.has(to_stage)) {
+      return NextResponse.json({ error: 'to_stage inválido para o cliente' }, { status: 400 })
+    }
 
     // Busca a conversa — prioriza UUID, fallback para chatwoot_conversation_id
     let conversation: { id: string; labels: string[]; chatwoot_conversation_id: number | null } | null = null
@@ -74,20 +93,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
     }
 
-    // Substitui from_stage por to_stage no array de labels
+    // Remove labels de etapa antigas e aplica a nova etapa.
+    // Assim stage e labels ficam consistentes mesmo com dados legados.
     const currentLabels = (conversation.labels as string[]) || []
-    let newLabels = currentLabels.map((l) => (l === from_stage ? to_stage : l))
+    const baseLabels = currentLabels.filter((label) => !stageSlugsForLabels.has(label))
+    const newLabels = to_stage === '_sem_etapa' ? baseLabels : [...baseLabels, to_stage]
+    const newStage = to_stage === '_sem_etapa' ? null : to_stage
 
-    // Se from_stage não existia, adiciona to_stage (sem duplicatas)
-    if (!currentLabels.includes(from_stage)) {
-      newLabels = [...newLabels.filter((l) => l !== to_stage), to_stage]
-    }
-
-    // Atualiza no Supabase
-    await admin
+    const { error: updateError } = await admin
       .from('conversations')
-      .update({ labels: newLabels })
+      .update({
+        labels: newLabels,
+        stage: newStage,
+      })
       .eq('id', conversation.id)
+
+    if (updateError) {
+      throw updateError
+    }
 
     // Sincroniza com Chatwoot se a conversa tiver chatwoot_conversation_id (fallback)
     if (conversation.chatwoot_conversation_id) {
@@ -122,7 +145,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, labels: newLabels })
+    return NextResponse.json({ success: true, labels: newLabels, stage: newStage })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro interno'
     const status = message.includes('autorizado') || message.includes('inválido') ? 401 : 500

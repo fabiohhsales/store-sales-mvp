@@ -12,6 +12,16 @@ interface AgendaCalendarProps {
   token?: string
 }
 
+interface AgendaViewError {
+  message: string
+  errorId?: string
+}
+
+function normalizeAppointmentStatus(status: string | null | undefined): string | null {
+  if (!status) return null
+  return status === 'noshow' ? 'no_show' : status
+}
+
 const STATUS_COLORS: Record<string, string> = {
   scheduled: 'bg-blue-500/20 border-blue-500/50 text-blue-300',
   confirmed: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300',
@@ -19,6 +29,7 @@ const STATUS_COLORS: Record<string, string> = {
   no_show: 'bg-red-500/20 border-red-500/50 text-red-300',
   cancelled: 'bg-zinc-500/20 border-zinc-500/50 text-zinc-400 line-through',
   rescheduled: 'bg-amber-500/20 border-amber-500/50 text-amber-300',
+  noshow: 'bg-red-500/20 border-red-500/50 text-red-300',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -28,6 +39,7 @@ const STATUS_LABELS: Record<string, string> = {
   no_show: 'Faltou',
   cancelled: 'Cancelado',
   rescheduled: 'Reagendado',
+  noshow: 'Faltou',
 }
 
 const HOUR_START = 7
@@ -66,7 +78,7 @@ function formatWeekRange(days: Date[]): string {
 export function AgendaCalendar({ clientId, token }: AgendaCalendarProps) {
   const [appointments, setAppointments] = useState<AgendaAppointment[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AgendaViewError | null>(null)
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedApt, setSelectedApt] = useState<AgendaAppointment | null>(null)
 
@@ -92,14 +104,29 @@ export function AgendaCalendar({ clientId, token }: AgendaCalendarProps) {
       const res = await fetch(`/api/agenda?${params}`)
       if (!res.ok) {
         const data = await res.json()
-        throw new Error(data.error || 'Erro ao carregar agenda')
+        const err = new Error(data.error || 'Erro ao carregar agenda')
+        ;(err as Error & { errorId?: string }).errorId = data?.errorId
+        throw err
       }
 
       const data = await res.json()
-      setAppointments(data)
+      const normalized = (data as AgendaAppointment[]).map((apt) => ({
+        ...apt,
+        status: normalizeAppointmentStatus(apt.status),
+      }))
+      setAppointments(normalized)
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro desconhecido')
+      console.error('[agenda-calendar] fetchData error', err)
+      if (err instanceof Error) {
+        const maybeWithErrorId = err as Error & { errorId?: string }
+        setError({
+          message: err.message,
+          errorId: maybeWithErrorId.errorId,
+        })
+      } else {
+        setError({ message: 'Erro desconhecido' })
+      }
     } finally {
       setLoading(false)
     }
@@ -142,10 +169,14 @@ export function AgendaCalendar({ clientId, token }: AgendaCalendarProps) {
   if (error) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="text-center space-y-2">
-          <p className="text-destructive font-medium">{error}</p>
+        <div className="text-center space-y-3 max-w-md px-4">
+          <p className="text-destructive font-medium">Falha ao carregar Agenda</p>
+          <p className="text-sm text-muted-foreground">{error.message}</p>
+          {error.errorId && (
+            <p className="text-xs text-muted-foreground">ID de erro: {error.errorId}</p>
+          )}
           <button onClick={() => { setLoading(true); fetchData() }} className="text-sm text-primary hover:underline">
-            Tentar novamente
+            Recarregar Agenda
           </button>
         </div>
       </div>
