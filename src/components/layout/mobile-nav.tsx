@@ -14,6 +14,7 @@ import {
   ToggleLeft,
   ToggleRight,
   UserCircle,
+  MessageSquare,
 } from 'lucide-react'
 import {
   Sheet,
@@ -33,6 +34,7 @@ const adminNavItems = [
 ]
 
 const clientNavItems = [
+  { href: '/desk', label: 'Desk', icon: MessageSquare },
   { href: '/pipeline', label: 'Pipeline', icon: Kanban },
   { href: '/agenda', label: 'Agenda', icon: Calendar },
   { href: '/account', label: 'Minha Conta', icon: UserCircle },

@@ -36,6 +36,16 @@ interface AgendaTableProps {
   token?: string
 }
 
+interface AgendaViewError {
+  message: string
+  errorId?: string
+}
+
+function normalizeAppointmentStatus(status: string | null | undefined): string | null {
+  if (!status) return null
+  return status === 'noshow' ? 'no_show' : status
+}
+
 const STATUS_CONFIG: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   scheduled: { label: 'Agendado', variant: 'secondary' },
   confirmed: { label: 'Confirmado', variant: 'default' },
@@ -43,6 +53,7 @@ const STATUS_CONFIG: Record<string, { label: string; variant: 'default' | 'secon
   no_show: { label: 'Não compareceu', variant: 'destructive' },
   cancelled: { label: 'Cancelado', variant: 'outline' },
   rescheduled: { label: 'Reagendado', variant: 'outline' },
+  noshow: { label: 'Não compareceu', variant: 'destructive' },
 }
 
 function formatDateTime(dateStr: string): string {
@@ -88,7 +99,7 @@ function getDateRange(period: string): { from: string; to: string } {
 export function AgendaTable({ clientId, token }: AgendaTableProps) {
   const [appointments, setAppointments] = useState<AgendaAppointment[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AgendaViewError | null>(null)
   const [periodFilter, setPeriodFilter] = useState('week')
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -115,14 +126,29 @@ export function AgendaTable({ clientId, token }: AgendaTableProps) {
       const res = await fetch(`/api/agenda?${params}`)
       if (!res.ok) {
         const data = await res.json()
-        throw new Error(data.error || 'Erro ao carregar agenda')
+        const err = new Error(data.error || 'Erro ao carregar agenda')
+        ;(err as Error & { errorId?: string }).errorId = data?.errorId
+        throw err
       }
 
       const data = await res.json()
-      setAppointments(data)
+      const normalized = (data as AgendaAppointment[]).map((apt) => ({
+        ...apt,
+        status: normalizeAppointmentStatus(apt.status),
+      }))
+      setAppointments(normalized)
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro desconhecido')
+      console.error('[agenda-table] fetchAppointments error', err)
+      if (err instanceof Error) {
+        const maybeWithErrorId = err as Error & { errorId?: string }
+        setError({
+          message: err.message,
+          errorId: maybeWithErrorId.errorId,
+        })
+      } else {
+        setError({ message: 'Erro desconhecido' })
+      }
     } finally {
       setLoading(false)
     }
@@ -156,14 +182,19 @@ export function AgendaTable({ clientId, token }: AgendaTableProps) {
         }),
       })
 
-      if (!res.ok) throw new Error('Erro ao atualizar status')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Erro ao atualizar status')
+      }
+
+      const normalizedStatus = normalizeAppointmentStatus(newStatus)
 
       setAppointments((prev) =>
-        prev.map((a) => (a.id === appointmentId ? { ...a, status: newStatus } : a))
+        prev.map((a) => (a.id === appointmentId ? { ...a, status: normalizedStatus } : a))
       )
       toast.success('Status atualizado')
-    } catch {
-      toast.error('Erro ao atualizar status')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao atualizar status')
     } finally {
       setConfirmAction(null)
     }
@@ -181,13 +212,17 @@ export function AgendaTable({ clientId, token }: AgendaTableProps) {
   if (error) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="text-center space-y-2">
-          <p className="text-destructive font-medium">{error}</p>
+        <div className="text-center space-y-3 max-w-md px-4">
+          <p className="text-destructive font-medium">Falha ao carregar Agenda</p>
+          <p className="text-sm text-muted-foreground">{error.message}</p>
+          {error.errorId && (
+            <p className="text-xs text-muted-foreground">ID de erro: {error.errorId}</p>
+          )}
           <button
             onClick={() => { setLoading(true); fetchAppointments() }}
             className="text-sm text-primary hover:underline"
           >
-            Tentar novamente
+            Recarregar Agenda
           </button>
         </div>
       </div>

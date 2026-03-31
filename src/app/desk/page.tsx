@@ -8,14 +8,14 @@ import { DeskShell } from '@/components/desk/desk-shell'
 export default async function DeskPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client_id?: string }>
+  searchParams: Promise<{ client_id?: string; conversation_id?: string }>
 }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const admin = createAdminClient()
-  const { client_id: queryClientId } = await searchParams
+  const { client_id: queryClientId, conversation_id: queryConversationId } = await searchParams
 
   // Resolve client_id: tenta panel_users primeiro, depois query param
   let clientId = queryClientId ?? ''
@@ -78,6 +78,7 @@ export default async function DeskPage({
       clientName={clientName}
       userEmail={user.email ?? ''}
       userId={user.id}
+      initialConversationId={queryConversationId ?? null}
     />
   )
 }

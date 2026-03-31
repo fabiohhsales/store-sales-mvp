@@ -10,9 +10,11 @@ import { toast } from 'sonner'
 interface NewConversationModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onSuccess?: (payload: { conversation_id: string; contact_id: string }) => void
+  clientId?: string
 }
 
-export function NewConversationModal({ open, onOpenChange }: NewConversationModalProps) {
+export function NewConversationModal({ open, onOpenChange, onSuccess, clientId }: NewConversationModalProps) {
   const [phone, setPhone] = useState('')
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
@@ -23,7 +25,11 @@ export function NewConversationModal({ open, onOpenChange }: NewConversationModa
 
     setSending(true)
     try {
-      const res = await fetch('/api/conversations/start', {
+      const url = clientId
+        ? `/api/conversations/start?client_id=${clientId}`
+        : '/api/conversations/start'
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: phone.trim(), message: message.trim() }),
@@ -33,6 +39,12 @@ export function NewConversationModal({ open, onOpenChange }: NewConversationModa
       if (!res.ok) throw new Error(data.error || 'Erro ao iniciar conversa')
 
       toast.success('Conversa iniciada com sucesso!')
+      if (data?.conversation_id && data?.contact_id && onSuccess) {
+        onSuccess({
+          conversation_id: data.conversation_id,
+          contact_id: data.contact_id,
+        })
+      }
       setPhone('')
       setMessage('')
       onOpenChange(false)

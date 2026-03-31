@@ -23,9 +23,10 @@ import type { PipelineConversation, PipelineData } from '@/types/pipeline'
 interface KanbanBoardProps {
   clientId: string
   token?: string
+  refreshToken?: number
 }
 
-export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
+export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardProps) {
   const [data, setData] = useState<PipelineData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -75,7 +76,7 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
     fetchData()
     const interval = setInterval(fetchData, 30000)
     return () => clearInterval(interval)
-  }, [fetchData])
+  }, [fetchData, refreshToken])
 
   // Filtro local por nome/telefone
   const filteredConversations = useMemo(() => {
@@ -186,7 +187,15 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
         to_stage: toStage,
         ...(token ? { token } : { client_id: clientId }),
       }),
-    }).catch(() => fetchData())
+    })
+      .then((res) => {
+        if (!res.ok) fetchData()
+      })
+      .catch(() => fetchData())
+  }
+
+  function handleMessageSent() {
+    fetchData()
   }
 
   if (loading) {
@@ -270,6 +279,7 @@ export function KanbanBoard({ clientId, token }: KanbanBoardProps) {
         open={modalOpen}
         onOpenChange={setModalOpen}
         onMoveStage={handleMoveStage}
+        onMessageSent={handleMessageSent}
         clientId={clientId}
         token={token}
         chatwootAccountId={data.chatwootAccountId}
