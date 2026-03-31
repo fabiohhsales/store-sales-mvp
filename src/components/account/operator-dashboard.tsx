@@ -8,7 +8,7 @@ interface FunnelData {
   stageCounts: { bot_triage: number; awaiting_human: number; in_service: number; resolved_week: number }
   temperatureCounts: { hot: number; warm: number; cold: number; frozen: number }
   followupSentWeek: { lead: number; atendimento: number; agendado: number }
-  agendaWeek: { total: number; confirmed: number; scheduled: number; no_show: number }
+  agendaWeek: { total: number; confirmed: number; scheduled: number; noshow: number }
 }
 
 const TEMPERATURE_CONFIG = [
@@ -208,7 +208,7 @@ export function OperatorDashboard({ clientId, clientName }: OperatorDashboardPro
                 <div className="h-2 w-2 rounded-full bg-red-500" />
                 <span className="text-sm text-muted-foreground">No-show</span>
               </div>
-              <span className="text-sm font-bold text-red-400">{funnel?.agendaWeek.no_show ?? 0}</span>
+              <span className="text-sm font-bold text-red-400">{funnel?.agendaWeek.noshow ?? 0}</span>
             </div>
           </div>
         </div>

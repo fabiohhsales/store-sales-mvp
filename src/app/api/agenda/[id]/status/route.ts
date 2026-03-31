@@ -3,7 +3,7 @@ import { authenticateRequest } from '@/lib/auth/embed-token'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 function normalizeAppointmentStatus(status: string): string {
-  return status === 'noshow' ? 'no_show' : status
+  return status === 'no_show' ? 'noshow' : status
 }
 
 export async function PATCH(
@@ -17,7 +17,7 @@ export async function PATCH(
     const { status, token, client_id } = body
     const normalizedStatus = normalizeAppointmentStatus(status)
 
-    const validStatuses = ['attended', 'no_show', 'cancelled', 'rescheduled', 'scheduled', 'confirmed']
+    const validStatuses = ['attended', 'noshow', 'cancelled', 'rescheduled', 'scheduled', 'confirmed']
     if (!normalizedStatus || !validStatuses.includes(normalizedStatus)) {
       return NextResponse.json(
         { error: `Status inválido. Use: ${validStatuses.join(', ')}` },

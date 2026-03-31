@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 function normalizeAppointmentStatus(status: string | null | undefined): string | null {
   if (!status) return null
-  return status === 'noshow' ? 'no_show' : status
+  return status === 'no_show' ? 'noshow' : status
 }
 
 export async function GET(request: NextRequest) {
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       query = query.lte('start_at', `${dateTo}T23:59:59`)
     }
     if (statusFilter && statusFilter !== 'all') {
-      if (statusFilter === 'no_show') {
+      if (statusFilter === 'noshow') {
         query = query.in('status', ['no_show', 'noshow'])
       } else {
         query = query.eq('status', statusFilter)

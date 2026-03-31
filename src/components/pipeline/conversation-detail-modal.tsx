@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import { Calendar, Clock, ExternalLink, MessageCircle, Phone, User } from 'lucide-react'
 import { getChatwootPublicUrl } from '@/lib/config'
 import type { PipelineConversation } from '@/types/pipeline'
@@ -82,6 +83,8 @@ export function ConversationDetailModal({
   const [loadedConversationId, setLoadedConversationId] = useState<string | null>(null)
   const [reply, setReply] = useState('')
   const [sendingReply, setSendingReply] = useState(false)
+  const [autoMoveEnabled, setAutoMoveEnabled] = useState(true)
+  const [autoMoveToStage, setAutoMoveToStage] = useState('')
 
   const loadingMessages = Boolean(
     conversation &&
@@ -120,6 +123,28 @@ export function ConversationDetailModal({
     }
   }, [conversation, open, clientId, token])
 
+  useEffect(() => {
+    if (!open || !conversation) return
+
+    const storedEnabled = localStorage.getItem('pipeline-auto-move-enabled')
+    const storedStage = localStorage.getItem('pipeline-auto-move-stage')
+
+    if (storedEnabled === '0') {
+      setAutoMoveEnabled(false)
+    } else {
+      setAutoMoveEnabled(true)
+    }
+
+    const validColumn = columns.some((c) => c.slug === storedStage)
+    if (storedStage && validColumn) {
+      setAutoMoveToStage(storedStage)
+      return
+    }
+
+    const atendimentoStage = columns.find((c) => c.followup_cadence === 'atendimento')
+    setAutoMoveToStage(atendimentoStage?.slug ?? conversation.stage_slug)
+  }, [open, conversation, columns])
+
   if (!conversation) return null
 
   async function handleSendReply() {
@@ -134,6 +159,8 @@ export function ConversationDetailModal({
         body: JSON.stringify({
           conversation_id: conversation.id,
           content,
+          auto_move_enabled: autoMoveEnabled,
+          auto_move_to_stage: autoMoveToStage,
           ...(token ? { token } : { client_id: clientId }),
         }),
       })
@@ -153,6 +180,10 @@ export function ConversationDetailModal({
         },
       ])
       setReply('')
+
+      localStorage.setItem('pipeline-auto-move-enabled', autoMoveEnabled ? '1' : '0')
+      localStorage.setItem('pipeline-auto-move-stage', autoMoveToStage)
+
       onMessageSent()
       toast.success('Mensagem enviada')
     } catch (err) {
@@ -302,6 +333,31 @@ export function ConversationDetailModal({
                 rows={3}
                 placeholder="Digite a resposta para o contato..."
               />
+              <div className="rounded-md border p-2 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">Ao enviar, mover automaticamente para etapa</span>
+                  <Switch
+                    checked={autoMoveEnabled}
+                    onCheckedChange={(checked) => setAutoMoveEnabled(!!checked)}
+                  />
+                </div>
+                <Select
+                  value={autoMoveToStage}
+                  onValueChange={setAutoMoveToStage}
+                  disabled={!autoMoveEnabled}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a etapa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {columns.map((col) => (
+                      <SelectItem key={col.slug} value={col.slug}>
+                        {col.display_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex justify-end">
                 <Button onClick={handleSendReply} disabled={sendingReply || !reply.trim()}>
                   {sendingReply ? 'Enviando...' : 'Enviar resposta'}

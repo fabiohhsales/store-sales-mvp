@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
+import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
+import { updateConversationLabels } from '@/lib/api/chatwoot'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { token, client_id, conversation_id, content } = body
+    const { token, client_id, conversation_id, content, auto_move_enabled, auto_move_to_stage } = body
 
     if (!conversation_id) {
       return NextResponse.json({ error: 'conversation_id é obrigatório' }, { status: 400 })
@@ -21,7 +23,7 @@ export async function POST(request: NextRequest) {
 
     const { data: conv } = await admin
       .from('conversations')
-      .select('id, client_id, contact_id')
+      .select('id, client_id, contact_id, labels, stage, chatwoot_conversation_id')
       .eq('id', conversation_id)
       .eq('client_id', auth.client_id)
       .maybeSingle()
@@ -73,13 +75,72 @@ export async function POST(request: NextRequest) {
       throw insertError
     }
 
-    await admin
-      .from('conversations')
-      .update({
-        last_outgoing_at: now,
-        last_outgoing_by: 'operator',
-      })
-      .eq('id', conversation_id)
+    const shouldAutoMove = Boolean(auto_move_enabled && typeof auto_move_to_stage === 'string' && auto_move_to_stage.trim())
+
+    if (shouldAutoMove) {
+      const targetStage = auto_move_to_stage as string
+
+      const { data: botConfigRow } = await admin
+        .from('panel_bot_config')
+        .select('stage_labels')
+        .eq('client_id', auth.client_id)
+        .maybeSingle()
+
+      const stageLabels = sanitizeStageLabels(botConfigRow?.stage_labels)
+      const validStageSlugs = new Set(stageLabels.map((s) => s.slug))
+      if (!validStageSlugs.has(targetStage)) {
+        return NextResponse.json({ error: 'auto_move_to_stage inválido para o cliente' }, { status: 400 })
+      }
+
+      const stageSlugsForLabels = new Set([...validStageSlugs, '_sem_etapa'])
+      const currentLabels = (conv.labels as string[]) || []
+      const baseLabels = currentLabels.filter((label) => !stageSlugsForLabels.has(label))
+      const newLabels = [...baseLabels, targetStage]
+
+      await admin
+        .from('conversations')
+        .update({
+          labels: newLabels,
+          stage: targetStage,
+          last_outgoing_at: now,
+          last_outgoing_by: 'operator',
+        })
+        .eq('id', conversation_id)
+
+      if (conv.chatwoot_conversation_id) {
+        try {
+          const [{ data: whatsappConfig }, { data: clientRow }] = await Promise.all([
+            admin
+              .from('panel_whatsapp_config')
+              .select('chatwoot_account_id, chatwoot_agent_token')
+              .eq('client_id', auth.client_id)
+              .maybeSingle(),
+            admin
+              .from('panel_clients')
+              .select('chatwoot_account_id, chatwoot_agent_token')
+              .eq('id', auth.client_id)
+              .maybeSingle(),
+          ])
+
+          const accountId = whatsappConfig?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null
+          const agentToken = whatsappConfig?.chatwoot_agent_token ?? clientRow?.chatwoot_agent_token ?? null
+
+          if (accountId && agentToken) {
+            await updateConversationLabels(accountId, agentToken, conv.chatwoot_conversation_id, newLabels)
+          }
+        } catch (chatwootErr) {
+          console.warn('[pipeline/reply] Chatwoot sync falhou (ignorado):', chatwootErr)
+        }
+      }
+    } else {
+      await admin
+        .from('conversations')
+        .update({
+          last_outgoing_at: now,
+          last_outgoing_by: 'operator',
+        })
+        .eq('id', conversation_id)
+    }
 
     return NextResponse.json(message)
   } catch (error) {
