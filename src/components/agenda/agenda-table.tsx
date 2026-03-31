@@ -43,17 +43,16 @@ interface AgendaViewError {
 
 function normalizeAppointmentStatus(status: string | null | undefined): string | null {
   if (!status) return null
-  return status === 'noshow' ? 'no_show' : status
+  return status === 'no_show' ? 'noshow' : status
 }
 
 const STATUS_CONFIG: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   scheduled: { label: 'Agendado', variant: 'secondary' },
   confirmed: { label: 'Confirmado', variant: 'default' },
   attended: { label: 'Compareceu', variant: 'default' },
-  no_show: { label: 'Não compareceu', variant: 'destructive' },
+  noshow: { label: 'Não compareceu', variant: 'destructive' },
   cancelled: { label: 'Cancelado', variant: 'outline' },
   rescheduled: { label: 'Reagendado', variant: 'outline' },
-  noshow: { label: 'Não compareceu', variant: 'destructive' },
 }
 
 function formatDateTime(dateStr: string): string {
@@ -254,7 +253,7 @@ export function AgendaTable({ clientId, token }: AgendaTableProps) {
             <SelectItem value="scheduled">Agendado</SelectItem>
             <SelectItem value="confirmed">Confirmado</SelectItem>
             <SelectItem value="attended">Compareceu</SelectItem>
-            <SelectItem value="no_show">Não compareceu</SelectItem>
+            <SelectItem value="noshow">Não compareceu</SelectItem>
             <SelectItem value="cancelled">Cancelado</SelectItem>
           </SelectContent>
         </Select>
@@ -350,7 +349,7 @@ export function AgendaTable({ clientId, token }: AgendaTableProps) {
                           onClick={() =>
                             setConfirmAction({
                               appointmentId: apt.id,
-                              status: 'no_show',
+                              status: 'noshow',
                               label: 'Marcar como não compareceu?',
                             })
                           }

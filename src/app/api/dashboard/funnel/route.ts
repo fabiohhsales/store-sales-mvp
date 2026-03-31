@@ -87,13 +87,13 @@ export async function GET(request: NextRequest) {
   }
 
   // --- Agenda próximos 7 dias ---
-  const agendaWeek = { total: 0, confirmed: 0, scheduled: 0, no_show: 0 }
+  const agendaWeek = { total: 0, confirmed: 0, scheduled: 0, noshow: 0 }
   for (const apt of agendaRows ?? []) {
     agendaWeek.total++
     const s = (apt.status as string | null) ?? ''
     if (s === 'confirmed') agendaWeek.confirmed++
     else if (s === 'scheduled') agendaWeek.scheduled++
-    else if (s === 'no_show' || s === 'noshow') agendaWeek.no_show++
+    else if (s === 'no_show' || s === 'noshow') agendaWeek.noshow++
   }
 
   return NextResponse.json({

@@ -14,7 +14,7 @@ Objetivo: transformar o escopo em plano executável, com entregas por sprint, cr
 
 Implementações concluídas neste ciclo:
 - P0.2 Agenda hardening:
-  - normalização de status no_show/noshow na API e front
+  - normalização de status para canonical noshow (com compatibilidade legado no_show)
   - melhoria do tratamento de erro com errorId para suporte
   - logs de observabilidade com requestId na API de Agenda
 - P0.3 Desk no acesso client:
@@ -23,12 +23,17 @@ Implementações concluídas neste ciclo:
 - Pipeline modal expandido + nova conversa:
   - botão Nova conversa na tela de Pipeline
   - modal de detalhe expandido com resposta inline
+  - auto-move configurável após reply inline para etapa escolhida pelo usuário
   - atalho Ir para o Desk na conversa
   - endpoint dedicado para resposta rápida no pipeline
 - Agenda observabilidade + UX de erro:
   - telas de Agenda com mensagens de erro mais claras
   - exibição de ID de erro para rastreio
   - ação de recarga explícita no erro
+- Follow Ups (tipo client) - visão operacional:
+  - nova tela de Follow Ups com fluxo por cadência (lead/atendimento/agendado)
+  - contadores de níveis, conversas sem resposta e tentativas
+  - timeline de eventos recentes de follow-up enviados
 
 ---
 

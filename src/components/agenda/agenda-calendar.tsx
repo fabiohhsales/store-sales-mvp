@@ -19,27 +19,25 @@ interface AgendaViewError {
 
 function normalizeAppointmentStatus(status: string | null | undefined): string | null {
   if (!status) return null
-  return status === 'noshow' ? 'no_show' : status
+  return status === 'no_show' ? 'noshow' : status
 }
 
 const STATUS_COLORS: Record<string, string> = {
   scheduled: 'bg-blue-500/20 border-blue-500/50 text-blue-300',
   confirmed: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300',
   attended: 'bg-green-500/20 border-green-500/50 text-green-300',
-  no_show: 'bg-red-500/20 border-red-500/50 text-red-300',
+  noshow: 'bg-red-500/20 border-red-500/50 text-red-300',
   cancelled: 'bg-zinc-500/20 border-zinc-500/50 text-zinc-400 line-through',
   rescheduled: 'bg-amber-500/20 border-amber-500/50 text-amber-300',
-  noshow: 'bg-red-500/20 border-red-500/50 text-red-300',
 }
 
 const STATUS_LABELS: Record<string, string> = {
   scheduled: 'Agendado',
   confirmed: 'Confirmado',
   attended: 'Compareceu',
-  no_show: 'Faltou',
+  noshow: 'Faltou',
   cancelled: 'Cancelado',
   rescheduled: 'Reagendado',
-  noshow: 'Faltou',
 }
 
 const HOUR_START = 7
