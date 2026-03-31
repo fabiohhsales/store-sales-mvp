@@ -96,13 +96,12 @@ export async function GET(request: NextRequest) {
   }
 
   const csv = csvRows.join('\n')
-  const periodLabel = { today: 'hoje', week: '7dias', month: 'mes' }[period] ?? period
 
   return new NextResponse(csv, {
     status: 200,
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="conversas-${periodLabel}.csv"`,
+      'Content-Disposition': `attachment; filename="conversas-${period}.csv"`,
     },
   })
 }

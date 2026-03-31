@@ -10,9 +10,12 @@ export async function GET(request: NextRequest) {
   const deskUser = await resolveDeskUser(request)
   if (!deskUser) return new NextResponse('Não autenticado', { status: 401 })
 
+  // msg_id  = evolution_message_id (mensagens recebidas/antigas)
+  // db_msg_id = messages.id UUID (mensagens enviadas pelo operador com media_url)
   const msgId = request.nextUrl.searchParams.get('msg_id')
+  const dbMsgId = request.nextUrl.searchParams.get('db_msg_id')
   const conversationId = request.nextUrl.searchParams.get('conversation_id')
-  if (!msgId || !conversationId) return new NextResponse('Parâmetros inválidos', { status: 400 })
+  if ((!msgId && !dbMsgId) || !conversationId) return new NextResponse('Parâmetros inválidos', { status: 400 })
 
   const admin = createAdminClient()
 
@@ -33,11 +36,12 @@ export async function GET(request: NextRequest) {
   }
 
   // Tenta buscar media_url do Storage primeiro
-  const { data: msgRow } = await admin
-    .from('messages')
-    .select('media_url')
-    .eq('evolution_message_id', msgId)
-    .maybeSingle()
+  // — por db_msg_id (mensagens enviadas pelo operador) ou por evolution_message_id (recebidas)
+  const mediaQuery = dbMsgId
+    ? admin.from('messages').select('media_url').eq('id', dbMsgId).maybeSingle()
+    : admin.from('messages').select('media_url').eq('evolution_message_id', msgId!).maybeSingle()
+
+  const { data: msgRow } = await mediaQuery
 
   if (msgRow?.media_url) {
     const { data: signedData, error } = await admin.storage
@@ -47,7 +51,12 @@ export async function GET(request: NextRequest) {
     if (!error && signedData?.signedUrl) {
       return NextResponse.redirect(signedData.signedUrl, { status: 302 })
     }
-    // Signed URL falhou — tenta Evolution como fallback
+    // Signed URL falhou — tenta Evolution como fallback (só faz sentido para msg_id)
+  }
+
+  // Se veio por db_msg_id e não tem media_url (ou signed URL falhou), não tem fallback Evolution
+  if (dbMsgId && !msgId) {
+    return new NextResponse('Mídia não disponível', { status: 404 })
   }
 
   // Fallback: busca base64 diretamente da Evolution API

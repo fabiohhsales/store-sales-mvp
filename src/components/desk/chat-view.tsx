@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText } from 'lucide-react'
@@ -142,6 +142,13 @@ function MessageBubble({ message, conversationId }: { message: Message; conversa
                 className="max-w-[220px] rounded-lg cursor-pointer"
                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
               />
+            ) : message.media_url ? (
+              <img
+                src={`/api/desk/media?db_msg_id=${message.id}&conversation_id=${conversationId}`}
+                alt={message.content || 'Imagem'}
+                className="max-w-[220px] rounded-lg cursor-pointer"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+              />
             ) : (
               <span className="italic text-muted-foreground">[Imagem]</span>
             )
@@ -149,6 +156,16 @@ function MessageBubble({ message, conversationId }: { message: Message; conversa
             message.evolution_message_id ? (
               <a
                 href={`/api/desk/media?msg_id=${message.evolution_message_id}&conversation_id=${conversationId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-sm underline underline-offset-2"
+              >
+                <FileText size={15} className="flex-shrink-0" />
+                <span>{message.content || 'Documento'}</span>
+              </a>
+            ) : message.media_url ? (
+              <a
+                href={`/api/desk/media?db_msg_id=${message.id}&conversation_id=${conversationId}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-sm underline underline-offset-2"
@@ -437,7 +454,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
     setMessages((prev) => [...prev, {
       id: tempId, content, content_type: 'text',
       sender_type: 'operator', from_who: 'human',
-      created_at: new Date().toISOString(), evolution_message_id: null,
+      created_at: new Date().toISOString(), evolution_message_id: null, media_url: null,
     }])
     try {
       const res = await fetch(`/api/desk/conversations/${conversationId}/message`, {
@@ -480,28 +497,27 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
     }
   }
 
-  // Mescla respostas pessoais (priority) + de cliente, filtra pelo query após "/"
-  const cannedQuery = input.startsWith('/') ? input.slice(1).toLowerCase() : null
-  const allCannedMerged: CannedResponse[] = [
+  // Lista mesclada: pessoais primeiro (priority), depois de cliente — memoizada
+  const allCannedMerged = useMemo<CannedResponse[]>(() => [
     ...personalCannedResponses.map((r) => ({ ...r, personal: true })),
     ...cannedResponses.map((r) => ({ ...r, personal: false })),
-  ]
-  const filteredCanned = cannedQuery !== null
-    ? allCannedMerged.filter(
-        (r) => r.shortcut.includes(cannedQuery) || r.content.toLowerCase().includes(cannedQuery)
-      )
-    : []
+  ], [personalCannedResponses, cannedResponses])
+
+  // Filtra pelo query após "/" — memoizado
+  const cannedQuery = input.startsWith('/') ? input.slice(1).toLowerCase() : null
+  const filteredCanned = useMemo(
+    () => cannedQuery !== null
+      ? allCannedMerged.filter((r) => r.shortcut.includes(cannedQuery) || r.content.toLowerCase().includes(cannedQuery))
+      : [],
+    [allCannedMerged, cannedQuery]
+  )
 
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
     setInput(val)
     const query = val.startsWith('/') ? val.slice(1).toLowerCase() : null
     if (query !== null) {
-      const merged = [
-        ...personalCannedResponses.map((r) => ({ ...r, personal: true })),
-        ...cannedResponses.map((r) => ({ ...r, personal: false })),
-      ]
-      const matches = merged.filter((r) => r.shortcut.includes(query) || r.content.toLowerCase().includes(query))
+      const matches = allCannedMerged.filter((r) => r.shortcut.includes(query) || r.content.toLowerCase().includes(query))
       setCannedPopoverOpen(matches.length > 0)
       setCannedHighlight(0)
     } else {

@@ -45,7 +45,7 @@ export async function POST(
     })
 
     const { data, error } = await admin.from('conversations')
-      .update({ stage: 'in_service' })
+      .update({ stage: 'in_service', stage_changed_at: new Date().toISOString() })
       .eq('id', id)
       .select('stage')
       .single()
@@ -60,7 +60,7 @@ export async function POST(
     await admin.from('ai_pauses').delete().eq('conversation_id', id)
 
     const { data, error } = await admin.from('conversations')
-      .update({ stage: 'bot_triage' })
+      .update({ stage: 'bot_triage', stage_changed_at: new Date().toISOString() })
       .eq('id', id)
       .select('stage')
       .single()
@@ -75,7 +75,7 @@ export async function POST(
     await admin.from('ai_pauses').delete().eq('conversation_id', id)
 
     const { data, error } = await admin.from('conversations')
-      .update({ stage: 'resolved', status: 'resolved', resolved_at: new Date().toISOString() })
+      .update({ stage: 'resolved', status: 'resolved', resolved_at: new Date().toISOString(), stage_changed_at: new Date().toISOString() })
       .eq('id', id)
       .select('stage')
       .single()

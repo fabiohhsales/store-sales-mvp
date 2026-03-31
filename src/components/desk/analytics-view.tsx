@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import { Loader2, BarChart3, Clock, AlertTriangle, CheckCircle2, Users, TrendingUp, Download } from 'lucide-react'
 
 interface AnalyticsData {
@@ -109,8 +110,8 @@ export function AnalyticsView({ clientId }: Props) {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
-    } catch {
-      // silencioso — o navegador já exibe o erro no console
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao exportar dados')
     } finally {
       setExporting(false)
     }

@@ -22,7 +22,11 @@ export async function GET(request: NextRequest) {
   if (!deskUser) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
   if (!deskUser.clientId) return NextResponse.json({ error: 'client_id obrigatório' }, { status: 400 })
 
-  const period = request.nextUrl.searchParams.get('period') ?? 'week'
+  const periodParam = request.nextUrl.searchParams.get('period') ?? 'week'
+  if (!['today', 'week', 'month'].includes(periodParam)) {
+    return NextResponse.json({ error: 'period deve ser today, week ou month' }, { status: 400 })
+  }
+  const period = periodParam
   const from = periodStart(period)
   const admin = createAdminClient()
 
@@ -91,13 +95,15 @@ export async function GET(request: NextRequest) {
     .gte('created_at', from.toISOString())
 
   // 7. Aguardando há mais de 1 hora — risco de SLA
+  // Usa stage_changed_at (quando entrou em awaiting_human) se disponível,
+  // ou last_incoming_at como proxy para conversas migradas sem stage_changed_at.
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
   const { count: awaitingLong } = await admin
     .from('conversations')
     .select('id', { count: 'exact', head: true })
     .eq('client_id', deskUser.clientId)
     .eq('stage', 'awaiting_human')
-    .lt('last_incoming_at', oneHourAgo)
+    .or(`stage_changed_at.lt.${oneHourAgo},and(stage_changed_at.is.null,last_incoming_at.lt.${oneHourAgo})`)
 
   return NextResponse.json({
     period,

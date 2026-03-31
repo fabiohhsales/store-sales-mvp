@@ -36,7 +36,7 @@ export async function GET(
 
   const { data: messages } = await admin
     .from('messages')
-    .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id')
+    .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url')
     .eq('conversation_id', id)
     .order('created_at', { ascending: true })
     .limit(100)
