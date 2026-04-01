@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser } from '@/lib/desk/auth'
+import { normalizeAgendaStatus } from '@/lib/agenda/constants'
 
 function classifyTemperature(lastIncomingAt: string | null): 'hot' | 'warm' | 'cold' | 'frozen' {
   if (!lastIncomingAt) return 'frozen'
@@ -90,10 +91,10 @@ export async function GET(request: NextRequest) {
   const agendaWeek = { total: 0, confirmed: 0, scheduled: 0, noshow: 0 }
   for (const apt of agendaRows ?? []) {
     agendaWeek.total++
-    const s = (apt.status as string | null) ?? ''
+    const s = normalizeAgendaStatus((apt.status as string | null) ?? null)
     if (s === 'confirmed') agendaWeek.confirmed++
     else if (s === 'scheduled') agendaWeek.scheduled++
-    else if (s === 'no_show' || s === 'noshow') agendaWeek.noshow++
+    else if (s === 'noshow') agendaWeek.noshow++
   }
 
   return NextResponse.json({

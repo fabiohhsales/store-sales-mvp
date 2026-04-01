@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { AgendaTable } from '@/components/agenda/agenda-table'
-import { AgendaCalendar } from '@/components/agenda/agenda-calendar'
+import { AgendaWorkspace } from '@/components/agenda/agenda-workspace'
 import {
   Select,
   SelectContent,
@@ -10,8 +9,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Button } from '@/components/ui/button'
-import { CalendarDays, List } from 'lucide-react'
 
 interface ClientOption {
   id: string
@@ -26,7 +23,6 @@ interface Props {
 
 export function AgendaPageClient({ clients, initialClientId, viewerRole }: Props) {
   const [clientId, setClientId] = useState(initialClientId)
-  const [view, setView] = useState<'calendar' | 'list'>('calendar')
   const isAdmin = viewerRole === 'admin'
 
   return (
@@ -35,42 +31,19 @@ export function AgendaPageClient({ clients, initialClientId, viewerRole }: Props
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Agenda</h1>
 
         <div className="flex items-center gap-3">
-          {/* View toggle */}
-          <div className="flex items-center border rounded-lg overflow-hidden">
-            <Button
-              variant={view === 'calendar' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-none h-8"
-              onClick={() => setView('calendar')}
-            >
-              <CalendarDays className="h-4 w-4 mr-1" />
-              Calendário
-            </Button>
-            <Button
-              variant={view === 'list' ? 'default' : 'ghost'}
-              size="sm"
-              className="rounded-none h-8"
-              onClick={() => setView('list')}
-            >
-              <List className="h-4 w-4 mr-1" />
-              Lista
-            </Button>
-          </div>
-
-          {/* Client selector (admin only) */}
           {isAdmin && clients.length > 1 && (
-            <Select value={clientId} onValueChange={(val) => val && setClientId(val)}>
+            <Select value={clientId} onValueChange={(value) => value && setClientId(value)}>
               <SelectTrigger className="w-[260px]">
                 <SelectValue placeholder="Selecione um cliente" />
               </SelectTrigger>
               <SelectContent>
-                {clients.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
+                {clients.map((client) => (
+                  <SelectItem key={client.id} value={client.id}>
+                    {client.name}
                   </SelectItem>
                 ))}
-            </SelectContent>
-          </Select>
+              </SelectContent>
+            </Select>
           )}
           {isAdmin && clients.length === 1 && (
             <span className="text-sm text-muted-foreground">{clients[0].name}</span>
@@ -79,11 +52,7 @@ export function AgendaPageClient({ clients, initialClientId, viewerRole }: Props
       </div>
 
       {clientId ? (
-        view === 'calendar' ? (
-          <AgendaCalendar clientId={clientId} />
-        ) : (
-          <AgendaTable clientId={clientId} />
-        )
+        <AgendaWorkspace clientId={clientId} initialView="week" />
       ) : (
         <div className="flex flex-1 items-center justify-center py-20 text-muted-foreground">
           <p>Nenhum cliente ativo encontrado.</p>
