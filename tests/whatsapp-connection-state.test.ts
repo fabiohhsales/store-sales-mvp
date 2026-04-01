@@ -126,4 +126,28 @@ describe('whatsapp connection state service', () => {
 
     expect(snapshot.state).toBe('disconnected')
   })
+
+  it('tolera fetchInstances com shape sem instance aninhada', async () => {
+    mocks.getConnectionState.mockResolvedValue({
+      instanceName: 'clinic-instance',
+      state: 'open',
+    })
+    mocks.fetchInstances.mockResolvedValue([
+      {
+        instanceName: 'clinic-instance',
+        owner: '55 21 3955-5278',
+        profileName: 'Clinic',
+        status: 'open',
+      },
+      {
+        status: 'close',
+      },
+    ])
+
+    const { reconcileConnectionState } = await import('@/lib/whatsapp/connection-state')
+    const snapshot = await reconcileConnectionState('clinic-instance')
+
+    expect(snapshot.state).toBe('open')
+    expect(snapshot.connectedPhone).toBe('552139555278')
+  })
 })

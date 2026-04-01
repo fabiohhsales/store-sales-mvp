@@ -67,4 +67,18 @@ describe('POST /api/whatsapp/instances/[instanceName]/repair-sync', () => {
       state: 'connecting',
     })
   })
+
+  it('propaga falha clara quando a Evolution rejeita o payload do webhook', async () => {
+    mocks.setWebhook.mockRejectedValueOnce(
+      new Error('Evolution API error 400: {"response":{"message":[["webhook requires property \\"enabled\\""]]}}')
+    )
+
+    const { POST } = await import('@/app/api/whatsapp/instances/[instanceName]/repair-sync/route')
+    const response = await POST({} as never, { params: Promise.resolve({ instanceName: 'clinic-instance' }) })
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringContaining('webhook requires property'),
+    })
+  })
 })

@@ -26,12 +26,26 @@ function normalizeEvolutionState(state: string | null | undefined): WhatsAppConn
   return 'error'
 }
 
+function getFetchInstanceName(instance: EvolutionFetchInstanceEntry | null): string | null {
+  if (!instance) return null
+  return instance.instance?.instanceName ?? instance.instanceName ?? null
+}
+
+function getFetchInstanceState(instance: EvolutionFetchInstanceEntry | null): string | null {
+  if (!instance) return null
+  return instance.instance?.status ?? instance.status ?? null
+}
+
+function getConnectionStateValue(connectionState: Awaited<ReturnType<typeof getConnectionState>>): string | null {
+  return connectionState.instance?.state ?? connectionState.state ?? null
+}
+
 function extractConnectedPhone(instance: EvolutionFetchInstanceEntry | null): string | null {
   if (!instance) return null
 
   return (
-    normalizePhone(instance.instance.owner) ??
-    normalizePhone(instance.instance.profileName) ??
+    normalizePhone(instance.instance?.owner ?? instance.owner) ??
+    normalizePhone(instance.instance?.profileName ?? instance.profileName) ??
     null
   )
 }
@@ -63,16 +77,16 @@ export async function readConnectionSnapshot(
 
   const baseState =
     connectionState.status === 'fulfilled'
-      ? normalizeEvolutionState(connectionState.value.instance?.state)
+      ? normalizeEvolutionState(getConnectionStateValue(connectionState.value))
       : 'error'
 
   const matchedInstance =
     instancesResult.status === 'fulfilled'
-      ? instancesResult.value.find((entry) => entry.instance.instanceName === instanceName) ?? null
+      ? instancesResult.value.find((entry) => getFetchInstanceName(entry) === instanceName) ?? null
       : null
 
   const derivedState = matchedInstance
-    ? normalizeEvolutionState(matchedInstance.instance.status)
+    ? normalizeEvolutionState(getFetchInstanceState(matchedInstance))
     : baseState
 
   const state =
