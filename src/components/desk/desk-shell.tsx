@@ -1,20 +1,17 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { ConversationList } from './conversation-list'
 import { ChatView } from './chat-view'
 import { DeskErrorBoundary } from './_internal/desk-error-boundary'
-import { KanbanBoard } from '@/components/pipeline/kanban-board'
-import { AgendaTable } from '@/components/agenda/agenda-table'
 import { AnalyticsView } from './analytics-view'
 import { MyCannedResponsesPanel } from './my-canned-responses-panel'
-import { LogOut, MessageSquare, Bell, ArrowLeft, Kanban, CalendarDays, BarChart3, Zap } from 'lucide-react'
+import { LogOut, MessageSquare, Bell, BarChart3, Zap } from 'lucide-react'
 import { logout } from '@/lib/actions/auth'
 import { toast } from 'sonner'
 
-type DeskTab = 'conversations' | 'pipeline' | 'agenda' | 'analytics'
+type DeskTab = 'conversations' | 'analytics'
 
 export interface DeskConversation {
   id: string
@@ -89,7 +86,6 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
     return () => window.clearTimeout(timeout)
   }, [fetchStats])
 
-  // Supabase Realtime — escuta mudanças nas conversas do cliente
   useEffect(() => {
     const supabase = createClient()
 
@@ -103,7 +99,6 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
       }, (payload) => {
         const updated = payload.new as DeskConversation
 
-        // Notifica quando nova conversa entra em awaiting_human
         if (
           payload.eventType === 'UPDATE' &&
           updated.stage === 'awaiting_human' &&
@@ -122,7 +117,6 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
           }
         }
 
-        // Atualiza lista local sem refetch completo
         setConversations((prev) => {
           const exists = prev.find((c) => c.id === updated.id)
           const matchesFilter =
@@ -131,11 +125,10 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
               : updated.stage === stageFilter
 
           if (!exists) {
-            // Nova conversa — só adiciona se bate com o filtro atual
             if (matchesFilter) return [updated, ...prev]
             return prev
           }
-          // Conversa existente — remove se saiu do filtro, atualiza se continua
+
           if (!matchesFilter) return prev.filter((c) => c.id !== updated.id)
           return prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
         })
@@ -147,7 +140,6 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
     return () => { supabase.removeChannel(channel) }
   }, [clientId, stageFilter, fetchStats])
 
-  // Solicita permissão de notificação no primeiro uso
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
@@ -156,9 +148,7 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
 
   return (
     <div className="flex h-full w-full overflow-hidden">
-      {/* Coluna esquerda — fila de conversas (só na aba Conversas) */}
       {activeTab === 'conversations' && <aside className="hidden md:flex w-72 flex-shrink-0 flex-col border-r border-border bg-card/50">
-        {/* Header da sidebar */}
         <div className="flex h-14 items-center justify-between border-b border-border px-4">
           <div className="flex items-center gap-2">
             <MessageSquare size={18} className="text-primary" />
@@ -201,20 +191,9 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
         )}
       </aside>}
 
-      {/* Coluna central — conteúdo principal */}
       <main className="flex flex-1 flex-col overflow-hidden">
-        {/* Header do Desk */}
         <header className="flex h-14 items-center justify-between border-b border-border px-4 bg-card/50 backdrop-blur-sm flex-shrink-0">
           <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-              title="Voltar ao admin"
-            >
-              <ArrowLeft size={16} />
-            </Link>
-
-            {/* Abas de navegação */}
             <nav className="flex items-center gap-1">
               <button
                 onClick={() => setActiveTab('conversations')}
@@ -231,28 +210,6 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
                     {pendingCount}
                   </span>
                 )}
-              </button>
-              <button
-                onClick={() => setActiveTab('pipeline')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  activeTab === 'pipeline'
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                }`}
-              >
-                <Kanban size={13} />
-                <span className="hidden sm:inline">Pipeline</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('agenda')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  activeTab === 'agenda'
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                }`}
-              >
-                <CalendarDays size={13} />
-                <span className="hidden sm:inline">Agenda</span>
               </button>
               <button
                 onClick={() => setActiveTab('analytics')}
@@ -279,7 +236,7 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
             <button
               onClick={() => setActiveTab('conversations')}
               className="relative p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-              title="Notificações"
+              title="Notificacoes"
             >
               <Bell size={18} />
               {pendingCount > 0 && (
@@ -301,21 +258,8 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
           </div>
         </header>
 
-        {/* Conteúdo por aba */}
-        {activeTab === 'pipeline' && (
-          <div className="flex-1 overflow-hidden">
-            <KanbanBoard clientId={clientId} />
-          </div>
-        )}
-
         {activeTab === 'analytics' && (
           <AnalyticsView clientId={clientId} />
-        )}
-
-        {activeTab === 'agenda' && (
-          <div className="flex-1 overflow-auto">
-            <AgendaTable clientId={clientId} />
-          </div>
         )}
 
         {activeTab === 'conversations' && (
@@ -348,7 +292,6 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
         )}
       </main>
 
-      {/* Painel de atalhos pessoais */}
       <MyCannedResponsesPanel
         clientId={clientId}
         open={myShortcutsOpen}

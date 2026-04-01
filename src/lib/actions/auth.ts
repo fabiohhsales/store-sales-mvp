@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getPostLoginRedirectPath } from '@/lib/auth/panel-session'
 
 export async function login(formData: FormData) {
   const supabase = await createClient()
@@ -20,7 +21,7 @@ export async function login(formData: FormData) {
   }
 
   revalidatePath('/', 'layout')
-  redirect('/')
+  redirect(await getPostLoginRedirectPath())
 }
 
 export async function logout() {
