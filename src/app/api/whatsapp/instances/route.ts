@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createInstance, setChatwootIntegration, getPanelWebhookUrl, deleteInstance } from '@/lib/api/evolution'
+import {
+  createInstance,
+  deleteInstance,
+  getPanelChatwootWebhookUrl,
+  getPanelEvolutionWebhookUrl,
+  setChatwootIntegration,
+  setWebhook,
+} from '@/lib/api/evolution'
 import { createChatwootAccount, createChatwootAgent, findInboxByName, configureChatwootWebhook, deleteChatwootAccount, ensureChatwootLabels } from '@/lib/api/chatwoot'
 import { createWhatsAppConfig } from '@/lib/db/whatsapp-config'
 import { getBotConfigByClientId } from '@/lib/db/bot-config'
@@ -82,8 +89,8 @@ export async function POST(request: NextRequest) {
 
       // Etapa 2 — Configura webhook Chatwoot → painel
       console.log(`[WhatsApp] Etapa 2: Configurando webhook Chatwoot (Account ${chatwootAccount.id})`)
-      const panelWebhookUrl = getPanelWebhookUrl()
-      await configureChatwootWebhook(chatwootAccount.id, chatwootAccount.access_token, panelWebhookUrl)
+      const panelChatwootWebhookUrl = getPanelChatwootWebhookUrl()
+      await configureChatwootWebhook(chatwootAccount.id, chatwootAccount.access_token, panelChatwootWebhookUrl)
 
       // Etapa 2b — Sincroniza etiquetas padrão/configuradas na account do cliente
       console.log(`[WhatsApp] Etapa 2b: Sincronizando etiquetas no Chatwoot (Account ${chatwootAccount.id})`)
@@ -127,6 +134,10 @@ export async function POST(request: NextRequest) {
       })
       evolutionCreated = true
 
+      const evolutionWebhookUrl = getPanelEvolutionWebhookUrl()
+      console.log(`[WhatsApp] Etapa 3a: Configurando webhook direto da Evolution`)
+      await setWebhook(instance_name, evolutionWebhookUrl)
+
       // Etapa 3b — Garante integração Chatwoot ativa
       console.log(`[WhatsApp] Etapa 3b: Garantindo integração Chatwoot`)
       try {
@@ -166,7 +177,7 @@ export async function POST(request: NextRequest) {
         connected_phone: null,
         connected_at: null,
         disconnected_at: null,
-        webhook_url: panelWebhookUrl,
+        webhook_url: evolutionWebhookUrl,
         chatwoot_inbox_id: chatwootInboxId,
         chatwoot_email: chatwootLoginEmail,
         chatwoot_account_id: chatwootAccount.id,

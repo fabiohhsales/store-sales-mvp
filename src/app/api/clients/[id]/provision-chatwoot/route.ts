@@ -8,7 +8,7 @@ import {
   createChatwootAgent,
   deleteChatwootAccount,
 } from '@/lib/api/chatwoot'
-import { getPanelWebhookUrl } from '@/lib/api/evolution'
+import { getPanelChatwootWebhookUrl } from '@/lib/api/evolution'
 import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
 import { insertAuditLog } from '@/lib/db/audit-log'
 import type { ChatwootAgentInput } from '@/types/api'
@@ -376,7 +376,7 @@ export async function POST(
       createdAccountToken = account.access_token
 
       await withRetry(() =>
-        configureChatwootWebhook(account.id, account.access_token, getPanelWebhookUrl())
+        configureChatwootWebhook(account.id, account.access_token, getPanelChatwootWebhookUrl())
       )
 
       const credentials: ChatwootCredentials = {

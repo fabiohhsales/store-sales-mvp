@@ -9,7 +9,7 @@ import {
   deleteChatwootAccount,
   ensureChatwootLabels,
 } from '@/lib/api/chatwoot'
-import { getPanelWebhookUrl } from '@/lib/api/evolution'
+import { getPanelChatwootWebhookUrl } from '@/lib/api/evolution'
 import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
 import type { PanelClientInsert, ProvisionedChatwootAgent } from '@/types/database'
 import type { ChatwootAgentRole } from '@/types/api'
@@ -189,7 +189,7 @@ async function provisionChatwootForClient(
     createdAccountId = account.id
     createdAccountToken = account.access_token
 
-    const panelWebhookUrl = getPanelWebhookUrl()
+    const panelWebhookUrl = getPanelChatwootWebhookUrl()
     await withRetry(() => configureChatwootWebhook(account.id, account.access_token, panelWebhookUrl))
 
     try {
