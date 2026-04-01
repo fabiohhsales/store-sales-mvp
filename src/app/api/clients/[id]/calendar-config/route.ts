@@ -6,10 +6,10 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
-  const { id } = params
+  const { id } = await params
 
   const body = await request.json()
   const { google_email, calendar_id } = body
