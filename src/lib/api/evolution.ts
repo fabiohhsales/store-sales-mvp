@@ -183,6 +183,7 @@ export async function setWebhook(
     method: 'POST',
     body: JSON.stringify({
       webhook: {
+        enabled: true,
         url: webhookUrl,
         webhook_by_events: false,
         webhook_base64: false,

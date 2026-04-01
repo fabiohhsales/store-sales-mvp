@@ -25,10 +25,12 @@ export interface EvolutionInstanceResponse {
 }
 
 export interface EvolutionConnectionState {
-  instance: {
-    instanceName: string
-    state: 'open' | 'connecting' | 'close'
+  instance?: {
+    instanceName?: string
+    state?: 'open' | 'connecting' | 'close'
   }
+  instanceName?: string
+  state?: 'open' | 'connecting' | 'close'
 }
 
 export interface EvolutionQRCode {
@@ -48,18 +50,28 @@ export interface WhatsAppConnectionResponse {
 }
 
 export interface EvolutionFetchInstance {
-  instance: {
-    instanceName: string
-    instanceId: string
-    owner: string
-    profileName: string
-    profilePictureUrl: string | null
-    profileStatus: string
-    status: string
-    serverUrl: string
-    apikey: string
-    integration: string
+  instance?: {
+    instanceName?: string
+    instanceId?: string
+    owner?: string
+    profileName?: string
+    profilePictureUrl?: string | null
+    profileStatus?: string
+    status?: string
+    serverUrl?: string
+    apikey?: string
+    integration?: string
   }
+  instanceName?: string
+  instanceId?: string
+  owner?: string
+  profileName?: string
+  profilePictureUrl?: string | null
+  profileStatus?: string
+  status?: string
+  serverUrl?: string
+  apikey?: string
+  integration?: string
 }
 
 // --- Chatwoot API ---
