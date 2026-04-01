@@ -167,6 +167,9 @@ Copie `.env.example` para `.env.local` e preencha:
 | `GOOGLE_CLIENT_ID` | OAuth Client ID (Google Cloud Console) |
 | `GOOGLE_CLIENT_SECRET` | OAuth Client Secret |
 
+> Segurança de deploy: não versione credenciais reais no repositório e não injete segredos como build args de imagem.
+> Em provedores como EasyPanel, configure segredos em variáveis de ambiente de runtime/serviço.
+
 ## Banco de dados
 
 Migrations em `supabase/migrations/`:

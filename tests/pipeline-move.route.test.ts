@@ -53,9 +53,9 @@ function buildAdminClient(options?: {
         return {
           select() {
             return {
-              eq(_col1: string, _val1: string) {
+              eq() {
                 return {
-                  eq(_col2: string, _val2: string) {
+                  eq() {
                     return {
                       async maybeSingle() {
                         return {

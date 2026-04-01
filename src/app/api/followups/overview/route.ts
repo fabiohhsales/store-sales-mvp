@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
+import { isAuthError } from '@/lib/auth/request-context'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 type CadenceType = 'lead' | 'atendimento' | 'agendado'
@@ -236,6 +237,9 @@ export async function GET(request: NextRequest) {
       { headers: { 'x-request-id': requestId } }
     )
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: error.message, errorId: requestId }, { status: error.status })
+    }
     const message = error instanceof Error ? error.message : 'Erro interno'
     const status = message.includes('autorizado') || message.includes('inválido') ? 401 : 500
     console.error('[followups/overview] Error', { requestId, message, status })

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch } from 'lucide-react'
@@ -136,18 +137,22 @@ function MessageBubble({ message, conversationId }: { message: Message; conversa
         }`}>
           {message.content_type === 'image' ? (
             message.evolution_message_id ? (
-              <img
+              <Image
                 src={`/api/desk/media?msg_id=${message.evolution_message_id}&conversation_id=${conversationId}`}
                 alt={message.content || 'Imagem'}
-                className="max-w-[220px] rounded-lg cursor-pointer"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                width={220}
+                height={220}
+                unoptimized
+                className="max-w-[220px] h-auto rounded-lg cursor-pointer"
               />
             ) : message.media_url ? (
-              <img
+              <Image
                 src={`/api/desk/media?db_msg_id=${message.id}&conversation_id=${conversationId}`}
                 alt={message.content || 'Imagem'}
-                className="max-w-[220px] rounded-lg cursor-pointer"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                width={220}
+                height={220}
+                unoptimized
+                className="max-w-[220px] h-auto rounded-lg cursor-pointer"
               />
             ) : (
               <span className="italic text-muted-foreground">[Imagem]</span>

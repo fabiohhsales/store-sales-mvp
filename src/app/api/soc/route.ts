@@ -4,6 +4,7 @@
 // requests concorrentes aguardam o mesmo resultado (deduplicação) em vez de abrir novas conexões.
 
 import { NextResponse } from 'next/server'
+import { isAuthError, resolveSessionRoleContext } from '@/lib/auth/request-context'
 import { createClient } from '@/lib/supabase/server'
 import { getConnectionState } from '@/lib/api/evolution'
 import type { PanelClientWithRelations } from '@/types/database'
@@ -210,6 +211,11 @@ async function runCheck(): Promise<CacheEntry> {
 
 export async function GET() {
   try {
+    const context = await resolveSessionRoleContext()
+    if (context.role !== 'admin') {
+      return NextResponse.json({ error: 'Acesso restrito a administradores' }, { status: 403 })
+    }
+
     // Serve do cache se ainda válido
     if (cache && Date.now() < cacheExpiresAt) {
       return NextResponse.json(cache)
@@ -228,6 +234,9 @@ export async function GET() {
 
     return NextResponse.json(entry)
   } catch (err) {
+    if (isAuthError(err)) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
     const message = err instanceof Error ? err.message : 'Erro interno'
     return NextResponse.json({ error: message }, { status: 500 })
   }

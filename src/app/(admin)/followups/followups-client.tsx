@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Select,
   SelectContent,
@@ -74,27 +74,29 @@ function normalizeStepLabel(stepKey: string | null): string {
 interface Props {
   clients: ClientOption[]
   initialClientId: string
+  viewerRole: 'admin' | 'operator'
 }
 
-export function FollowupsPageClient({ clients, initialClientId }: Props) {
-  const [mode, setMode] = useState<'admin' | 'client'>('admin')
+export function FollowupsPageClient({ clients, initialClientId, viewerRole }: Props) {
+  const [storedMode] = useState<'admin' | 'client'>(() => {
+    if (typeof window === 'undefined') return 'admin'
+    const saved = localStorage.getItem('sidebar-mode')
+    return saved === 'client' ? 'client' : 'admin'
+  })
   const [clientId, setClientId] = useState(initialClientId)
   const [days, setDays] = useState('30')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<FollowupsResponse | null>(null)
 
-  useEffect(() => {
-    const saved = localStorage.getItem('sidebar-mode')
-    if (saved === 'client' || saved === 'admin') setMode(saved)
-  }, [])
+  const mode = viewerRole === 'operator' ? 'client' : storedMode
 
   const selectedClientName = useMemo(
     () => clients.find((c) => c.id === clientId)?.name ?? 'Cliente',
     [clients, clientId]
   )
 
-  async function fetchOverview() {
+  const fetchOverview = useCallback(async () => {
     if (!clientId) return
 
     setLoading(true)
@@ -111,11 +113,11 @@ export function FollowupsPageClient({ clients, initialClientId }: Props) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [clientId, days])
 
   useEffect(() => {
     fetchOverview()
-  }, [clientId, days])
+  }, [fetchOverview])
 
   if (!clientId) {
     return (

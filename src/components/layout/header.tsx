@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { LogOut, User, Search, Plus, Bell, MessageSquarePlus } from 'lucide-react'
 import { NewConversationModal } from './new-conversation-modal'
@@ -15,22 +15,23 @@ import { MobileNav } from './mobile-nav'
 
 interface HeaderProps {
   userEmail: string
+  forcedMode?: 'admin' | 'client'
 }
 
-export function Header({ userEmail }: HeaderProps) {
-  const [mode, setMode] = useState<'admin' | 'client'>('admin')
-  const [newConvOpen, setNewConvOpen] = useState(false)
-
-  useEffect(() => {
+export function Header({ userEmail, forcedMode }: HeaderProps) {
+  const [storedMode] = useState<'admin' | 'client'>(() => {
+    if (typeof window === 'undefined') return 'admin'
     const saved = localStorage.getItem('sidebar-mode')
-    if (saved === 'client' || saved === 'admin') setMode(saved)
-  }, [])
+    return saved === 'client' ? 'client' : 'admin'
+  })
+  const [newConvOpen, setNewConvOpen] = useState(false)
+  const mode = forcedMode ?? storedMode
 
   return (
     <>
     <header className="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-background/60 backdrop-blur-xl z-30 sticky top-0 shadow-sm transition-all duration-300">
       <div className="flex items-center gap-3">
-        <MobileNav />
+        <MobileNav forcedMode={forcedMode} />
         <div className="relative w-80 hidden md:block">
           <Search
             size={16}

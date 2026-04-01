@@ -7,7 +7,7 @@ import { createAiClient, AI_MODEL } from '@/lib/ai/client'
 import { buildSystemPrompt } from './system-prompt'
 import { safeParseAgentOutput, fallbackOutput } from './output-schema'
 
-import { sanitizeStageLabels, stageLabelSlugs } from './stage-labels'
+import { stageLabelSlugs } from './stage-labels'
 import type { AgentOutput } from './output-schema'
 import type { PipelineResult } from './pipeline'
 import type { BotMessage } from '@/types/bot'
@@ -116,8 +116,8 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
     lastIncomingAt: conversation.last_incoming_at,
     lastOutgoingAt: conversation.last_outgoing_at,
   }, {
-    custom_data: (contact as any).custom_data ?? null,
-    intake_completed_at: (contact as any).intake_completed_at ?? null,
+    custom_data: contact.custom_data ?? null,
+    intake_completed_at: contact.intake_completed_at ?? null,
   })
   const chatMessages = buildChatMessages(messageHistory, systemPrompt)
 

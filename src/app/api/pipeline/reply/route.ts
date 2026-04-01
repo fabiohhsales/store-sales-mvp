@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
+import { isAuthError } from '@/lib/auth/request-context'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
 import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
@@ -144,6 +145,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(message)
   } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     const message = error instanceof Error ? error.message : 'Erro interno'
     const status = message.includes('autorizado') || message.includes('inválido') ? 401 : 500
     return NextResponse.json({ error: message }, { status })

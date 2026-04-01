@@ -35,7 +35,7 @@ export function ClientSelector({ value, onChange }: ClientSelectorProps) {
         }
       })
       .catch(() => {})
-  }, [])
+  }, [onChange, value])
 
   return (
     <Select value={value} onValueChange={onChange}>

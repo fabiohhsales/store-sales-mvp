@@ -10,14 +10,10 @@ function KanbanEmbedContent() {
   const token = searchParams.get('token')
   const [clientId, setClientId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(Boolean(token))
 
   useEffect(() => {
-    if (!token) {
-      setError('Token não fornecido na URL')
-      setLoading(false)
-      return
-    }
+    if (!token) return
 
     fetch(`/api/chatwoot/auth?token=${token}`)
       .then(async (res) => {
@@ -36,6 +32,19 @@ function KanbanEmbedContent() {
         setLoading(false)
       })
   }, [token])
+
+  if (!token) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center space-y-2">
+          <p className="text-destructive font-medium">Token não fornecido na URL</p>
+          <p className="text-sm text-muted-foreground">
+            Verifique o token de embed nas configurações do painel.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { AgendaTable } from '@/components/agenda/agenda-table'
 import { AgendaCalendar } from '@/components/agenda/agenda-calendar'
 import {
@@ -21,17 +21,18 @@ interface ClientOption {
 interface Props {
   clients: ClientOption[]
   initialClientId: string
+  viewerRole: 'admin' | 'operator'
 }
 
-export function AgendaPageClient({ clients, initialClientId }: Props) {
+export function AgendaPageClient({ clients, initialClientId, viewerRole }: Props) {
   const [clientId, setClientId] = useState(initialClientId)
   const [view, setView] = useState<'calendar' | 'list'>('calendar')
-  const [mode, setMode] = useState<'admin' | 'client'>('admin')
-
-  useEffect(() => {
+  const [storedMode] = useState<'admin' | 'client'>(() => {
+    if (typeof window === 'undefined') return 'admin'
     const saved = localStorage.getItem('sidebar-mode')
-    if (saved === 'client' || saved === 'admin') setMode(saved)
-  }, [])
+    return saved === 'client' ? 'client' : 'admin'
+  })
+  const mode = viewerRole === 'operator' ? 'client' : storedMode
 
   return (
     <div className="flex flex-col gap-4">

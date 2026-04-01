@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { ConversationList } from './conversation-list'
 import { ChatView } from './chat-view'
@@ -45,9 +45,9 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [myShortcutsOpen, setMyShortcutsOpen] = useState(false)
-  const router = useRouter()
 
   const fetchConversations = useCallback(async (stage: string) => {
+    setLoading(true)
     setFetchError(null)
     const res = await fetch(`/api/desk/conversations?client_id=${clientId}&stage=${stage}`)
     if (res.ok) {
@@ -76,12 +76,17 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
   }, [clientId])
 
   useEffect(() => {
-    setLoading(true)
-    fetchConversations(stageFilter)
+    const timeout = window.setTimeout(() => {
+      fetchConversations(stageFilter)
+    }, 0)
+    return () => window.clearTimeout(timeout)
   }, [stageFilter, fetchConversations])
 
   useEffect(() => {
-    fetchStats()
+    const timeout = window.setTimeout(() => {
+      fetchStats()
+    }, 0)
+    return () => window.clearTimeout(timeout)
   }, [fetchStats])
 
   // Supabase Realtime — escuta mudanças nas conversas do cliente
@@ -149,8 +154,6 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
     }
   }, [])
 
-  const selectedConversation = conversations.find((c) => c.id === selectedId) ?? null
-
   return (
     <div className="flex h-full w-full overflow-hidden">
       {/* Coluna esquerda — fila de conversas (só na aba Conversas) */}
@@ -203,13 +206,13 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
         {/* Header do Desk */}
         <header className="flex h-14 items-center justify-between border-b border-border px-4 bg-card/50 backdrop-blur-sm flex-shrink-0">
           <div className="flex items-center gap-3">
-            <a
+            <Link
               href="/"
               className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
               title="Voltar ao admin"
             >
               <ArrowLeft size={16} />
-            </a>
+            </Link>
 
             {/* Abas de navegação */}
             <nav className="flex items-center gap-1">

@@ -1,10 +1,10 @@
-import { createAdminClient } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
+import { resolveRequestContext } from '@/lib/auth/request-context'
 
 interface EmbedAuthResult {
   client_id: string
   authenticated: boolean
   source: 'token' | 'session'
+  role: 'admin' | 'operator' | 'embed'
 }
 
 /**
@@ -15,40 +15,20 @@ export async function authenticateRequest(
   token: string | null,
   clientId: string | null
 ): Promise<EmbedAuthResult> {
-  // Caminho 1: token de embed (para iframe do Chatwoot)
-  if (token) {
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from('panel_embed_tokens')
-      .select('client_id')
-      .eq('token', token)
-      .single()
+  const context = await resolveRequestContext({
+    token,
+    requestedClientId: clientId,
+    requireClientId: true,
+  })
 
-    if (error || !data) {
-      throw new Error('Token inválido ou expirado')
-    }
-
-    // Atualiza last_used_at (fire-and-forget)
-    admin
-      .from('panel_embed_tokens')
-      .update({ last_used_at: new Date().toISOString() })
-      .eq('token', token)
-      .then(() => {})
-
-    return { client_id: data.client_id, authenticated: true, source: 'token' }
+  if (!context.clientId) {
+    throw new Error('client_id é obrigatório')
   }
 
-  // Caminho 2: sessão Supabase (para admin logado)
-  if (clientId) {
-    const supabase = await createClient()
-    const { data: { user }, error } = await supabase.auth.getUser()
-
-    if (error || !user) {
-      throw new Error('Não autorizado')
-    }
-
-    return { client_id: clientId, authenticated: true, source: 'session' }
+  return {
+    client_id: context.clientId,
+    authenticated: true,
+    source: context.source,
+    role: context.role,
   }
-
-  throw new Error('Token ou client_id é obrigatório')
 }

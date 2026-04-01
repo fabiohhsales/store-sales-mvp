@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -43,19 +43,24 @@ const clientNavItems = [
   { href: '/account', label: 'Minha Conta', icon: UserCircle },
 ]
 
-export function MobileNav() {
+interface MobileNavProps {
+  forcedMode?: 'admin' | 'client'
+}
+
+export function MobileNav({ forcedMode }: MobileNavProps) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
-  const [mode, setMode] = useState<'admin' | 'client'>('admin')
-
-  useEffect(() => {
+  const [storedMode, setStoredMode] = useState<'admin' | 'client'>(() => {
+    if (typeof window === 'undefined') return 'admin'
     const saved = localStorage.getItem('sidebar-mode')
-    if (saved === 'client' || saved === 'admin') setMode(saved)
-  }, [])
+    return saved === 'client' ? 'client' : 'admin'
+  })
+  const mode = forcedMode ?? storedMode
 
   function toggleMode() {
+    if (forcedMode) return
     const newMode = mode === 'admin' ? 'client' : 'admin'
-    setMode(newMode)
+    setStoredMode(newMode)
     localStorage.setItem('sidebar-mode', newMode)
   }
 
@@ -75,17 +80,19 @@ export function MobileNav() {
         </SheetHeader>
 
         {/* Toggle admin/client */}
-        <button
-          onClick={toggleMode}
-          className="flex items-center gap-2 mx-3 mt-3 px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors w-[calc(100%-1.5rem)]"
-        >
-          {mode === 'admin' ? (
-            <ToggleRight size={16} className="text-primary" />
-          ) : (
-            <ToggleLeft size={16} />
-          )}
-          {mode === 'admin' ? 'Admin' : 'Client'}
-        </button>
+        {!forcedMode && (
+          <button
+            onClick={toggleMode}
+            className="flex items-center gap-2 mx-3 mt-3 px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors w-[calc(100%-1.5rem)]"
+          >
+            {mode === 'admin' ? (
+              <ToggleRight size={16} className="text-primary" />
+            ) : (
+              <ToggleLeft size={16} />
+            )}
+            {mode === 'admin' ? 'Admin' : 'Client'}
+          </button>
+        )}
 
         <nav className="space-y-1 px-3 py-2">
           {navItems.map((item) => {

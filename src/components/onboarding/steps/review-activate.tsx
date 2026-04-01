@@ -179,7 +179,7 @@ export function ReviewActivateStep({ clientId, onActivated, onBack }: ReviewActi
               <p className="text-sm font-medium text-foreground">Configurar Pipeline e Agenda no Chatwoot</p>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Cria tokens de acesso e registra automaticamente as abas "Pipeline" e "Agenda" como Dashboard Apps na conta Chatwoot do cliente.
+              Cria tokens de acesso e registra automaticamente as abas &quot;Pipeline&quot; e &quot;Agenda&quot; como Dashboard Apps na conta Chatwoot do cliente.
             </p>
           </div>
         </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { KanbanBoard } from '@/components/pipeline/kanban-board'
 import { Button } from '@/components/ui/button'
 import { MessageSquarePlus } from 'lucide-react'
@@ -21,18 +21,19 @@ interface ClientOption {
 interface Props {
   clients: ClientOption[]
   initialClientId: string
+  viewerRole: 'admin' | 'operator'
 }
 
-export function PipelinePageClient({ clients, initialClientId }: Props) {
+export function PipelinePageClient({ clients, initialClientId, viewerRole }: Props) {
   const [clientId, setClientId] = useState(initialClientId)
-  const [mode, setMode] = useState<'admin' | 'client'>('admin')
+  const [storedMode] = useState<'admin' | 'client'>(() => {
+    if (typeof window === 'undefined') return 'admin'
+    const saved = localStorage.getItem('sidebar-mode')
+    return saved === 'client' ? 'client' : 'admin'
+  })
   const [newConversationOpen, setNewConversationOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
-
-  useEffect(() => {
-    const saved = localStorage.getItem('sidebar-mode')
-    if (saved === 'client' || saved === 'admin') setMode(saved)
-  }, [])
+  const mode = viewerRole === 'operator' ? 'client' : storedMode
 
   return (
     <div className="flex h-[calc(100vh-6rem)] flex-col gap-4 animate-fade-in">
