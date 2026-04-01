@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { getClientById } from '@/lib/db/clients'
-import { AgendaTable } from '@/components/agenda/agenda-table'
+import { AgendaWorkspace } from '@/components/agenda/agenda-workspace'
 
 export default async function ClientAppointmentsPage({
   params,
@@ -32,15 +32,7 @@ export default async function ClientAppointmentsPage({
         <p className="text-muted-foreground">{client.name}</p>
       </div>
 
-      {!(client.chatwoot_account_id ?? client.panel_whatsapp_config?.chatwoot_account_id) ? (
-        <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3">
-          <p className="text-sm text-warning">
-            Chatwoot ainda não provisionado para este cliente. A agenda ficará disponível em breve.
-          </p>
-        </div>
-      ) : (
-        <AgendaTable clientId={id} />
-      )}
+      <AgendaWorkspace clientId={id} initialView="list" />
     </div>
   )
 }
