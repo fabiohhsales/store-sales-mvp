@@ -1,0 +1,13 @@
+.git
+.github
+.claude
+.next
+coverage
+node_modules
+
+docs
+tests
+
+*.md
+*.txt
+*.docx

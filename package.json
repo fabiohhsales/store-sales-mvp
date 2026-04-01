@@ -2,9 +2,13 @@
   "name": "painel-admin",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.19.0 <21",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "next dev",
-    "build": "NODE_OPTIONS='--max-old-space-size=1536' next build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run"
