@@ -39,13 +39,15 @@ export default async function AccountPage() {
     )
   }
 
-  if (active.length === 1) {
-    redirect(`/clients/${active[0].id}`)
-  }
-
   return (
     <div className="space-y-6 p-4 lg:p-6">
-      <h1 className="text-2xl font-bold tracking-tight text-foreground">Minha Conta</h1>
+      <div className="flex items-start justify-between">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Minha Conta</h1>
+        <div className="text-right space-y-0.5">
+          <p className="text-sm text-muted-foreground">{session.user.email}</p>
+          <p className="text-xs text-muted-foreground capitalize">{session.role}</p>
+        </div>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {active.map((client) => (
           <a
