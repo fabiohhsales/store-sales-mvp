@@ -2,6 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  AlertCircle,
+  Copy,
+  ExternalLink,
+  RefreshCw,
+  Smartphone,
+  Wrench,
+} from 'lucide-react'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -12,12 +22,10 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { toast } from 'sonner'
-import { Copy, ExternalLink, RefreshCw, Smartphone } from 'lucide-react'
+import type { WhatsAppConnectionResponse } from '@/types/api'
 
-type ConnectionState = 'idle' | 'creating' | 'waiting_scan' | 'connected'
+type ConnectionState = WhatsAppConnectionResponse['state'] | 'idle' | 'creating'
 
 interface WhatsAppConnectionPanelProps {
   clientId: string
@@ -34,6 +42,13 @@ function slugify(text: string) {
     .replace(/(^-|-$)/g, '')
 }
 
+function normalizeConnectionState(state: string | null | undefined): ConnectionState {
+  if (state === 'open' || state === 'connecting' || state === 'disconnected' || state === 'error') {
+    return state
+  }
+  return 'idle'
+}
+
 export function WhatsAppConnectionPanel({
   clientId,
   initialInstanceName,
@@ -44,7 +59,11 @@ export function WhatsAppConnectionPanel({
   const [inputName, setInputName] = useState(() => slugify(clientName ?? 'cliente'))
   const [state, setState] = useState<ConnectionState>('idle')
   const [qrBase64, setQrBase64] = useState<string | null>(null)
+  const [pairingCode, setPairingCode] = useState<string | null>(null)
+  const [connectedPhone, setConnectedPhone] = useState<string | null>(null)
+  const [pairingPhone, setPairingPhone] = useState('')
   const [loading, setLoading] = useState(false)
+  const [repairing, setRepairing] = useState(false)
 
   const hasInstance = !!instanceName
   const isReconnect = !!initialInstanceName
@@ -54,25 +73,45 @@ export function WhatsAppConnectionPanel({
     [instanceName]
   )
 
+  const applyConnectionPayload = useCallback((data: Partial<WhatsAppConnectionResponse>) => {
+    const nextState = normalizeConnectionState(data.state)
+    setState(nextState)
+    setConnectedPhone(data.connectedPhone ?? null)
+
+    if (nextState === 'open') {
+      setQrBase64(null)
+      setPairingCode(null)
+      return true
+    }
+
+    setQrBase64(data.base64 ?? null)
+    setPairingCode(data.pairingCode ?? null)
+    return false
+  }, [])
+
   const checkStatus = useCallback(async (name: string) => {
     try {
-      const res = await fetch(`/api/whatsapp/instances/${name}/status`)
+      const res = await fetch(`/api/whatsapp/instances/${name}/status`, { cache: 'no-store' })
       const data = await res.json()
-      if (data.state === 'open') {
-        setState('connected')
-        setQrBase64(null)
+      const connected = applyConnectionPayload(data)
+      if (connected) {
         toast.success('WhatsApp conectado!')
         router.refresh()
-        return true
       }
+      return connected
     } catch {
-      // ignore polling errors
+      setState('error')
+      return false
     }
-    return false
-  }, [router])
+  }, [applyConnectionPayload, router])
 
   useEffect(() => {
-    if (state !== 'waiting_scan' || !instanceName) return
+    if (!instanceName) return
+    void checkStatus(instanceName)
+  }, [instanceName, checkStatus])
+
+  useEffect(() => {
+    if (!instanceName || state !== 'connecting') return
 
     const interval = setInterval(async () => {
       const connected = await checkStatus(instanceName)
@@ -115,9 +154,12 @@ export function WhatsAppConnectionPanel({
       }
 
       setInstanceName(name)
-      setState('waiting_scan')
-      const qrcode = data.qrcode as { base64?: string } | undefined
-      if (qrcode?.base64) setQrBase64(qrcode.base64)
+      applyConnectionPayload({
+        state: 'connecting',
+        base64: (data.qrcode as { base64?: string } | undefined)?.base64 ?? null,
+        pairingCode: (data.qrcode as { pairingCode?: string } | undefined)?.pairingCode ?? null,
+        connectedPhone: null,
+      })
       toast.success('Instância criada! Escaneie o QR Code.')
       router.refresh()
     } catch (error) {
@@ -134,19 +176,60 @@ export function WhatsAppConnectionPanel({
 
     setLoading(true)
     try {
-      const res = await fetch(`/api/whatsapp/instances/${instanceName}/qrcode`)
-      if (!res.ok) throw new Error('Erro ao gerar QR Code')
-
+      const res = await fetch(`/api/whatsapp/instances/${instanceName}/qrcode`, { cache: 'no-store' })
       const data = await res.json()
-      if (data.base64) {
-        setQrBase64(data.base64)
-        setState('waiting_scan')
-      }
+      if (!res.ok) throw new Error(data.error || 'Erro ao gerar QR Code')
+      applyConnectionPayload(data)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao gerar QR Code'
       toast.error(message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handlePairingCode = async () => {
+    if (!instanceName) return
+
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/whatsapp/instances/${instanceName}/pairing-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber: pairingPhone }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao gerar codigo de pareamento')
+      applyConnectionPayload(data)
+      if (data.pairingCode) {
+        toast.success('Codigo de pareamento gerado.')
+      } else {
+        toast.message('A Evolution nao retornou codigo. Tente novamente com QR.')
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao gerar codigo de pareamento')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRepairSync = async () => {
+    if (!instanceName) return
+
+    setRepairing(true)
+    try {
+      const res = await fetch(`/api/whatsapp/instances/${instanceName}/repair-sync`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao reparar sincronizacao')
+      applyConnectionPayload(data)
+      toast.success('Sincronização reparada.')
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao reparar sincronizacao')
+    } finally {
+      setRepairing(false)
     }
   }
 
@@ -159,7 +242,7 @@ export function WhatsAppConnectionPanel({
         </CardTitle>
         <CardDescription>
           {hasInstance
-            ? 'Gere um novo QR Code para reconectar o número desta instância.'
+            ? 'Acompanhe o estado real da instância e gere QR apenas quando necessário.'
             : 'Crie a instância do WhatsApp para habilitar conexão e link público.'}
         </CardDescription>
       </CardHeader>
@@ -183,48 +266,70 @@ export function WhatsAppConnectionPanel({
         )}
 
         {hasInstance && (
-          <div className="flex flex-wrap items-center gap-2">
-            {state === 'connected' ? (
-              <Badge className="bg-success text-success-foreground">Conectado</Badge>
-            ) : (
-              <Badge variant="secondary">Instância: {instanceName}</Badge>
-            )}
-            <Button variant="outline" size="sm" onClick={handleGenerateQr} disabled={loading}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              {isReconnect ? 'Gerar QR' : 'Gerar primeiro QR'}
-            </Button>
-            {publicLink && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const url = `${window.location.origin}${publicLink}`
-                    navigator.clipboard.writeText(url)
-                    toast.success('Link copiado!')
-                  }}
-                >
-                  <Copy className="mr-2 h-4 w-4" />
-                  Copiar link público
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => window.open(publicLink, '_blank')}
-                >
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Abrir link
-                </Button>
-              </>
-            )}
-          </div>
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={state === 'open' ? 'default' : 'secondary'}>
+                {state === 'open'
+                  ? 'Conectado'
+                  : state === 'connecting'
+                    ? 'Aguardando conexão'
+                    : state === 'error'
+                      ? 'Erro de monitoramento'
+                      : `Instância: ${instanceName}`}
+              </Badge>
+
+              <Button variant="outline" size="sm" onClick={handleGenerateQr} disabled={loading}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                {isReconnect ? 'Gerar QR' : 'Gerar primeiro QR'}
+              </Button>
+
+              <Button variant="outline" size="sm" onClick={handleRepairSync} disabled={repairing}>
+                <Wrench className="mr-2 h-4 w-4" />
+                {repairing ? 'Reparando...' : 'Reparar sincronização'}
+              </Button>
+
+              {publicLink && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const url = `${window.location.origin}${publicLink}`
+                      navigator.clipboard.writeText(url)
+                      toast.success('Link copiado!')
+                    }}
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copiar link público
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.open(publicLink, '_blank')}
+                  >
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Abrir link
+                  </Button>
+                </>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">
+              <p>
+                Estado atual: <span className="font-medium text-foreground">{state}</span>
+              </p>
+              <p>
+                Número conectado: <span className="font-medium text-foreground">{connectedPhone ?? 'não informado'}</span>
+              </p>
+            </div>
+          </>
         )}
 
         {loading && state !== 'creating' && !qrBase64 && hasInstance && (
           <Skeleton className="mx-auto h-56 w-56" />
         )}
 
-        {qrBase64 && (
+        {qrBase64 && state !== 'open' && (
           <div className="flex flex-col items-center gap-3">
             <div className="rounded-lg border border-border bg-white p-3">
               {/* eslint-disable-next-line @next/next/no-img-element -- QR code base64 data URL */}
@@ -234,9 +339,44 @@ export function WhatsAppConnectionPanel({
                 className="h-56 w-56"
               />
             </div>
-            <p className="text-xs text-muted-foreground text-center">
+            <p className="text-center text-xs text-muted-foreground">
               Escaneie com o WhatsApp para conectar esta instância.
             </p>
+          </div>
+        )}
+
+        {hasInstance && state !== 'open' && (
+          <div className="space-y-3 rounded-lg border border-dashed border-border p-4">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Modo alternativo: código por telefone</p>
+                <p className="text-xs text-muted-foreground">
+                  Experimental. Use somente se o QR continuar instável.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="pairing-phone">Número com DDI</Label>
+              <Input
+                id="pairing-phone"
+                placeholder="5511999999999"
+                value={pairingPhone}
+                onChange={(e) => setPairingPhone(e.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" onClick={handlePairingCode} disabled={loading || !pairingPhone.trim()}>
+                Gerar código por telefone
+              </Button>
+              {pairingCode && (
+                <div className="rounded-md bg-secondary px-3 py-2 text-sm">
+                  Código: <span className="font-mono font-semibold text-foreground">{pairingCode}</span>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </CardContent>

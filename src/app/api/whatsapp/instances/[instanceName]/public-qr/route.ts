@@ -1,37 +1,47 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { connectInstance, getConnectionState } from '@/lib/api/evolution'
+import { connectInstance } from '@/lib/api/evolution'
+import { clearCachedQrCode, getCachedQrCode, setCachedQrCode } from '@/lib/whatsapp/qrcode-cache'
+import { formatConnectionPayload, reconcileConnectionState } from '@/lib/whatsapp/connection-state'
 
-// Rota PÚBLICA (sem auth) — para o cliente escanear o QR pelo celular
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ instanceName: string }> }
 ) {
   const { instanceName } = await params
 
   try {
-    // Checa se já está conectado
-    const connectionState = await getConnectionState(instanceName)
-    const state = connectionState.instance?.state || 'close'
-
-    if (state === 'open') {
-      return NextResponse.json({ state: 'open', qrcode: null })
+    const snapshot = await reconcileConnectionState(instanceName)
+    if (snapshot.state === 'open') {
+      clearCachedQrCode(instanceName)
+      return NextResponse.json(formatConnectionPayload(snapshot))
     }
 
-    // Gera QR code
-    const qrcode = await connectInstance(instanceName)
+    const forceRefresh = request.nextUrl.searchParams.get('refresh') === '1'
+    const cached = !forceRefresh ? getCachedQrCode(instanceName) : null
+    const qrCode = cached ?? setCachedQrCode(instanceName, await generateQrPayload(instanceName))
 
     return NextResponse.json({
-      state: 'waiting_scan',
-      qrcode: {
-        base64: qrcode.base64,
-        pairingCode: qrcode.pairingCode,
-      },
+      ...formatConnectionPayload({
+        ...snapshot,
+        state: snapshot.state === 'error' ? 'connecting' : snapshot.state,
+      }),
+      base64: qrCode.base64,
+      pairingCode: qrCode.pairingCode,
+      lastUpdatedAt: new Date(qrCode.createdAt).toISOString(),
     })
   } catch (error) {
-    console.error('Erro ao gerar QR público:', error)
+    console.error('Erro ao gerar QR publico:', error)
     return NextResponse.json(
-      { error: 'Instância não encontrada ou erro ao gerar QR code' },
+      { error: 'Instancia nao encontrada ou erro ao gerar QR code' },
       { status: 404 }
     )
+  }
+}
+
+async function generateQrPayload(instanceName: string) {
+  const qrcode = await connectInstance(instanceName)
+  return {
+    base64: qrcode.base64 ?? null,
+    pairingCode: qrcode.pairingCode ?? null,
   }
 }

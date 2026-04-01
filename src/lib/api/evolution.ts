@@ -1,8 +1,8 @@
 import type {
-  EvolutionInstanceResponse,
   EvolutionConnectionState,
-  EvolutionQRCode,
   EvolutionFetchInstance,
+  EvolutionInstanceResponse,
+  EvolutionQRCode,
 } from '@/types/api'
 
 const BASE_URL = process.env.EVOLUTION_API_URL!
@@ -20,7 +20,7 @@ async function evolutionFetch<T>(path: string, options: RequestInit = {}): Promi
 
   if (!res.ok) {
     const body = await res.text()
-    const cleanBody = body.startsWith('<!') ? `(HTML response - instância pode não existir)` : body
+    const cleanBody = body.startsWith('<!') ? '(HTML response - instancia pode nao existir)' : body
     throw new Error(`Evolution API error ${res.status}: ${cleanBody}`)
   }
 
@@ -33,14 +33,22 @@ async function evolutionFetch<T>(path: string, options: RequestInit = {}): Promi
   return res.json()
 }
 
-// URL do webhook do painel — recebe eventos do Chatwoot e processa com o bot engine
-export function getPanelWebhookUrl(): string {
+export function getPanelChatwootWebhookUrl(): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL
   if (!appUrl) {
-    console.warn('[Evolution] NEXT_PUBLIC_APP_URL não configurada — webhook apontará para localhost')
+    console.warn('[App] NEXT_PUBLIC_APP_URL nao configurada - webhook Chatwoot apontara para localhost')
     return 'http://localhost:3000/api/webhooks/chatwoot'
   }
   return `${appUrl.replace(/\/$/, '')}/api/webhooks/chatwoot`
+}
+
+export function getPanelEvolutionWebhookUrl(): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (!appUrl) {
+    console.warn('[App] NEXT_PUBLIC_APP_URL nao configurada - webhook Evolution apontara para localhost')
+    return 'http://localhost:3000/api/webhooks/evolution'
+  }
+  return `${appUrl.replace(/\/$/, '')}/api/webhooks/evolution`
 }
 
 export async function createInstance(
@@ -91,17 +99,15 @@ export async function setChatwootIntegration(
 export async function getConnectionState(
   instanceName: string
 ): Promise<EvolutionConnectionState> {
-  return evolutionFetch<EvolutionConnectionState>(
-    `/instance/connectionState/${instanceName}`
-  )
+  return evolutionFetch<EvolutionConnectionState>(`/instance/connectionState/${instanceName}`)
 }
 
 export async function connectInstance(
-  instanceName: string
+  instanceName: string,
+  phoneNumber?: string
 ): Promise<EvolutionQRCode> {
-  return evolutionFetch<EvolutionQRCode>(
-    `/instance/connect/${instanceName}`
-  )
+  const suffix = phoneNumber ? `?number=${encodeURIComponent(phoneNumber)}` : ''
+  return evolutionFetch<EvolutionQRCode>(`/instance/connect/${instanceName}${suffix}`)
 }
 
 export async function fetchInstances(): Promise<EvolutionFetchInstance[]> {
@@ -173,8 +179,8 @@ export async function setWebhook(
   instanceName: string,
   webhookUrl: string
 ): Promise<void> {
-  await evolutionFetch(`/instance/webhook/${instanceName}`, {
-    method: 'PUT',
+  await evolutionFetch(`/webhook/set/${instanceName}`, {
+    method: 'POST',
     body: JSON.stringify({
       webhook: {
         url: webhookUrl,

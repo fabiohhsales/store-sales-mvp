@@ -1,6 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Check, Copy, ExternalLink, RefreshCw, Smartphone } from 'lucide-react'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -11,10 +14,8 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { toast } from 'sonner'
-import { Smartphone, Check, RefreshCw, Copy, ExternalLink } from 'lucide-react'
+import type { WhatsAppConnectionResponse } from '@/types/api'
 
 interface WhatsAppConnectStepProps {
   clientId: string
@@ -22,7 +23,14 @@ interface WhatsAppConnectStepProps {
   onSkip: () => void
 }
 
-type ConnectionState = 'idle' | 'creating' | 'waiting_scan' | 'connected' | 'error'
+type ConnectionState = 'idle' | 'creating' | WhatsAppConnectionResponse['state']
+
+function normalizeState(state: string | null | undefined): ConnectionState {
+  if (state === 'open' || state === 'connecting' || state === 'disconnected' || state === 'error') {
+    return state
+  }
+  return 'idle'
+}
 
 export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppConnectStepProps) {
   const [instanceName, setInstanceName] = useState('')
@@ -30,25 +38,35 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
   const [qrBase64, setQrBase64] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const applyPayload = useCallback((data: Partial<WhatsAppConnectionResponse>) => {
+    const nextState = normalizeState(data.state)
+    setState(nextState)
+    if (nextState === 'open') {
+      setQrBase64(null)
+      return true
+    }
+
+    setQrBase64(data.base64 ?? null)
+    return false
+  }, [])
+
   const checkStatus = useCallback(async (name: string) => {
     try {
-      const res = await fetch(`/api/whatsapp/instances/${name}/status`)
+      const res = await fetch(`/api/whatsapp/instances/${name}/status`, { cache: 'no-store' })
       const data = await res.json()
-      if (data.state === 'open') {
-        setState('connected')
+      if (applyPayload(data)) {
         toast.success('WhatsApp conectado!')
-        // Auto-avança após 1.5s pra o usuário ver a confirmação
         setTimeout(() => onComplete(name), 1500)
         return true
       }
     } catch {
-      // ignore polling errors
+      setState('error')
     }
     return false
-  }, [onComplete])
+  }, [applyPayload, onComplete])
 
   useEffect(() => {
-    if (state !== 'waiting_scan' || !instanceName) return
+    if (state !== 'connecting' || !instanceName) return
 
     const interval = setInterval(async () => {
       const connected = await checkStatus(instanceName)
@@ -75,8 +93,7 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
       })
 
       const text = await res.text()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let data: Record<string, any>
+      let data: Record<string, unknown>
       try {
         data = JSON.parse(text)
       } catch {
@@ -86,10 +103,11 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
       if (!res.ok) {
         throw new Error((data.error as string) || 'Erro ao criar instância')
       }
-      if (data.qrcode?.base64) {
-        setQrBase64(data.qrcode.base64)
-      }
-      setState('waiting_scan')
+
+      applyPayload({
+        state: 'connecting',
+        base64: (data.qrcode as { base64?: string } | undefined)?.base64 ?? null,
+      })
       toast.success('Instância criada! Escaneie o QR Code.')
     } catch (err) {
       setState('error')
@@ -100,14 +118,11 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
 
   const handleRefreshQR = async () => {
     try {
-      const res = await fetch(`/api/whatsapp/instances/${instanceName}/qrcode`)
-      if (!res.ok) throw new Error('Erro ao gerar QR')
-      const text = await res.text()
-      const data = JSON.parse(text)
-      if (data.base64) {
-        setQrBase64(data.base64)
-        toast.success('QR Code atualizado')
-      }
+      const res = await fetch(`/api/whatsapp/instances/${instanceName}/qrcode`, { cache: 'no-store' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao gerar QR')
+      applyPayload(data)
+      toast.success('QR Code atualizado')
     } catch {
       toast.error('Erro ao atualizar QR Code')
     }
@@ -121,7 +136,7 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
           Conectar WhatsApp
         </CardTitle>
         <CardDescription>
-          Crie a instância do WhatsApp e escaneie o QR Code para conectar.
+          Crie a instância do WhatsApp e acompanhe o estado real da conexão.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -141,11 +156,9 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
                 Identificador único. Use letras minúsculas, números e hífens.
               </p>
             </div>
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
             <Button onClick={handleCreate} disabled={!instanceName.trim()}>
-              Criar Instância
+              Criar instância
             </Button>
           </div>
         ) : state === 'creating' ? (
@@ -153,7 +166,7 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
             <Skeleton className="h-64 w-64" />
             <p className="text-sm text-muted-foreground">Criando instância...</p>
           </div>
-        ) : state === 'waiting_scan' ? (
+        ) : state === 'connecting' || state === 'disconnected' ? (
           <div className="flex flex-col items-center gap-4">
             <Badge variant="secondary">Aguardando escaneamento</Badge>
             {qrBase64 ? (
@@ -198,7 +211,7 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
               </Button>
             </div>
           </div>
-        ) : state === 'connected' ? (
+        ) : state === 'open' ? (
           <div className="flex flex-col items-center gap-4 py-8">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
               <Check className="h-8 w-8" />
@@ -210,7 +223,7 @@ export function WhatsAppConnectStep({ clientId, onComplete, onSkip }: WhatsAppCo
           </div>
         ) : null}
 
-        {(state === 'idle' || state === 'waiting_scan') && (
+        {(state === 'idle' || state === 'connecting' || state === 'disconnected') && (
           <div className="border-t pt-4">
             <Button variant="ghost" size="sm" onClick={onSkip}>
               Pular por enquanto

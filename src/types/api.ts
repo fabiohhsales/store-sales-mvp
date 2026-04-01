@@ -38,6 +38,15 @@ export interface EvolutionQRCode {
   count: number
 }
 
+export interface WhatsAppConnectionResponse {
+  instance: string
+  state: 'open' | 'connecting' | 'disconnected' | 'error'
+  base64: string | null
+  pairingCode: string | null
+  connectedPhone: string | null
+  lastUpdatedAt: string
+}
+
 export interface EvolutionFetchInstance {
   instance: {
     instanceName: string

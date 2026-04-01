@@ -1,13 +1,9 @@
-// Webhook receptor da Evolution API — substitui o endpoint do Chatwoot.
-// Recebe mensagens diretamente do WhatsApp via Evolution API v2.x.
-// Identifica o cliente pelo evolution_instance_name (sem dependência do Chatwoot).
-
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { normalizeEvolutionPayload } from '@/lib/bot/normalize-evolution'
-import { runEvolutionPipeline } from '@/lib/bot/pipeline'
 import { runAgent } from '@/lib/bot/agent'
 import { dispatch } from '@/lib/bot/dispatcher'
+import { normalizeEvolutionPayload } from '@/lib/bot/normalize-evolution'
+import { runEvolutionPipeline } from '@/lib/bot/pipeline'
+import { syncConnectionStateFromWebhook } from '@/lib/whatsapp/connection-state'
 import type { EvolutionWebhookPayload } from '@/types/bot'
 
 export async function POST(req: NextRequest) {
@@ -16,13 +12,12 @@ export async function POST(req: NextRequest) {
   try {
     payload = await req.json()
   } catch {
-    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
+    return NextResponse.json({ error: 'JSON invalido' }, { status: 400 })
   }
 
   const { event, instance } = payload
   console.log(`[Evolution] event=${event} instance=${instance}`)
 
-  // Atualiza status de conexão WhatsApp no painel
   if (event === 'connection.update') {
     void handleConnectionUpdate(payload)
     return NextResponse.json({ ok: true })
@@ -39,12 +34,10 @@ export async function POST(req: NextRequest) {
 
   console.log(
     `[Evolution] instance=${normalized.instanceName} from=${normalized.phoneNumber}` +
-    ` type=${normalized.contentType} msgId=${normalized.messageId}`
+      ` type=${normalized.contentType} msgId=${normalized.messageId}`
   )
 
-  // Responde 200 imediatamente — pipeline roda em background
   void runPipeline(normalized)
-
   return NextResponse.json({ ok: true })
 }
 
@@ -56,7 +49,7 @@ async function runPipeline(msg: import('@/types/bot').NormalizedEvolutionMessage
     const { clientContext, contact, conversation } = result
     console.log(
       `[Evolution] client=${clientContext.clientId} contact=${contact.id}` +
-      ` conv=${conversation.id} stage=${conversation.stage}`
+        ` conv=${conversation.id} stage=${conversation.stage}`
     )
 
     const output = await runAgent(result)
@@ -66,45 +59,15 @@ async function runPipeline(msg: import('@/types/bot').NormalizedEvolutionMessage
   }
 }
 
-// Debounce: evita DB writes repetidos para o mesmo estado
-const lastKnownState = new Map<string, string>()
-
-// Sincroniza o status de conexão da instância com panel_whatsapp_config
 async function handleConnectionUpdate(payload: EvolutionWebhookPayload) {
   const { instance, state } = payload
   if (!state) return
 
-  // Ignora se o estado não mudou desde o último evento
-  if (lastKnownState.get(instance) === state) return
-  lastKnownState.set(instance, state)
-
-  const supabase = createAdminClient()
-
-  const connectionStatus =
-    state === 'open' ? 'open' :
-    state === 'connecting' ? 'connecting' :
-    'disconnected'
-
-  const updates: Record<string, unknown> = {
-    connection_status: connectionStatus,
-    updated_at: new Date().toISOString(),
-  }
-
-  if (state === 'open') {
-    updates.connected_at = new Date().toISOString()
-    updates.disconnected_at = null
-  } else if (state === 'close') {
-    updates.disconnected_at = new Date().toISOString()
-  }
-
-  const { error } = await supabase
-    .from('panel_whatsapp_config')
-    .update(updates)
-    .eq('evolution_instance_name', instance)
-
-  if (error) {
-    console.error(`[Evolution] Falha ao atualizar connection status (${instance}):`, error.message)
-  } else {
+  try {
+    await syncConnectionStateFromWebhook(instance, state)
     console.log(`[Evolution] connection.update: instance=${instance} state=${state}`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'erro desconhecido'
+    console.error(`[Evolution] Falha ao atualizar connection status (${instance}):`, message)
   }
 }

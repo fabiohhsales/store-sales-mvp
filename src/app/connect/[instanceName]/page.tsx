@@ -1,21 +1,46 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Check, RefreshCw, Smartphone, Wifi, WifiOff } from 'lucide-react'
+import type { WhatsAppConnectionResponse } from '@/types/api'
 
-type WhatsAppState = 'loading' | 'waiting_scan' | 'connected' | 'error'
+type WhatsAppState = 'loading' | 'connecting' | 'connected' | 'error'
 
 export default function PublicConnectPage() {
   const { instanceName } = useParams<{ instanceName: string }>()
 
   const [whatsappState, setWhatsappState] = useState<WhatsAppState>('loading')
   const [qrBase64, setQrBase64] = useState<string | null>(null)
+  const [pairingCode, setPairingCode] = useState<string | null>(null)
+  const [connectedPhone, setConnectedPhone] = useState<string | null>(null)
   const [whatsappError, setWhatsappError] = useState<string | null>(null)
 
-  const fetchQR = useCallback(async () => {
+  const applyPayload = useCallback((data: Partial<WhatsAppConnectionResponse>) => {
+    setConnectedPhone(data.connectedPhone ?? null)
+
+    if (data.state === 'open') {
+      setWhatsappState('connected')
+      setQrBase64(null)
+      setPairingCode(null)
+      return
+    }
+
+    setQrBase64(
+      data.base64
+        ? (data.base64.startsWith('data:') ? data.base64 : `data:image/png;base64,${data.base64}`)
+        : null
+    )
+    setPairingCode(data.pairingCode ?? null)
+    setWhatsappState('connecting')
+  }, [])
+
+  const fetchConnectionEntry = useCallback(async (refresh = false) => {
     try {
-      const res = await fetch(`/api/whatsapp/instances/${instanceName}/public-qr`)
+      const suffix = refresh ? '?refresh=1' : ''
+      const res = await fetch(`/api/whatsapp/instances/${instanceName}/public-qr${suffix}`, {
+        cache: 'no-store',
+      })
       if (!res.ok) {
         setWhatsappError('Instância não encontrada. Verifique o link.')
         setWhatsappState('error')
@@ -23,62 +48,54 @@ export default function PublicConnectPage() {
       }
 
       const data = await res.json()
-
-      if (data.state === 'open') {
-        setWhatsappState('connected')
-        return
-      }
-
-      if (data.qrcode?.base64) {
-        setQrBase64(
-          data.qrcode.base64.startsWith('data:')
-            ? data.qrcode.base64
-            : `data:image/png;base64,${data.qrcode.base64}`
-        )
-        setWhatsappState('waiting_scan')
-      }
+      applyPayload(data)
     } catch {
       setWhatsappError('Erro ao carregar QR code. Tente novamente.')
       setWhatsappState('error')
     }
-  }, [instanceName])
+  }, [applyPayload, instanceName])
 
-  useEffect(() => {
-    fetchQR() // eslint-disable-line react-hooks/set-state-in-effect
-  }, [fetchQR])
-
-  useEffect(() => {
-    if (whatsappState !== 'waiting_scan') return
-
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/whatsapp/instances/${instanceName}/public-qr`)
-        const data = await res.json()
-        if (data.state === 'open') {
-          setWhatsappState('connected')
-          clearInterval(interval)
-        }
-      } catch {
-        // ignora erros de polling
+  const pollStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/health/${instanceName}`, { cache: 'no-store' })
+      const data = await res.json()
+      if (data.state === 'open') {
+        applyPayload(data)
       }
+    } catch {
+      // ignora erros temporários de polling
+    }
+  }, [applyPayload, instanceName])
+
+  useEffect(() => {
+    void fetchConnectionEntry()
+  }, [fetchConnectionEntry])
+
+  useEffect(() => {
+    if (whatsappState !== 'connecting') return
+
+    const interval = setInterval(() => {
+      void pollStatus()
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [whatsappState, instanceName])
+  }, [whatsappState, pollStatus])
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-foreground">Conectar WhatsApp</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Sales Tec — Assistente de Agendamento</p>
+          <p className="mt-1 text-sm text-muted-foreground">Sales Tec - Assistente de Agendamento</p>
         </div>
 
         <div className="glass-card p-6">
           <div className="mb-4 flex items-center gap-3">
-            <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
-              whatsappState === 'connected' ? 'bg-success/15' : 'bg-secondary'
-            }`}>
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                whatsappState === 'connected' ? 'bg-success/15' : 'bg-secondary'
+              }`}
+            >
               {whatsappState === 'connected' ? (
                 <Check className="h-5 w-5 text-success" />
               ) : (
@@ -102,7 +119,7 @@ export default function PublicConnectPage() {
             </div>
           )}
 
-          {whatsappState === 'waiting_scan' && (
+          {whatsappState === 'connecting' && (
             <div className="flex flex-col items-center gap-4">
               <div className="flex items-center gap-2 rounded-full bg-warning/15 px-3 py-1">
                 <Wifi className="h-3.5 w-3.5 text-warning" />
@@ -116,14 +133,27 @@ export default function PublicConnectPage() {
                 </div>
               )}
 
+              {pairingCode && (
+                <div className="rounded-lg bg-secondary px-4 py-2 text-center">
+                  <p className="text-xs text-muted-foreground">Código alternativo</p>
+                  <p className="font-mono text-lg font-semibold text-foreground">{pairingCode}</p>
+                </div>
+              )}
+
+              {connectedPhone && (
+                <p className="text-xs text-muted-foreground">
+                  Número conectado: <span className="font-medium text-foreground">{connectedPhone}</span>
+                </p>
+              )}
+
               <ol className="space-y-0.5 text-left text-xs text-muted-foreground">
                 <li>1. Abra o <strong className="text-foreground">WhatsApp</strong> no celular</li>
-                <li>2. <strong className="text-foreground">Mais opções</strong> (⋮) → <strong className="text-foreground">Aparelhos conectados</strong></li>
+                <li>2. <strong className="text-foreground">Mais opções</strong> → <strong className="text-foreground">Aparelhos conectados</strong></li>
                 <li>3. <strong className="text-foreground">Conectar aparelho</strong> → aponte a câmera aqui</li>
               </ol>
 
               <button
-                onClick={fetchQR}
+                onClick={() => void fetchConnectionEntry(true)}
                 className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:bg-secondary hover:text-foreground"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
@@ -133,9 +163,14 @@ export default function PublicConnectPage() {
           )}
 
           {whatsappState === 'connected' && (
-            <div className="flex items-center gap-3 rounded-lg bg-success/15 p-3">
-              <Check className="h-5 w-5 text-success" />
-              <span className="text-sm font-medium text-success">WhatsApp conectado!</span>
+            <div className="flex flex-col gap-3 rounded-lg bg-success/15 p-3">
+              <div className="flex items-center gap-3">
+                <Check className="h-5 w-5 text-success" />
+                <span className="text-sm font-medium text-success">WhatsApp conectado!</span>
+              </div>
+              {connectedPhone && (
+                <p className="text-xs text-success">Número conectado: {connectedPhone}</p>
+              )}
             </div>
           )}
 
@@ -144,8 +179,12 @@ export default function PublicConnectPage() {
               <WifiOff className="h-8 w-8 text-destructive" />
               <p className="text-center text-sm text-destructive">{whatsappError}</p>
               <button
-                onClick={() => { setWhatsappState('loading'); setWhatsappError(null); fetchQR() }}
-                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:opacity-90 transition-opacity"
+                onClick={() => {
+                  setWhatsappState('loading')
+                  setWhatsappError(null)
+                  void fetchConnectionEntry(true)
+                }}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-opacity hover:opacity-90"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Tentar novamente

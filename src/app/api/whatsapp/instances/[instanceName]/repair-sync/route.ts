@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getPanelEvolutionWebhookUrl, setWebhook } from '@/lib/api/evolution'
 import { formatConnectionPayload, reconcileConnectionState } from '@/lib/whatsapp/connection-state'
 
-export async function GET(
+export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ instanceName: string }> }
 ) {
@@ -15,13 +16,19 @@ export async function GET(
     }
 
     const { instanceName } = await params
+    const webhookUrl = getPanelEvolutionWebhookUrl()
+    await setWebhook(instanceName, webhookUrl)
     const snapshot = await reconcileConnectionState(instanceName)
 
-    return NextResponse.json(formatConnectionPayload(snapshot))
+    return NextResponse.json({
+      ok: true,
+      webhookUrl,
+      ...formatConnectionPayload(snapshot),
+    })
   } catch (error) {
-    console.error('Erro ao verificar status WhatsApp:', error)
+    console.error('Erro ao reparar sincronizacao da instância:', error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Erro interno ao verificar status' },
+      { error: error instanceof Error ? error.message : 'Erro interno ao reparar sincronizacao' },
       { status: 500 }
     )
   }

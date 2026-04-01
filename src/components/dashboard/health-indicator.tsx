@@ -25,7 +25,7 @@ export function HealthIndicator({ instanceName, initialStatus = 'disconnected' }
 
     async function check() {
       try {
-        const res = await fetch(`/api/health/${instanceName}`)
+        const res = await fetch(`/api/whatsapp/instances/${instanceName}/status`)
         const data = await res.json()
         if (!mounted) return
 

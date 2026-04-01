@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { getConnectionState } from '@/lib/api/evolution'
+import { formatConnectionPayload, reconcileConnectionState } from '@/lib/whatsapp/connection-state'
 
 export async function GET(
   _request: NextRequest,
@@ -8,15 +8,20 @@ export async function GET(
   const { instanceName } = await params
 
   try {
-    const connectionState = await getConnectionState(instanceName)
-    return NextResponse.json({
-      instance: instanceName,
-      state: connectionState.instance?.state || 'close',
-    })
+    const snapshot = await reconcileConnectionState(instanceName)
+    return NextResponse.json(formatConnectionPayload(snapshot))
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json(
-      { error: message, instance: instanceName, state: 'error' },
+      {
+        error: message,
+        instance: instanceName,
+        state: 'error',
+        base64: null,
+        pairingCode: null,
+        connectedPhone: null,
+        lastUpdatedAt: new Date().toISOString(),
+      },
       { status: 502 }
     )
   }
