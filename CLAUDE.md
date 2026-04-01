@@ -355,7 +355,7 @@ POST   /message/sendText/{instance}         — envia mensagem
 ```
 Header: `apikey: EVOLUTION_API_KEY`
 
-⚠️ **Endpoint correto para webhook**: `POST /webhook/set/{instance}` com body `{ webhook: { url, ... } }`
+⚠️ **Endpoint correto para webhook**: `POST /webhook/set/{instance}` com body flat `{ enabled: true, url, events, ... }` — sem wrapper `webhook: {}`.
 O `PUT /instance/webhook/{instance}` retorna 404 — não usar.
 
 ### Google Calendar (conta central)

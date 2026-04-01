@@ -70,40 +70,62 @@ export function formatConnectionPayload(snapshot: WhatsAppConnectionSnapshot) {
 export async function readConnectionSnapshot(
   instanceName: string
 ): Promise<WhatsAppConnectionSnapshot> {
-  const [connectionState, instancesResult] = await Promise.allSettled([
-    getConnectionState(instanceName),
-    fetchInstances(),
-  ])
+  try {
+    const [connectionStateResult, instancesResult] = await Promise.allSettled([
+      getConnectionState(instanceName),
+      fetchInstances(),
+    ])
 
-  const baseState =
-    connectionState.status === 'fulfilled'
-      ? normalizeEvolutionState(getConnectionStateValue(connectionState.value))
+    const rawConnectionState =
+      connectionStateResult.status === 'fulfilled' && connectionStateResult.value != null
+        ? connectionStateResult.value
+        : null
+    const baseState = rawConnectionState
+      ? normalizeEvolutionState(getConnectionStateValue(rawConnectionState))
       : 'error'
 
-  const matchedInstance =
-    instancesResult.status === 'fulfilled'
-      ? instancesResult.value.find((entry) => getFetchInstanceName(entry) === instanceName) ?? null
-      : null
+    const instancesList =
+      instancesResult.status === 'fulfilled' && Array.isArray(instancesResult.value)
+        ? instancesResult.value
+        : []
+    const matchedInstance =
+      instancesList.find((entry) => {
+        try {
+          return getFetchInstanceName(entry) === instanceName
+        } catch {
+          return false
+        }
+      }) ?? null
 
-  const derivedState = matchedInstance
-    ? normalizeEvolutionState(getFetchInstanceState(matchedInstance))
-    : baseState
+    const derivedState = matchedInstance
+      ? normalizeEvolutionState(getFetchInstanceState(matchedInstance))
+      : baseState
 
-  const state =
-    baseState === 'open' || derivedState === 'open'
-      ? 'open'
-      : baseState === 'connecting' || derivedState === 'connecting'
-        ? 'connecting'
-        : baseState === 'error' && !matchedInstance
-          ? 'error'
-          : 'disconnected'
+    const state =
+      baseState === 'open' || derivedState === 'open'
+        ? 'open'
+        : baseState === 'connecting' || derivedState === 'connecting'
+          ? 'connecting'
+          : baseState === 'error' && !matchedInstance
+            ? 'error'
+            : 'disconnected'
 
-  return {
-    instanceName,
-    state,
-    connectedPhone: state === 'open' ? extractConnectedPhone(matchedInstance) : null,
-    lastUpdatedAt: new Date().toISOString(),
-    source: 'reconcile',
+    return {
+      instanceName,
+      state,
+      connectedPhone: state === 'open' ? extractConnectedPhone(matchedInstance) : null,
+      lastUpdatedAt: new Date().toISOString(),
+      source: 'reconcile',
+    }
+  } catch (err) {
+    console.error('[connection-state] readConnectionSnapshot falhou inesperadamente:', err, { instanceName })
+    return {
+      instanceName,
+      state: 'error',
+      connectedPhone: null,
+      lastUpdatedAt: new Date().toISOString(),
+      source: 'reconcile',
+    }
   }
 }
 

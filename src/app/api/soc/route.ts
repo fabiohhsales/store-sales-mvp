@@ -38,7 +38,7 @@ async function checkWhatsAppState(instanceName: string): Promise<string> {
   const timer = setTimeout(() => controller.abort(), EVOLUTION_TIMEOUT_MS)
   try {
     const state = await getConnectionState(instanceName)
-    return state.instance?.state ?? 'close'
+    return state?.instance?.state ?? state?.state ?? 'close'
   } finally {
     clearTimeout(timer)
   }
