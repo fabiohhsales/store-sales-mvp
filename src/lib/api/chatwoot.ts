@@ -425,6 +425,14 @@ export async function configureChatwootWebhook(
 
   if (!res.ok) {
     const body = await res.text()
+    const lowered = body.toLowerCase()
+    if (
+      res.status === 422 &&
+      lowered.includes('url has already been taken')
+    ) {
+      console.warn(`[Chatwoot] Webhook já existente na account ${accountId}: ${webhookUrl}`)
+      return
+    }
     throw new Error(`Falha ao configurar webhook Chatwoot ${res.status}: ${body}`)
   }
 }
