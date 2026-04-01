@@ -78,18 +78,13 @@ interface Props {
 }
 
 export function FollowupsPageClient({ clients, initialClientId, viewerRole }: Props) {
-  const [storedMode] = useState<'admin' | 'client'>(() => {
-    if (typeof window === 'undefined') return 'admin'
-    const saved = localStorage.getItem('sidebar-mode')
-    return saved === 'client' ? 'client' : 'admin'
-  })
   const [clientId, setClientId] = useState(initialClientId)
   const [days, setDays] = useState('30')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<FollowupsResponse | null>(null)
 
-  const mode = viewerRole === 'operator' ? 'client' : storedMode
+  const isAdmin = viewerRole === 'admin'
 
   const selectedClientName = useMemo(
     () => clients.find((c) => c.id === clientId)?.name ?? 'Cliente',
@@ -138,7 +133,7 @@ export function FollowupsPageClient({ clients, initialClientId, viewerRole }: Pr
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {mode === 'admin' && clients.length > 1 && (
+          {isAdmin && clients.length > 1 && (
             <Select value={clientId} onValueChange={(val) => val && setClientId(val)}>
               <SelectTrigger className="w-[260px]">
                 <SelectValue placeholder="Selecione um cliente" />
@@ -153,11 +148,11 @@ export function FollowupsPageClient({ clients, initialClientId, viewerRole }: Pr
             </Select>
           )}
 
-          {mode === 'admin' && clients.length === 1 && (
+          {isAdmin && clients.length === 1 && (
             <span className="text-sm text-muted-foreground">{clients[0].name}</span>
           )}
 
-          {mode === 'client' && (
+          {!isAdmin && (
             <span className="text-sm text-muted-foreground">{selectedClientName}</span>
           )}
 

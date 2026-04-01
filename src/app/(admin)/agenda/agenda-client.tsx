@@ -27,16 +27,11 @@ interface Props {
 export function AgendaPageClient({ clients, initialClientId, viewerRole }: Props) {
   const [clientId, setClientId] = useState(initialClientId)
   const [view, setView] = useState<'calendar' | 'list'>('calendar')
-  const [storedMode] = useState<'admin' | 'client'>(() => {
-    if (typeof window === 'undefined') return 'admin'
-    const saved = localStorage.getItem('sidebar-mode')
-    return saved === 'client' ? 'client' : 'admin'
-  })
-  const mode = viewerRole === 'operator' ? 'client' : storedMode
+  const isAdmin = viewerRole === 'admin'
 
   return (
     <div className="flex flex-col gap-4">
-      <div className={`flex items-center ${mode === 'admin' ? 'justify-between' : 'justify-center'} flex-wrap gap-3`}>
+      <div className={`flex items-center ${isAdmin ? 'justify-between' : 'justify-center'} flex-wrap gap-3`}>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Agenda</h1>
 
         <div className="flex items-center gap-3">
@@ -63,7 +58,7 @@ export function AgendaPageClient({ clients, initialClientId, viewerRole }: Props
           </div>
 
           {/* Client selector (admin only) */}
-          {mode === 'admin' && clients.length > 1 && (
+          {isAdmin && clients.length > 1 && (
             <Select value={clientId} onValueChange={(val) => val && setClientId(val)}>
               <SelectTrigger className="w-[260px]">
                 <SelectValue placeholder="Selecione um cliente" />
@@ -74,10 +69,10 @@ export function AgendaPageClient({ clients, initialClientId, viewerRole }: Props
                     {c.name}
                   </SelectItem>
                 ))}
-              </SelectContent>
-            </Select>
+            </SelectContent>
+          </Select>
           )}
-          {mode === 'admin' && clients.length === 1 && (
+          {isAdmin && clients.length === 1 && (
             <span className="text-sm text-muted-foreground">{clients[0].name}</span>
           )}
         </div>

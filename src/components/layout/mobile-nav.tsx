@@ -3,20 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  Menu,
-  LayoutDashboard,
-  Users,
-  Settings,
-  Kanban,
-  Shield,
-  Calendar,
-  ToggleLeft,
-  ToggleRight,
-  UserCircle,
-  MessageSquare,
-  Send,
-} from 'lucide-react'
+import { Menu } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -24,47 +11,16 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
-
-const adminNavItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/clients', label: 'Clientes', icon: Users },
-  { href: '/pipeline', label: 'Pipeline', icon: Kanban },
-  { href: '/agenda', label: 'Agenda', icon: Calendar },
-  { href: '/followups', label: 'Follow Ups', icon: Send },
-  { href: '/settings', label: 'Configurações', icon: Settings },
-  { href: '/soc', label: 'SOC', icon: Shield },
-]
-
-const clientNavItems = [
-  { href: '/desk', label: 'Desk', icon: MessageSquare },
-  { href: '/pipeline', label: 'Pipeline', icon: Kanban },
-  { href: '/agenda', label: 'Agenda', icon: Calendar },
-  { href: '/followups', label: 'Follow Ups', icon: Send },
-  { href: '/account', label: 'Minha Conta', icon: UserCircle },
-]
+import { getNavItems, type LayoutAudience } from './nav-config'
 
 interface MobileNavProps {
-  forcedMode?: 'admin' | 'client'
+  audience: LayoutAudience
 }
 
-export function MobileNav({ forcedMode }: MobileNavProps) {
+export function MobileNav({ audience }: MobileNavProps) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
-  const [storedMode, setStoredMode] = useState<'admin' | 'client'>(() => {
-    if (typeof window === 'undefined') return 'admin'
-    const saved = localStorage.getItem('sidebar-mode')
-    return saved === 'client' ? 'client' : 'admin'
-  })
-  const mode = forcedMode ?? storedMode
-
-  function toggleMode() {
-    if (forcedMode) return
-    const newMode = mode === 'admin' ? 'client' : 'admin'
-    setStoredMode(newMode)
-    localStorage.setItem('sidebar-mode', newMode)
-  }
-
-  const navItems = mode === 'admin' ? adminNavItems : clientNavItems
+  const navItems = getNavItems(audience)
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -79,27 +35,13 @@ export function MobileNav({ forcedMode }: MobileNavProps) {
           </SheetTitle>
         </SheetHeader>
 
-        {/* Toggle admin/client */}
-        {!forcedMode && (
-          <button
-            onClick={toggleMode}
-            className="flex items-center gap-2 mx-3 mt-3 px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors w-[calc(100%-1.5rem)]"
-          >
-            {mode === 'admin' ? (
-              <ToggleRight size={16} className="text-primary" />
-            ) : (
-              <ToggleLeft size={16} />
-            )}
-            {mode === 'admin' ? 'Admin' : 'Client'}
-          </button>
-        )}
-
         <nav className="space-y-1 px-3 py-2">
           {navItems.map((item) => {
             const isActive =
               item.href === '/'
                 ? pathname === '/'
                 : pathname.startsWith(item.href)
+
             return (
               <Link
                 key={item.href}

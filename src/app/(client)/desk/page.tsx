@@ -1,34 +1,26 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { DeskShell } from '@/components/desk/desk-shell'
+import { getPanelSession } from '@/lib/auth/panel-session'
 
 export default async function DeskPage({
   searchParams,
 }: {
   searchParams: Promise<{ client_id?: string; conversation_id?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const session = await getPanelSession()
+  if (!session) redirect('/login')
 
   const admin = createAdminClient()
   const { client_id: queryClientId, conversation_id: queryConversationId } = await searchParams
 
-  // Resolve client_id: tenta panel_users primeiro, depois query param
   let clientId = queryClientId ?? ''
   let clientName = ''
 
-  const { data: panelUser } = await admin
-    .from('panel_users')
-    .select('role, client_id')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (panelUser?.role === 'operator' && panelUser.client_id) {
-    clientId = panelUser.client_id
+  if (session.role === 'operator' && session.clientId) {
+    clientId = session.clientId
   }
 
   if (clientId) {
@@ -40,7 +32,6 @@ export default async function DeskPage({
     clientName = client?.name ?? ''
   }
 
-  // Admin sem client_id: mostra seletor de cliente
   if (!clientId) {
     const { data: clients } = await admin
       .from('panel_clients')
@@ -49,7 +40,7 @@ export default async function DeskPage({
       .order('name')
 
     return (
-      <div className="flex h-full w-full items-center justify-center">
+      <div className="flex h-full w-full items-center justify-center p-6">
         <div className="glass-card w-full max-w-sm p-8 space-y-4">
           <h1 className="text-xl font-bold text-foreground">Painel de Atendimento</h1>
           <p className="text-sm text-muted-foreground">Selecione o cliente para atender:</p>
@@ -76,8 +67,8 @@ export default async function DeskPage({
     <DeskShell
       clientId={clientId}
       clientName={clientName}
-      userEmail={user.email ?? ''}
-      userId={user.id}
+      userEmail={session.user.email ?? ''}
+      userId={session.user.id}
       initialConversationId={queryConversationId ?? null}
     />
   )

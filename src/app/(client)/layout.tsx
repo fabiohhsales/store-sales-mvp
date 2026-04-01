@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation'
-import { Sidebar } from '@/components/layout/sidebar'
 import { Header } from '@/components/layout/header'
+import { Sidebar } from '@/components/layout/sidebar'
 import { getPanelSession } from '@/lib/auth/panel-session'
 
-export default async function DashboardLayout({
+export default async function ClientLayout({
   children,
 }: {
   children: React.ReactNode
@@ -14,16 +14,12 @@ export default async function DashboardLayout({
     redirect('/login')
   }
 
-  if (session.role !== 'admin') {
-    redirect('/desk')
-  }
-
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar audience="admin" />
+      <Sidebar audience="client" />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header userEmail={session.user.email ?? ''} audience="admin" />
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <Header userEmail={session.user.email ?? ''} audience="client" />
+        <main className="flex-1 overflow-y-auto">
           {children}
         </main>
       </div>
