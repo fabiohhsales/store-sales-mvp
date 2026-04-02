@@ -559,7 +559,7 @@ export async function listAgendaAppointments(params: AgendaListParams): Promise<
       last_synced_at,
       notes,
       contacts(id, name, phone_number),
-      conversations!inner(client_id)
+      conversations!fk_appointments_conversation!inner(client_id)
     `)
     .eq('conversations.client_id', params.clientId)
     .gte('start_at', range.from.toISOString())
@@ -644,7 +644,7 @@ export async function getAgendaAppointmentById(id: string, clientId: string) {
       last_synced_at,
       notes,
       contacts(id, name, phone_number),
-      conversations!inner(client_id)
+      conversations!fk_appointments_conversation!inner(client_id)
     `)
     .eq('id', id)
     .eq('conversations.client_id', clientId)
