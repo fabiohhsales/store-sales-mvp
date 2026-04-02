@@ -15,9 +15,14 @@ export async function GET(request: NextRequest) {
   try {
     const token = request.nextUrl.searchParams.get('token')
     const clientId = request.nextUrl.searchParams.get('client_id')
+
+    console.log('[agenda/route] GET start', { requestId, clientId, hasToken: !!token })
+
     const auth = await authenticateRequest(token, clientId)
 
-    const result = await listAgendaAppointments({
+    console.log('[agenda/route] auth ok', { requestId, resolvedClientId: auth.client_id, source: auth.source })
+
+    const params = {
       clientId: auth.client_id,
       view: (request.nextUrl.searchParams.get('view') ?? undefined) as 'day' | 'week' | 'month' | 'list' | undefined,
       date: request.nextUrl.searchParams.get('date'),
@@ -28,7 +33,13 @@ export async function GET(request: NextRequest) {
       contactId: request.nextUrl.searchParams.get('contact_id'),
       page: parsePositiveInt(request.nextUrl.searchParams.get('page'), 1),
       pageSize: parsePositiveInt(request.nextUrl.searchParams.get('page_size'), 50),
-    })
+    }
+
+    console.log('[agenda/route] calling listAgendaAppointments', { requestId, params })
+
+    const result = await listAgendaAppointments(params)
+
+    console.log('[agenda/route] GET ok', { requestId, total: result.meta.total, items: result.items.length })
 
     return NextResponse.json(result, {
       headers: {
@@ -37,11 +48,25 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     if (isAuthError(error)) {
+      console.error('[agenda/route] auth error', { requestId, status: error.status, message: error.message })
       return NextResponse.json({ error: error.message, errorId: requestId }, { status: error.status })
     }
 
-    const message = error instanceof Error ? error.message : 'Erro interno'
-    console.error('[agenda/route] GET error', { requestId, message })
+    // Supabase errors são objetos planos, não instanceof Error
+    const isSupabaseError = error !== null && typeof error === 'object' && 'message' in error
+    const message = error instanceof Error
+      ? error.message
+      : isSupabaseError
+        ? (error as { message: string }).message
+        : String(error)
+
+    console.error('[agenda/route] GET error', {
+      requestId,
+      message,
+      errorType: error instanceof Error ? 'Error' : typeof error,
+      errorRaw: JSON.stringify(error),
+    })
+
     return NextResponse.json({ error: message, errorId: requestId }, { status: 500 })
   }
 }
