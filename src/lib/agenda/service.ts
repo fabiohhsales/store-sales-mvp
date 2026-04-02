@@ -527,6 +527,13 @@ export async function listAgendaAppointments(params: AgendaListParams): Promise<
   const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 50))
   const range = resolveDateRange(params)
 
+  console.log('[agenda/service] listAgendaAppointments start', {
+    clientId: params.clientId,
+    view: params.view,
+    dateFrom: range.from.toISOString(),
+    dateTo: range.to.toISOString(),
+  })
+
   const { data, error } = await admin
     .from('appointments')
     .select(`
@@ -559,7 +566,18 @@ export async function listAgendaAppointments(params: AgendaListParams): Promise<
     .lte('start_at', range.to.toISOString())
     .order('start_at', { ascending: true })
 
-  if (error) throw error
+  if (error) {
+    console.error('[agenda/service] listAgendaAppointments supabase error', {
+      code: (error as { code?: string }).code,
+      message: (error as { message?: string }).message,
+      details: (error as { details?: string }).details,
+      hint: (error as { hint?: string }).hint,
+      errorRaw: JSON.stringify(error),
+    })
+    throw new Error(`Supabase query falhou: ${(error as { message?: string }).message ?? JSON.stringify(error)}`)
+  }
+
+  console.log('[agenda/service] listAgendaAppointments query ok', { rowCount: (data ?? []).length })
 
   const mapped = (data ?? []).map((row) => mapAppointmentRow(row as Record<string, unknown>))
   const filtered = filterAppointments(mapped, params)
