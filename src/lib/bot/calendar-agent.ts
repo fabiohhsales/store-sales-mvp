@@ -1,24 +1,15 @@
 // Calendar Agent: orquestra operações de agenda (check, create, update).
 // Chamado pelo dispatcher quando o AI Agent sinaliza intenção de agendamento.
-// Usa conta Google central da Sales Tec — sem OAuth por cliente.
+// appointments no Supabase são a fonte de verdade; Google Calendar é sync opcional.
 
 import { getCalendarClient } from '@/lib/calendar/client'
-import {
-  parseTimeWindow,
-  getAvailableSlots,
-  formatSlotsMessage,
-} from '@/lib/calendar/slots'
-import {
-  createAppointment,
-  deleteAppointmentEvent,
-  getAppointmentByEventId,
-} from '@/lib/calendar/events'
+import { parseTimeWindow, getAvailableSlots, formatSlotsMessage } from '@/lib/calendar/slots'
 import { sendTextMessage } from '@/lib/api/evolution'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createAgendaAppointment } from '@/lib/agenda/service'
 import type { AgentOutput } from './output-schema'
 import type { PipelineResult } from './pipeline'
 
-// Verifica disponibilidade e envia horários disponíveis para o paciente
 export async function handleAgendaCheck(
   result: PipelineResult,
   output: AgentOutput
@@ -27,21 +18,33 @@ export async function handleAgendaCheck(
   const { botConfig, googleConfig, whatsappConfig } = clientContext
 
   if (!botConfig) {
-    console.warn('[CalendarAgent] Sem panel_bot_config para client:', clientContext.clientId)
-    await sendAndSave(whatsappConfig, contact, conversation, 'Não foi possível verificar a agenda no momento. Nossa equipe entrará em contato.')
+    await sendAndSave(
+      whatsappConfig,
+      contact,
+      conversation,
+      'Não foi possível verificar a agenda no momento. Nossa equipe entrará em contato.'
+    )
     return
   }
 
   if (!process.env.GOOGLE_REFRESH_TOKEN) {
-    console.warn('[CalendarAgent] GOOGLE_REFRESH_TOKEN não configurado')
-    await sendAndSave(whatsappConfig, contact, conversation, 'O agendamento online ainda não está disponível. Entre em contato diretamente para marcar seu horário.')
+    await sendAndSave(
+      whatsappConfig,
+      contact,
+      conversation,
+      'O agendamento online ainda não está disponível. Entre em contato diretamente para marcar seu horário.'
+    )
     return
   }
 
   const calendarId = googleConfig?.calendar_id
   if (!calendarId) {
-    console.warn('[CalendarAgent] calendar_id não configurado para client:', clientContext.clientId)
-    await sendAndSave(whatsappConfig, contact, conversation, 'O calendário ainda não foi configurado para este profissional. Entre em contato diretamente para marcar seu horário.')
+    await sendAndSave(
+      whatsappConfig,
+      contact,
+      conversation,
+      'O calendário ainda não foi configurado para este profissional. Entre em contato diretamente para marcar seu horário.'
+    )
     return
   }
 
@@ -49,8 +52,8 @@ export async function handleAgendaCheck(
     const calendar = getCalendarClient()
     const hint = output.actions.agenda_check.time_window_hint
     const dateRange = await parseTimeWindow(hint)
-
     const language = botConfig.ai_language ?? 'pt-BR'
+
     const slots = await getAvailableSlots(
       calendar,
       calendarId,
@@ -65,23 +68,24 @@ export async function handleAgendaCheck(
 
     const message = formatSlotsMessage(slots, botConfig.professional_name, language)
 
-    // Persiste os slots para extração confiável quando o paciente selecionar
     if (slots.length > 0) {
       const supabase = createAdminClient()
       await supabase
         .from('conversations')
         .update({
-          pending_slots: slots.map((s) => ({ label: s.label, startISO: s.startISO, endISO: s.endISO })),
+          pending_slots: slots.map((slot) => ({
+            label: slot.label,
+            startISO: slot.startISO,
+            endISO: slot.endISO,
+          })),
           updated_at: new Date().toISOString(),
         })
         .eq('id', conversation.id)
     }
 
     await sendAndSave(whatsappConfig, contact, conversation, message)
-
-    console.log(`[CalendarAgent] check concluído para conv=${conversation.id}: ${slots.length} slots`)
-  } catch (err) {
-    console.error('[CalendarAgent] Erro em handleAgendaCheck:', err)
+  } catch (error) {
+    console.error('[CalendarAgent] Erro em handleAgendaCheck:', error)
     await sendAndSave(
       whatsappConfig,
       contact,
@@ -91,7 +95,6 @@ export async function handleAgendaCheck(
   }
 }
 
-// Cria evento no Google Calendar com o horário confirmado pelo paciente
 export async function handleAgendaCreate(
   result: PipelineResult,
   output: AgentOutput
@@ -101,58 +104,46 @@ export async function handleAgendaCreate(
   const { agenda_create, agenda_update } = output.actions
 
   if (!botConfig) {
-    console.warn('[CalendarAgent] Sem panel_bot_config para client:', clientContext.clientId)
-    await sendAndSave(whatsappConfig, contact, conversation, 'Não foi possível confirmar o agendamento. Nossa equipe entrará em contato.')
-    return
-  }
-
-  if (!process.env.GOOGLE_REFRESH_TOKEN) {
-    console.warn('[CalendarAgent] GOOGLE_REFRESH_TOKEN não configurado')
-    await sendAndSave(whatsappConfig, contact, conversation, 'O agendamento online ainda não está disponível. Entre em contato diretamente para confirmar seu horário.')
+    await sendAndSave(
+      whatsappConfig,
+      contact,
+      conversation,
+      'Não foi possível confirmar o agendamento. Nossa equipe entrará em contato.'
+    )
     return
   }
 
   if (!agenda_create.start_iso || !agenda_create.end_iso) {
-    console.warn('[CalendarAgent] start_iso/end_iso ausentes para conv:', conversation.id)
-    await sendAndSave(whatsappConfig, contact, conversation, 'Não consegui identificar o horário. Pode confirmar novamente a data e hora desejada?')
+    await sendAndSave(
+      whatsappConfig,
+      contact,
+      conversation,
+      'Não consegui identificar o horário. Pode confirmar novamente a data e hora desejada?'
+    )
     return
   }
-
-  const calendarId = googleConfig?.calendar_id
-  if (!calendarId) {
-    console.warn('[CalendarAgent] calendar_id não configurado para client:', clientContext.clientId)
-    await sendAndSave(whatsappConfig, contact, conversation, 'O calendário ainda não foi configurado para este profissional. Entre em contato diretamente para confirmar seu horário.')
-    return
-  }
-
-  const clientEmail = googleConfig?.google_email ?? null
 
   try {
-    const calendar = getCalendarClient()
-
-    // Se é reagendamento: cancela o evento anterior antes de criar o novo
-    if (agenda_update.should_update && agenda_update.google_event_id) {
-      const existing = await getAppointmentByEventId(agenda_update.google_event_id)
-      if (existing) {
-        await deleteAppointmentEvent(calendar, calendarId, agenda_update.google_event_id)
-        console.log(`[CalendarAgent] Evento anterior ${agenda_update.google_event_id} cancelado (reagendamento)`)
-      }
-    }
-
-    // Cria novo evento com convite ao profissional
-    const { appointment, meetLink } = await createAppointment(calendar, {
-      calendarId,
+    const appointment = await createAgendaAppointment({
+      clientId: clientContext.clientId,
       conversationId: conversation.id,
       contactId: contact.id,
-      patientName: contact.name ?? 'Paciente',
-      patientPhone: contact.phone_number,
-      clientEmail,
-      startISO: agenda_create.start_iso,
-      endISO: agenda_create.end_iso,
-      config: botConfig,
+      contactName: contact.name ?? 'Paciente',
+      contactPhone: contact.phone_number,
+      title: agenda_create.title ?? null,
+      modality: 'presencial',
+      status: 'scheduled',
+      notes: agenda_update.should_update && agenda_update.google_event_id
+        ? `Reagendamento do evento ${agenda_update.google_event_id}`
+        : googleConfig?.google_email
+          ? `Contato do profissional para convite: ${googleConfig.google_email}`
+          : null,
+      startAt: agenda_create.start_iso,
+      endAt: agenda_create.end_iso,
+      syncToGoogle: true,
+      source: 'bot',
     })
 
-    // Monta mensagem de confirmação
     const startDate = new Date(agenda_create.start_iso)
     const formattedDate = startDate.toLocaleString('pt-BR', {
       timeZone: 'America/Sao_Paulo',
@@ -163,13 +154,15 @@ export async function handleAgendaCreate(
       minute: '2-digit',
     })
 
-    let confirmMsg = `✅ Consulta agendada com sucesso!\n📅 ${formattedDate}\n`
-    if (meetLink) confirmMsg += `🔗 Link: ${meetLink}\n`
-    confirmMsg += `\nSe precisar remarcar ou cancelar, é só me avisar!`
+    let confirmMsg = `Consulta agendada com sucesso!\n${formattedDate}\n`
+    if (appointment.meet_link) confirmMsg += `Link: ${appointment.meet_link}\n`
+    if (appointment.sync_status === 'error') {
+      confirmMsg += '\nObservação: o agendamento foi salvo, mas houve falha na sincronização externa.'
+    }
+    confirmMsg += '\nSe precisar remarcar ou cancelar, é só me avisar!'
 
     await sendAndSave(whatsappConfig, contact, conversation, confirmMsg)
 
-    // Atualiza status da conversa para etapa_agendado e limpa slots pendentes
     const supabase = createAdminClient()
     await supabase
       .from('conversations')
@@ -180,10 +173,8 @@ export async function handleAgendaCreate(
         updated_at: new Date().toISOString(),
       })
       .eq('id', conversation.id)
-
-    console.log(`[CalendarAgent] Evento criado ${appointment.google_event_id} para conv=${conversation.id}`)
-  } catch (err) {
-    console.error('[CalendarAgent] Erro em handleAgendaCreate:', err)
+  } catch (error) {
+    console.error('[CalendarAgent] Erro em handleAgendaCreate:', error)
     await sendAndSave(
       whatsappConfig,
       contact,
@@ -193,7 +184,6 @@ export async function handleAgendaCreate(
   }
 }
 
-// Envia mensagem via WhatsApp e salva no histórico
 async function sendAndSave(
   whatsappConfig: PipelineResult['clientContext']['whatsappConfig'],
   contact: PipelineResult['contact'],

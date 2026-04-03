@@ -59,6 +59,12 @@ export interface BotAppointment {
   conversation_id: string
   contact_id: string | null
   google_event_id: string
+  source: string | null
+  sync_status: 'disabled' | 'pending' | 'synced' | 'error' | null
+  sync_error: string | null
+  external_calendar_id: string | null
+  external_event_id: string | null
+  last_synced_at: string | null
   title: string | null
   start_at: string
   end_at: string
@@ -68,6 +74,7 @@ export interface BotAppointment {
   reminder_sent_at: string | null
   confirmation_response: string | null
   meet_link: string | null
+  notes: string | null
   created_at: string
   updated_at: string
 }

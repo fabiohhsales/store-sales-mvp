@@ -41,6 +41,7 @@ export type PipelineData = PipelineBoardData
 export interface AgendaAppointment {
   id: string
   conversation_id: string
+  contact_id: string | null
   contact_name: string | null
   contact_phone: string | null
   title: string | null
@@ -53,4 +54,12 @@ export interface AgendaAppointment {
   confirmation_sent_at: string | null
   confirmation_response: string | null
   created_at: string
+  updated_at: string | null
+  source: string
+  sync_status: 'disabled' | 'pending' | 'synced' | 'error'
+  sync_error: string | null
+  external_calendar_id: string | null
+  external_event_id: string | null
+  last_synced_at: string | null
+  notes: string | null
 }

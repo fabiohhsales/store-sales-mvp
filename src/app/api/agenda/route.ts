@@ -1,106 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
 import { isAuthError } from '@/lib/auth/request-context'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { normalizeAgendaStatus } from '@/lib/agenda/constants'
+import { createAgendaAppointment, listAgendaAppointments } from '@/lib/agenda/service'
 
-function normalizeAppointmentStatus(status: string | null | undefined): string | null {
-  if (!status) return null
-  return status === 'no_show' ? 'noshow' : status
+function parsePositiveInt(value: string | null, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
 export async function GET(request: NextRequest) {
   const requestId = crypto.randomUUID()
-  const startedAt = Date.now()
+
   try {
     const token = request.nextUrl.searchParams.get('token')
     const clientId = request.nextUrl.searchParams.get('client_id')
-    const dateFrom = request.nextUrl.searchParams.get('date_from')
-    const dateTo = request.nextUrl.searchParams.get('date_to')
-    const rawStatusFilter = request.nextUrl.searchParams.get('status')
-    const statusFilter = normalizeAppointmentStatus(rawStatusFilter)
+
+    console.log('[agenda/route] GET start', { requestId, clientId, hasToken: !!token })
 
     const auth = await authenticateRequest(token, clientId)
-    const admin = createAdminClient()
 
-    // Query appointments via conversations.client_id (novo modelo, sem depender do Chatwoot)
-    let query = admin
-      .from('appointments')
-      .select(`
-        id, conversation_id, contact_id, title,
-        start_at, end_at, modality, status, meet_link,
-        google_event_id, confirmation_sent_at, confirmation_response,
-        created_at,
-        contacts(name, phone_number),
-        conversations!inner(client_id)
-      `)
-      .eq('conversations.client_id', auth.client_id)
+    console.log('[agenda/route] auth ok', { requestId, resolvedClientId: auth.client_id, source: auth.source })
 
-    if (dateFrom) {
-      query = query.gte('start_at', dateFrom)
-    }
-    if (dateTo) {
-      query = query.lte('start_at', `${dateTo}T23:59:59`)
-    }
-    if (statusFilter && statusFilter !== 'all') {
-      if (statusFilter === 'noshow') {
-        query = query.in('status', ['no_show', 'noshow'])
-      } else {
-        query = query.eq('status', statusFilter)
-      }
-    }
-
-    const { data: appointments, error } = await query
-      .order('start_at', { ascending: true })
-
-    if (error) {
-      console.error('[agenda/route] Supabase error:', {
-        requestId,
-        error,
-        clientId: auth.client_id,
-        dateFrom,
-        dateTo,
-        statusFilter,
-      })
-      throw error
-    }
-
-    if (!appointments || appointments.length === 0) {
-      console.warn('[agenda/route] No appointments returned', {
-        requestId,
-        clientId: auth.client_id,
-        dateFrom,
-        dateTo,
-        statusFilter,
-      })
-    }
-
-    const result = (appointments || []).map((apt: Record<string, unknown>) => {
-      const contact = apt.contacts as Record<string, unknown> | null
-      return {
-        id: apt.id,
-        conversation_id: apt.conversation_id,
-        contact_name: contact?.name || null,
-        contact_phone: contact?.phone_number || null,
-        title: apt.title,
-        start_at: apt.start_at,
-        end_at: apt.end_at,
-        modality: apt.modality,
-        status: normalizeAppointmentStatus((apt.status as string) || null),
-        meet_link: apt.meet_link,
-        google_event_id: apt.google_event_id,
-        confirmation_sent_at: apt.confirmation_sent_at,
-        confirmation_response: apt.confirmation_response,
-        created_at: apt.created_at,
-      }
-    })
-
-    const durationMs = Date.now() - startedAt
-    console.log('[agenda/route] Success', {
-      requestId,
+    const params = {
       clientId: auth.client_id,
-      count: result.length,
-      durationMs,
-    })
+      view: (request.nextUrl.searchParams.get('view') ?? undefined) as 'day' | 'week' | 'month' | 'list' | undefined,
+      date: request.nextUrl.searchParams.get('date'),
+      dateFrom: request.nextUrl.searchParams.get('date_from'),
+      dateTo: request.nextUrl.searchParams.get('date_to'),
+      status: request.nextUrl.searchParams.get('status'),
+      query: request.nextUrl.searchParams.get('query'),
+      contactId: request.nextUrl.searchParams.get('contact_id'),
+      page: parsePositiveInt(request.nextUrl.searchParams.get('page'), 1),
+      pageSize: parsePositiveInt(request.nextUrl.searchParams.get('page_size'), 50),
+    }
+
+    console.log('[agenda/route] calling listAgendaAppointments', { requestId, params })
+
+    const result = await listAgendaAppointments(params)
+
+    console.log('[agenda/route] GET ok', { requestId, total: result.meta.total, items: result.items.length })
 
     return NextResponse.json(result, {
       headers: {
@@ -109,15 +48,73 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     if (isAuthError(error)) {
+      console.error('[agenda/route] auth error', { requestId, status: error.status, message: error.message })
       return NextResponse.json({ error: error.message, errorId: requestId }, { status: error.status })
     }
-    const message = error instanceof Error ? error.message : 'Erro interno'
-    const status = message.includes('autorizado') || message.includes('inválido') ? 401 : 500
-    console.error('[agenda/route] Error response', {
+
+    // Supabase errors são objetos planos, não instanceof Error
+    const isSupabaseError = error !== null && typeof error === 'object' && 'message' in error
+    const message = error instanceof Error
+      ? error.message
+      : isSupabaseError
+        ? (error as { message: string }).message
+        : String(error)
+
+    console.error('[agenda/route] GET error', {
       requestId,
-      status,
       message,
+      errorType: error instanceof Error ? 'Error' : typeof error,
+      errorRaw: JSON.stringify(error),
     })
-    return NextResponse.json({ error: message, errorId: requestId }, { status })
+
+    return NextResponse.json({ error: message, errorId: requestId }, { status: 500 })
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const requestId = crypto.randomUUID()
+
+  try {
+    const body = await request.json()
+    const auth = await authenticateRequest(body?.token ?? null, body?.client_id ?? null)
+    const status = body?.status ? normalizeAgendaStatus(body.status) : 'scheduled'
+
+    if (!body?.start_at || !body?.end_at) {
+      return NextResponse.json(
+        { error: 'start_at e end_at são obrigatórios', errorId: requestId },
+        { status: 400 }
+      )
+    }
+
+    const appointment = await createAgendaAppointment({
+      clientId: auth.client_id,
+      conversationId: body?.conversation_id ?? null,
+      contactId: body?.contact_id ?? null,
+      contactName: body?.contact_name ?? null,
+      contactPhone: body?.contact_phone ?? null,
+      title: body?.title ?? null,
+      modality: body?.modality ?? null,
+      status: status ?? 'scheduled',
+      notes: body?.notes ?? null,
+      startAt: body.start_at,
+      endAt: body.end_at,
+      syncToGoogle: body?.sync_to_google ?? true,
+      source: body?.source ?? 'supabase',
+    })
+
+    return NextResponse.json(appointment, {
+      status: 201,
+      headers: {
+        'x-request-id': requestId,
+      },
+    })
+  } catch (error) {
+    if (isAuthError(error)) {
+      return NextResponse.json({ error: error.message, errorId: requestId }, { status: error.status })
+    }
+
+    const message = error instanceof Error ? error.message : 'Erro interno'
+    console.error('[agenda/route] POST error', { requestId, message })
+    return NextResponse.json({ error: message, errorId: requestId }, { status: 500 })
   }
 }

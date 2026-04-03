@@ -2,7 +2,7 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useState, Suspense } from 'react'
-import { AgendaTable } from '@/components/agenda/agenda-table'
+import { AgendaWorkspace } from '@/components/agenda/agenda-workspace'
 import { Skeleton } from '@/components/ui/skeleton'
 
 function AgendaEmbedContent() {
@@ -16,19 +16,19 @@ function AgendaEmbedContent() {
     if (!token) return
 
     fetch(`/api/chatwoot/auth?token=${token}`)
-      .then(async (res) => {
-        if (!res.ok) {
-          const data = await res.json()
+      .then(async (response) => {
+        if (!response.ok) {
+          const data = await response.json()
           throw new Error(data.error || 'Token inválido')
         }
-        return res.json()
+        return response.json()
       })
       .then((data) => {
         setClientId(data.client_id)
         setLoading(false)
       })
-      .catch((err) => {
-        setError(err.message)
+      .catch((authError) => {
+        setError(authError.message)
         setLoading(false)
       })
   }, [token])
@@ -71,8 +71,7 @@ function AgendaEmbedContent() {
   }
 
   if (!clientId) return null
-
-  return <AgendaTable clientId={clientId} token={token!} />
+  return <AgendaWorkspace clientId={clientId} token={token} initialView="list" />
 }
 
 export default function ChatwootAgendaPage() {
