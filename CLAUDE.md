@@ -2,22 +2,20 @@
 
 ## Visão geral
 
-Painel administrativo para escalar o onboarding de clientes do sistema de chatbot
-de agendamento da Sales Tec. Cada cliente é um profissional/clínica que contrata
-o serviço da Sales Tec.
+Painel administrativo para escalar o onboarding de clientes do sistema de chatbot de agendamento da Sales Tec. Cada cliente é um profissional/clínica que contrata o serviço da Sales Tec.
 
-O mercado-alvo são profissionais de saúde (médicos, dentistas, psicólogos, fisioterapeutas)
-e negócios de serviços que agendam por WhatsApp.
+O mercado-alvo são profissionais de saúde (médicos, dentistas, psicólogos, fisioterapeutas) e negócios de serviços que agendam por WhatsApp.
 
-**O bot engine foi migrado do n8n para código nativo Next.js.**
-**O pipeline de mensagens foi migrado do Chatwoot para direto na Evolution API.**
-n8n e Chatwoot ainda existem na infra mas NÃO SÃO MAIS usados para processar mensagens.
+O bot engine foi migrado do n8n para código nativo Next.js. O pipeline de mensagens foi migrado do Chatwoot para direto na Evolution API. n8n e Chatwoot ainda existem na infra mas NÃO SÃO MAIS usados para processar mensagens.
 
----
+Status deste arquivo no Git:
+- `CLAUDE.md` é versionado normalmente no repositório
+- não está em `.gitignore`
+- último commit confirmado no arquivo: `2026-03-30 08:17:13 -0300`
 
 ## Arquitetura atual (pós-migração Evolution direta)
 
-```
+```text
 Paciente (WhatsApp)
   ↓ mensagem
 Evolution API v2.3.7 (Baileys)
@@ -38,24 +36,21 @@ Google Calendar — conta central Sales Tec (GOOGLE_REFRESH_TOKEN), calendários
 
 Identificação: `payload.instance` (Evolution instance name) → busca em `panel_whatsapp_config.evolution_instance_name`.
 
-**NÃO usa mais `chatwoot_account_id`.**
+NÃO usa mais `chatwoot_account_id`.
 
 ### Desk — Painel de Atendimento Humano
 
-Operadores podem ver o fluxo do bot em tempo real e assumir conversas para responder
-como o número WhatsApp do cliente.
+Operadores podem ver o fluxo do bot em tempo real e assumir conversas para responder como o número WhatsApp do cliente.
 
-- Rota: `/desk?client_id=<uuid>` (admins) ou `/desk` (operators via panel_users)
+- Rota: `/desk?client_id=<uuid>` (admins) ou `/desk` (operators via `panel_users`)
 - Botão de acesso direto na página do cliente admin: `/clients/[id]`
-- Realtime via Supabase (canal `desk:{clientId}` e `chat:{conversationId}`)
+- Realtime via Supabase nos canais `desk:{clientId}` e `chat:{conversationId}`
 
----
-
-## Bot Engine (src/lib/bot/)
+## Bot Engine (`src/lib/bot/`)
 
 ### Fluxo de uma mensagem (Evolution direto)
 
-```
+```text
 POST /api/webhooks/evolution
   → normalizeEvolutionPayload()  — filtra fromMe, grupos (@g.us), sem conteúdo
   → void runPipeline()           — responde 200 imediatamente, processa em background
@@ -72,65 +67,62 @@ POST /api/webhooks/evolution
 | `src/app/api/webhooks/chatwoot/route.ts` | Legado — mantido mas não é mais o pipeline ativo |
 | `src/lib/bot/normalize-evolution.ts` | Normaliza payload bruto Evolution para struct interna |
 | `src/lib/bot/pipeline.ts` | `runEvolutionPipeline()` — resolve cliente, upsert contact/conversation/message |
-| `src/lib/bot/agent.ts` | Verifica ai_pause, chama OpenAI com structured output |
-| `src/lib/bot/dispatcher.ts` | Envia resposta WhatsApp, handoff, summary de triagem, limpa ai_pause |
-| `src/lib/bot/system-prompt.ts` | Monta system prompt dinâmico a partir do panel_bot_config |
+| `src/lib/bot/agent.ts` | Verifica `ai_pause`, chama OpenAI com structured output |
+| `src/lib/bot/dispatcher.ts` | Envia resposta WhatsApp, handoff, summary de triagem, limpa `ai_pause` |
+| `src/lib/bot/system-prompt.ts` | Monta system prompt dinâmico a partir do `panel_bot_config` |
 | `src/lib/bot/output-schema.ts` | Schema Zod do JSON estruturado retornado pela IA |
 | `src/lib/bot/calendar-agent.ts` | Checa disponibilidade e cria eventos no Google Calendar |
-| `src/lib/ai/client.ts` | Cliente OpenAI/Groq unificado (usa OPENAI_API_KEY se disponível) |
+| `src/lib/ai/client.ts` | Cliente OpenAI/Groq unificado |
 
 ### Detalhes do webhook Evolution
 
 - Evento principal: `messages.upsert` — mensagens recebidas
 - Evento `connection.update` — sincroniza `connection_status` em `panel_whatsapp_config`
-- `fromMe: true` ignorado — não processa respostas do próprio bot
-- Grupos (`@g.us`) ignorados
-- Rota whitelistada no middleware: `isEvolutionWebhook`
+- `fromMe: true` é ignorado
+- grupos (`@g.us`) são ignorados
+- rota whitelistada no middleware: `isEvolutionWebhook`
 
 ### Deduplicação de mensagens
 
-Campo `evolution_message_id` em `messages` com unique partial index.
-Se a mensagem já existe (Evolution entrega duplicada), ignora silenciosamente.
+Campo `evolution_message_id` em `messages` com unique partial index. Se a mensagem já existe, o pipeline ignora silenciosamente a entrega duplicada.
 
 ### AI Pause
 
-O `ai_pause` é setado quando operador assume a conversa e **limpo ao devolver ao bot ou resolver**.
-Tabela: `ai_pauses` com `conversation_id` (PK) e `paused_until`.
+O `ai_pause` é setado quando operador assume a conversa e limpo ao devolver ao bot ou resolver. Tabela: `ai_pauses` com `conversation_id` (PK) e `paused_until`.
 
 ### Handoff (bot → humano)
 
-Quando bot detecta handoff necessário (sentimento negativo, urgência, max_turns, keywords):
+Quando o bot detecta handoff necessário por sentimento negativo, urgência, `max_turns` ou keywords:
+
 1. Envia a `ai_handoff_message` via WhatsApp
-2. Gera summary de triagem via OpenAI (max 200 tokens)
+2. Gera summary de triagem via OpenAI
 3. Muda `stage = 'awaiting_human'` e salva `summary` na conversa
-4. Desk notifica operadores via Realtime + toast + browser Notification
+4. Notifica operadores no Desk via Realtime, toast e browser Notification
 
 ### Checagem de status do cliente
 
-`pipeline.ts` verifica `panel_clients.status` antes de processar.
-Se status ≠ `'active'`, ignora silenciosamente.
+`pipeline.ts` verifica `panel_clients.status` antes de processar. Se status for diferente de `active`, ignora silenciosamente.
 
-### Sistema de IA
+## Sistema de IA
 
-- **Cliente**: `src/lib/ai/client.ts` — usa `OPENAI_API_KEY` se setada, senão `GROQ_API_KEY`
-- **Modelo padrão**: `gpt-4o-mini` via `OPENAI_MODEL`
-- `createAiClient()` deve ser chamado DENTRO das funções, nunca no module level (causa erro no build)
+- Cliente: `src/lib/ai/client.ts` — usa `OPENAI_API_KEY` se setada, senão `GROQ_API_KEY`
+- Modelo padrão: `gpt-4o-mini` via `OPENAI_MODEL`
+- `createAiClient()` deve ser chamado DENTRO das funções, nunca no module level
 
-### System Prompt dinâmico
+### System prompt dinâmico
 
 `src/lib/bot/system-prompt.ts` injeta no prompt:
-- Nome do profissional, título, negócio
-- Serviços com modalidade expandida (`"ambos"` → `"in-person or online"`)
-- Horários de atendimento formatados
-- Tom de comunicação (formal/professional_friendly/casual/empathetic)
-- **Idioma**: prompt base é **inglês**. Para clientes não-inglês, injeta override `"You MUST respond only in {lang}. Never use English."` — `ai_language` com valor `"pt-BR"`, `"es"`, etc.
-- Instruções customizadas do profissional
-- Regras de handoff, labels de etapa, formato JSON obrigatório
-- **Anti-alucinação**: instrução explícita de usar só dados do prompt
-- **Primeiro nome apenas**: usa só o primeiro nome do contato para evitar que
-  o modelo confunda empresa do paciente com o negócio do cliente
 
----
+- nome do profissional, título e negócio
+- serviços com modalidade expandida (`ambos` → `in-person or online`)
+- horários de atendimento formatados
+- tom de comunicação (`formal`, `professional_friendly`, `casual`, `empathetic`)
+- idioma: prompt base em inglês; para clientes não-inglês, injeta override `You MUST respond only in {lang}. Never use English.`
+- instruções customizadas do profissional
+- `process_flow_guide`, `objections_guide`, `qualification_questions_guide`, `disengagement_policy_guide`
+- regras de handoff, stage labels e formato JSON obrigatório
+- instrução anti-alucinação para usar apenas dados do prompt
+- uso apenas do primeiro nome do contato para evitar confusão com o negócio do cliente
 
 ## URLs dos serviços
 
@@ -142,9 +134,7 @@ Se status ≠ `'active'`, ignora silenciosamente.
 | Chatwoot (legado) | https://chatsales-chatwoot.yvssrw.easypanel.host |
 | Supabase | https://chatsales-supabase.yvssrw.easypanel.host |
 
----
-
-## Variáveis de ambiente (EasyPanel — serviço testeworkflow)
+## Variáveis de ambiente (EasyPanel — serviço `testeworkflow`)
 
 ```env
 # Evolution API
@@ -166,441 +156,521 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
-# App URL (sem trailing slash no código, mas EasyPanel pode ter — já tratado)
+# App URL
 NEXT_PUBLIC_APP_URL=
 
-# IA — preferir OpenAI para melhor qualidade
-OPENAI_API_KEY=              # define OpenAI como provider
-OPENAI_MODEL=gpt-4o-mini     # modelo principal
-OPENAI_MODEL_MINI=gpt-4o-mini # modelo leve (datas, etc)
-# Fallback Groq (se OPENAI_API_KEY não setada)
+# IA — preferir OpenAI
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL_MINI=gpt-4o-mini
 GROQ_API_KEY=
 
 # Google Calendar — conta central Sales Tec
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-GOOGLE_REFRESH_TOKEN=   # refresh token da conta Google central que gerencia todos os calendários
+GOOGLE_REFRESH_TOKEN=
 
-# n8n (legado, não usado pelo bot engine)
+# n8n (legado)
 N8N_URL=
 N8N_API_KEY=
 ```
 
-### NEXT_PUBLIC_* e build time
+### `NEXT_PUBLIC_*` e build time
 
-Variáveis `NEXT_PUBLIC_*` precisam estar disponíveis no **build**, não só no runtime.
-O `nixpacks.toml` injeta essas vars na fase de build.
-
----
+Variáveis `NEXT_PUBLIC_*` precisam estar disponíveis no build, não só no runtime. O `nixpacks.toml` injeta essas vars na fase de build.
 
 ## Tabelas Supabase
 
-### Tabelas do bot (migradas para Evolution direto — migration 010)
+### Tabelas do bot
 
-#### ai_pauses
-- conversation_id (text, PK)
-- paused_until (timestamptz)
-- paused_reason (text)
-- paused_by (text)
-- updated_at (timestamptz)
+#### `ai_pauses`
+- `conversation_id` (text, PK)
+- `paused_until` (timestamptz)
+- `paused_reason` (text)
+- `paused_by` (text)
+- `updated_at` (timestamptz)
 
-#### appointments
-- id (uuid, PK)
-- conversation_id (uuid)
-- contact_id (uuid)
-- google_event_id (text)
-- title / modality / status / meet_link (text)
-- start_at / end_at / confirmation_sent_at / reminder_sent_at (timestamptz)
-- confirmation_response (text)
-- created_at / updated_at (timestamptz)
+#### `appointments`
+- `id` (uuid, PK)
+- `conversation_id` (uuid)
+- `contact_id` (uuid)
+- `google_event_id` (text)
+- `title`, `modality`, `status`, `meet_link` (text)
+- `start_at`, `end_at`, `confirmation_sent_at`, `reminder_sent_at` (timestamptz)
+- `confirmation_response` (text)
+- `created_at`, `updated_at` (timestamptz)
 
-#### contacts
-- id (uuid, PK)
-- chatwoot_id (bigint, **nullable** desde migration 010)
-- name / phone_number / identifier (text)
-- **client_id** (uuid, FK → panel_clients) — adicionado em migration 010
-- created_at (timestamptz)
-- **custom_data** (jsonb) — dados coletados pelo intake (key-value livre) — `_photo_count` é interno
-- **intake_completed_at** (timestamptz) — quando todos os campos obrigatórios foram coletados
-- ⚠️ unique key atual: `phone_number + client_id` (Evolution pipeline)
+#### `contacts`
+- `id` (uuid, PK)
+- `chatwoot_id` (bigint, nullable desde migration 010)
+- `name`, `phone_number`, `identifier` (text)
+- `client_id` (uuid, FK → `panel_clients`)
+- `created_at` (timestamptz)
+- `custom_data` (jsonb) — dados do intake; `_photo_count` é interno
+- `intake_completed_at` (timestamptz)
+- unique key atual: `phone_number + client_id`
 
-#### conversations
-- id (uuid, PK)
-- chatwoot_conversation_id (bigint, **nullable**)
-- contact_id (uuid)
-- **client_id** (uuid, FK → panel_clients) — adicionado em migration 010
-- status (text: open/resolved)
-- account_id (integer, **nullable**) — legado Chatwoot
-- labels (text[])
-- **stage** (text) — adicionado em migration 010: `bot_triage` | `awaiting_human` | `in_service` | `resolved`
-- **assigned_operator_id** (uuid) — id do operador que assumiu
-- **resolved_at** (timestamptz)
-- **summary** (text) — resumo de triagem gerado pelo AI
-- last_incoming_at / last_outgoing_at (timestamptz)
-- last_outgoing_by / appointment_status / followup_cadence (text)
-- ⚠️ SEM coluna `updated_at` — não incluir em INSERT/UPDATE ou o Supabase retorna erro silencioso
-- ⚠️ Conversas antigas (pré-migration 010) têm `stage = NULL` e `client_id = NULL`
-  — o Desk exclui essas ao filtrar por client_id
+#### `conversations`
+- `id` (uuid, PK)
+- `chatwoot_conversation_id` (bigint, nullable)
+- `contact_id` (uuid)
+- `client_id` (uuid, FK → `panel_clients`)
+- `status` (text: `open` / `resolved`)
+- `account_id` (integer, nullable) — legado Chatwoot
+- `labels` (text[])
+- `stage` (text) — `bot_triage` | `awaiting_human` | `in_service` | `resolved`
+- `stage_changed_at` (timestamptz) — migration 016, usado para analytics/SLA
+- `assigned_operator_id` (uuid)
+- `resolved_at` (timestamptz)
+- `summary` (text)
+- `last_incoming_at`, `last_outgoing_at` (timestamptz)
+- `last_outgoing_by`, `appointment_status`, `followup_cadence` (text)
+- NÃO tem coluna `updated_at`; não incluir em INSERT/UPDATE
+- conversas antigas pré-migration 010 podem ter `stage = NULL` e `client_id = NULL`
 
-#### messages
-- id (uuid, PK)
-- chatwoot_message_id (bigint, **nullable**)
-- **evolution_message_id** (text) — adicionado em migration 010, unique partial index
-- **client_id** (uuid, FK → panel_clients) — adicionado em migration 010
-- conversation_id (uuid)
-- content / content_type / sender_type / from_who (text)
-- chatwoot_conversation_id / source_id (text, nullable)
-- created_at (timestamptz)
-- **media_url** (text, nullable) — adicionado em migration 015: path no bucket `desk-media` do Supabase Storage
+#### `messages`
+- `id` (uuid, PK)
+- `chatwoot_message_id` (bigint, nullable)
+- `evolution_message_id` (text) — deduplicação do webhook
+- `client_id` (uuid, FK → `panel_clients`)
+- `conversation_id` (uuid)
+- `content`, `content_type`, `sender_type`, `from_who` (text)
+- `chatwoot_conversation_id`, `source_id` (text, nullable)
+- `created_at` (timestamptz)
+- `media_url` (text, nullable) — path do bucket `desk-media`
 
-#### panel_users — NOVA (migration 010)
-- id (uuid, PK = auth.users.id)
-- role (text): `admin` | `operator`
-- client_id (uuid, nullable FK → panel_clients) — obrigatório para operators
-- created_at (timestamptz)
+#### `conversation_operator_notes`
+- tabela criada na migration 012
+- notas privadas do Desk por conversa
+- campos principais: `conversation_id`, `client_id`, `operator_user_id`, `operator_email`, `operator_name`, `content`, `created_at`
 
-### Tabelas do painel (panel_*)
+#### `canned_responses`
+- tabela criada na migration 013 e expandida na 014
+- respostas rápidas compartilhadas por cliente e pessoais por operador
+- campos principais: `client_id`, `operator_user_id`, `shortcut`, `content`, `created_at`, `updated_at`
+- unicidade:
+  - compartilhadas: `client_id + shortcut` quando `operator_user_id IS NULL`
+  - pessoais: `client_id + operator_user_id + shortcut` quando `operator_user_id IS NOT NULL`
 
-#### panel_clients
-- id (uuid, PK)
-- name / owner_name / email / phone (text)
-- status (text): `draft` → `pending_whatsapp` → `pending_google` → `configuring` → `active` → `paused` → `disconnected`
-- created_at / updated_at (timestamptz)
+#### `panel_users`
+- criada na migration 010
+- `id` (uuid, PK = `auth.users.id`)
+- `email` (text)
+- `role` (text): `admin` | `operator`
+- `client_id` (uuid, nullable; obrigatório para operator)
+- `display_name` (text, nullable)
+- `is_active` (boolean)
+- `created_at`, `updated_at` (timestamptz)
 
-#### panel_whatsapp_config
-- id (uuid, PK)
-- client_id (uuid, FK → panel_clients, UNIQUE)
-- evolution_instance_name (text, UNIQUE) — **chave de identificação do cliente no webhook Evolution**
-- evolution_instance_id / evolution_instance_token (text)
-- connection_status (text): open / connecting / disconnected
-- connected_phone (text)
-- chatwoot_account_id (integer) — legado, não usado no novo pipeline
-- chatwoot_inbox_id (integer) — legado
-- chatwoot_agent_token (text) — legado
-- webhook_url (text)
-- connected_at / disconnected_at / created_at / updated_at (timestamptz)
+### Tabelas do painel (`panel_*`)
 
-#### panel_google_config
-- id (uuid, PK)
-- client_id (uuid, FK → panel_clients, UNIQUE)
-- google_email (text) — e-mail do profissional (attendee no convite)
-- calendar_id (text) — **obrigatório** — ID do calendário exclusivo na conta central Google
-- access_token / refresh_token / scopes (não usados — auth via GOOGLE_REFRESH_TOKEN global)
-- token_expiry (timestamptz) — não usado
+#### `panel_clients`
+- `id` (uuid, PK)
+- `name`, `owner_name`, `email`, `phone` (text)
+- `status` (text): `draft` → `pending_whatsapp` → `pending_google` → `configuring` → `active` → `paused` → `disconnected`
+- `created_at`, `updated_at` (timestamptz)
 
-#### panel_bot_config
-Config completa do AI Agent por cliente:
+#### `panel_whatsapp_config`
+- `id` (uuid, PK)
+- `client_id` (uuid, FK → `panel_clients`, UNIQUE)
+- `evolution_instance_name` (text, UNIQUE) — chave principal de identificação do cliente no webhook
+- `evolution_instance_id`, `evolution_instance_token` (text)
+- `connection_status` (text): `open` / `connecting` / `disconnected`
+- `connected_phone` (text)
+- `chatwoot_account_id`, `chatwoot_inbox_id`, `chatwoot_agent_token` (legado)
+- `webhook_url` (text)
+- `connected_at`, `disconnected_at`, `created_at`, `updated_at` (timestamptz)
 
-**Perfil**: professional_name, professional_title, professional_register, business_name, business_segment, business_address, business_phone
+#### `panel_google_config`
+- `id` (uuid, PK)
+- `client_id` (uuid, FK → `panel_clients`, UNIQUE)
+- `google_email` (text)
+- `calendar_id` (text) — obrigatório
+- `access_token`, `refresh_token`, `scopes`, `token_expiry` — mantidos, mas o fluxo atual usa `GOOGLE_REFRESH_TOKEN` global
 
-**Serviços**: services (jsonb) — `[{ name, duration_minutes, modality, price, active }]`
+#### `panel_bot_config`
 
-**Horários**: working_hours (jsonb) — `{ monday: { enabled, start, end, break_start, break_end }, ... }`
-appointment_duration_default / appointment_buffer_minutes / max_advance_booking_days / min_advance_booking_hours (int)
-allow_same_day_booking (bool)
+Configuração completa do AI Agent por cliente.
 
-**IA**: ai_greeting_message, ai_tone, ai_language, ai_custom_instructions, ai_fallback_message, ai_handoff_message
+Perfil:
+- `professional_name`
+- `professional_title`
+- `professional_register`
+- `business_name`
+- `business_segment`
+- `business_address`
+- `business_phone`
 
-**Handoff**: handoff_on_negative_sentiment, handoff_on_medical_urgency, handoff_on_unknown_intent,
-handoff_max_ai_turns, handoff_keywords (text[])
+Serviços e stages:
+- `services` (jsonb) — `[{ name, duration_minutes, modality, price, active }]`
+- `stage_labels` (jsonb) — funil customizável usado no pipeline legado e em partes do bot/follow-up
 
-**Intake**:
-- `intake_enabled` (boolean) — ativa fluxo de intake
-- `intake_fields` (jsonb) — array de IntakeFieldConfig: `[{ key, label, required }]`
-- `intake_request_photos` (boolean) — solicita fotos após intake
-- `intake_photos_count` (int) — número de fotos esperadas
-- `intake_handoff_after_photos` (boolean) — handoff automático ao receber todas as fotos
-- `intake_photo_guide_url` (text, nullable) — URL pública da imagem guia de ângulos; enviada automaticamente pelo bot ao entrar na fase de fotos
+Horários:
+- `working_hours` (jsonb)
+- `appointment_duration_default`
+- `appointment_buffer_minutes`
+- `max_advance_booking_days`
+- `min_advance_booking_hours`
+- `allow_same_day_booking`
 
-**Calendar**: calendar_event_title_template, calendar_event_description_template,
-calendar_create_meet_link, calendar_send_invite_to_patient, calendar_color_id
+IA:
+- `ai_greeting_message`
+- `ai_tone`
+- `ai_language`
+- `ai_custom_instructions`
+- `process_flow_guide`
+- `objections_guide`
+- `qualification_questions_guide`
+- `disengagement_policy_guide`
+- `ai_fallback_message`
+- `ai_handoff_message`
 
-**Chatwoot** (legado): chatwoot_auto_resolve_hours, chatwoot_working_hours_enabled, chatwoot_assign_to_agent_id
+Intake:
+- `intake_enabled`
+- `intake_fields`
+- `intake_request_photos`
+- `intake_photos_count`
+- `intake_handoff_after_photos`
+- `intake_photo_guide_url`
 
-#### panel_onboarding_sessions
-- id (uuid, PK)
-- client_id (uuid, FK)
-- token (text, UNIQUE) — URL pública pro cliente
-- step_completed / whatsapp_connected / google_connected / config_completed
-- expires_at (timestamptz)
+Follow-up:
+- `followup_enabled`
+- `followup_confirmation_hours_before`
+- `followup_reminder_hours_before`
+- `followup_noshow_enabled`
+- `msg_confirmation`
+- `msg_reminder`
+- `msg_noshow`
+- `msg_outside_hours`
+- `lead_followup_enabled` e mensagens D1/D2/D3/D5/D7
+- `atendimento_followup_enabled` e mensagens D1/D2/D4/D7/D10
+- `agendado_followup_msg_d2`
+- `agendado_followup_msg_minus3h`
+- `agendado_followup_msg_minus5min`
 
-#### panel_audit_log
-- id (uuid, PK)
-- admin_email / action (text)
-- client_id (uuid, FK)
-- details (jsonb)
-- created_at (timestamptz)
+Calendar:
+- `calendar_event_title_template`
+- `calendar_event_description_template`
+- `calendar_create_meet_link`
+- `calendar_send_invite_to_patient`
+- `calendar_color_id`
 
-#### panel_health_checks
-- id (uuid, PK)
-- client_id (uuid, FK)
-- service / status / details (text)
-- response_time_ms (int)
-- checked_at (timestamptz)
+Chatwoot legado:
+- `chatwoot_auto_resolve_hours`
+- `chatwoot_working_hours_enabled`
+- `chatwoot_assign_to_agent_id`
 
----
+#### `panel_onboarding_sessions`
+- `id` (uuid, PK)
+- `client_id` (uuid, FK)
+- `token` (text, UNIQUE)
+- `step_completed`, `whatsapp_connected`, `google_connected`, `config_completed`
+- `expires_at` (timestamptz)
+
+#### `panel_audit_log`
+- `id` (uuid, PK)
+- `admin_email`, `action` (text)
+- `client_id` (uuid, FK)
+- `details` (jsonb)
+- `created_at` (timestamptz)
+
+#### `panel_health_checks`
+- `id` (uuid, PK)
+- `client_id` (uuid, FK)
+- `service`, `status`, `details` (text)
+- `response_time_ms` (int)
+- `checked_at` (timestamptz)
+
+## Segurança e RLS
+
+### Migration 017 — `panel_rls_hardening`
+
+Hardening das policies RLS das tabelas `panel_*`:
+
+- escrita restrita a admins
+- leitura escopada por `auth.user_role()` e `auth.user_client_id()`
+- operadores só leem dados do próprio `client_id`
+- `panel_health_checks` e `panel_audit_log` seguem leitura/admin only
 
 ## APIs externas
 
 ### Evolution API
+
+```text
+POST   /instance/create
+GET    /instance/connect/{instance}
+GET    /instance/connectionState/{instance}
+GET    /instance/fetchInstances
+DELETE /instance/delete/{instance}
+POST   /chatwoot/set/{instance}
+POST   /webhook/set/{instance}
+POST   /message/sendText/{instance}
 ```
-POST   /instance/create                     — cria instância
-GET    /instance/connect/{instance}         — gera QR
-GET    /instance/connectionState/{instance} — status
-GET    /instance/fetchInstances             — lista
-DELETE /instance/delete/{instance}          — remove
-POST   /chatwoot/set/{instance}             — configura/desabilita integração Chatwoot
-POST   /webhook/set/{instance}              — ⚠️ configura webhook (não PUT /instance/webhook/)
-POST   /message/sendText/{instance}         — envia mensagem
-```
+
 Header: `apikey: EVOLUTION_API_KEY`
 
-⚠️ **Endpoint correto para webhook**: `POST /webhook/set/{instance}` com body flat `{ enabled: true, url, events, ... }` — sem wrapper `webhook: {}`.
-O `PUT /instance/webhook/{instance}` retorna 404 — não usar.
+Importante: o endpoint correto para webhook é `POST /webhook/set/{instance}` com body `{ webhook: { url, ... } }`. Não usar `PUT /instance/webhook/{instance}`.
 
-### Google Calendar (conta central)
+### Google Calendar
 
-```
-Auth: google.auth.OAuth2 com GOOGLE_REFRESH_TOKEN (src/lib/calendar/client.ts)
-Scopes: calendar, calendar.events
-```
-
----
+Auth via `google.auth.OAuth2` com `GOOGLE_REFRESH_TOKEN` em `src/lib/calendar/client.ts`.
 
 ## Rotas da API do painel
 
-### Bot (webhooks)
-- `POST /api/webhooks/evolution` — ⭐ pipeline principal (público, sem auth)
-- `POST /api/webhooks/chatwoot` — legado (público, sem auth)
+### Bot
+- `POST /api/webhooks/evolution` — pipeline principal, público
+- `POST /api/webhooks/chatwoot` — legado, público
 
-### Desk (Painel de Atendimento)
-- `GET /api/desk/conversations?client_id=&stage=` — lista conversas (all|bot_triage|awaiting_human|in_service|resolved)
-- `GET /api/desk/conversations/[id]?client_id=` — conversa + histórico completo
+### Desk
+- `GET /api/desk/conversations?client_id=&stage=` — lista conversas
+- `GET /api/desk/conversations/[id]?client_id=` — histórico completo
 - `POST /api/desk/conversations/[id]/action` — `{ action: 'assume'|'return'|'resolve' }`
-- `POST /api/desk/conversations/[id]/message` — `{ content }` — envia via Evolution + persiste
-- `POST /api/desk/conversations/[id]/send-media` — `{ base64, mimetype, caption?, file_name? }` — envia mídia via Evolution + upload Storage + persiste
-- `GET /api/desk/media?msg_id=&conversation_id=` — serve mídia: signed URL do Storage (se `media_url` salvo) ou fallback Evolution API
+- `POST /api/desk/conversations/[id]/message` — envia texto via Evolution + persiste
+- `POST /api/desk/conversations/[id]/send-media` — envia mídia via Evolution + upload Storage + persiste
+- `GET /api/desk/media?msg_id=&conversation_id=` — signed URL do Storage ou fallback Evolution
 - `GET /api/desk/stats?client_id=` — contagens por stage
+- `GET /api/desk/analytics?client_id=&days=` — métricas do Desk
+- `GET /api/desk/analytics/export?client_id=&days=` — export CSV
+- `GET /api/desk/conversations/[id]/notes` — lista notas internas
+- `POST /api/desk/conversations/[id]/notes` — cria nota interna
+- `GET /api/desk/my-canned-responses?client_id=` — lista respostas pessoais
+- `POST /api/desk/my-canned-responses?client_id=` — cria resposta pessoal
+- `PATCH /api/desk/my-canned-responses/[id]?client_id=` — atualiza resposta pessoal
+- `DELETE /api/desk/my-canned-responses/[id]?client_id=` — remove resposta pessoal
+- `GET /api/desk/conversations/[id]/assign` — lista operadores elegíveis + responsável atual
+- `PATCH /api/desk/conversations/[id]/assign` — atribui responsável
+- `POST /api/desk/conversations/[id]/availability` — envia disponibilidades para o paciente
+- `DELETE /api/desk/conversations/[id]/clear-intake` — limpa intake da conversa para testes
 
 ### Clientes
-- `GET/POST /api/clients` — lista / cria cliente
-- `GET/PATCH/DELETE /api/clients/[id]` — detalhe / atualiza / deleta
-- `POST /api/clients/[id]/activate` — ativa cliente
-- `DELETE /api/clients/[id]/history` — reseta histórico (messages, conversations, ai_pauses, appointments)
+- `GET/POST /api/clients`
+- `GET/PATCH/DELETE /api/clients/[id]`
+- `POST /api/clients/[id]/activate`
+- `DELETE /api/clients/[id]/history`
+- `GET /api/clients/[id]/canned-responses`
+- `POST /api/clients/[id]/canned-responses`
+- `PATCH /api/clients/[id]/canned-responses/[responseId]`
+- `DELETE /api/clients/[id]/canned-responses/[responseId]`
 
 ### Auth / OAuth
-- `GET /api/auth/callback` — callback Supabase Auth
-- `GET /api/auth/google/callback` — callback OAuth Google
-- `GET /api/auth/google/public` — OAuth público (onboarding sem login)
+- `GET /api/auth/callback`
+- `GET /api/auth/google/callback`
+- `GET /api/auth/google/public`
 
 ### Onboarding público
-- `GET /connect/[token]` — página pública de onboarding do cliente
+- `GET /connect/[token]`
 
 ### Health
-- `GET /api/health/[service]` — health check de serviço
-
----
+- `GET /api/health/[service]`
 
 ## Middleware de autenticação
 
-`src/lib/supabase/middleware.ts` — protege todas as rotas.
+`src/lib/supabase/middleware.ts` protege as rotas.
 
-Rotas públicas (sem auth middleware):
-- `/api/auth/callback`, `/api/auth/google/*`
+Rotas públicas:
+- `/api/auth/callback`
+- `/api/auth/google/*`
 - `/api/health/*`
-- `/connect/*` (onboarding público)
+- `/connect/*`
 - rotas com `/public-qr`
-- `/api/webhooks/chatwoot` e `/api/webhooks/evolution` ← críticos, devem permanecer públicos
-- `/api/desk/*` ← público no middleware, mas autenticado internamente via `resolveDeskUser()`
-- `/api/pipeline/*`, `/api/agenda/*`
+- `/api/webhooks/chatwoot`
+- `/api/webhooks/evolution`
+- `/api/desk/*` — público no middleware, autenticado internamente via `resolveDeskUser()`
+- `/api/pipeline/*`
+- `/api/agenda/*`
 
-### resolveDeskUser (src/lib/desk/auth.ts)
+### `resolveDeskUser` (`src/lib/desk/auth.ts`)
 
-Resolve `client_id` para as APIs do Desk:
-- **Operators** (`panel_users.role = 'operator'`): `client_id` vem de `panel_users.client_id`
-- **Admins** (`panel_users.role = 'admin'`) ou usuários sem `panel_users`: `client_id` vem de `?client_id=` query param
-
----
+- operators (`panel_users.role = 'operator'`): `client_id` vem de `panel_users.client_id`
+- admins (`panel_users.role = 'admin'`) ou usuários sem `panel_users`: `client_id` vem de `?client_id=`
 
 ## Desk — Painel de Atendimento
 
-### Componentes
+### Componentes principais
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `src/app/desk/page.tsx` | Server component — resolve clientId, renderiza DeskShell |
+| `src/app/desk/page.tsx` | Server component — resolve `clientId`, renderiza `DeskShell` |
 | `src/app/desk/layout.tsx` | Auth check, força dynamic |
-| `src/components/desk/desk-shell.tsx` | Shell 2 colunas — lista + chat, Realtime global |
-| `src/components/desk/conversation-list.tsx` | Sidebar com tabs de stage + lista de cards |
-| `src/components/desk/chat-view.tsx` | Chat com histórico, ações e input de operador |
+| `src/components/desk/desk-shell.tsx` | Shell 2 colunas — lista + chat + realtime global |
+| `src/components/desk/conversation-list.tsx` | Sidebar com tabs de stage |
+| `src/components/desk/chat-view.tsx` | Chat, ações, notas, mídia, respostas rápidas, atribuição |
 
-### Stages das conversas
+### Stages de conversa no Desk
 
-```
-bot_triage     → bot está atendendo (padrão ao criar)
-awaiting_human → bot fez handoff, aguardando operador
-in_service     → operador assumiu, pode enviar mensagens
+```text
+bot_triage     → bot atendendo
+awaiting_human → bot pausado aguardando operador
+in_service     → operador assumiu
 resolved       → finalizado
 ```
 
 ### Ações do operador
 
-- **Assumir** (de `bot_triage` ou `awaiting_human`): cria `ai_pauses` (24h), muda para `in_service`
-- **Devolver ao bot** (de `in_service`): remove `ai_pauses`, muda para `bot_triage`
-- **Finalizar**: remove `ai_pauses`, muda para `resolved`
+- assumir: cria `ai_pauses`, muda para `in_service`
+- devolver ao bot: remove `ai_pauses`, muda para `bot_triage`
+- finalizar: remove `ai_pauses`, muda para `resolved`
+- atribuir responsável para outro operador elegível
+
+### Recursos já implementados no Desk
+
+- visualização de imagens recebidas com fallback entre Storage e Evolution
+- envio de imagem/PDF via chat
+- notas internas por conversa
+- respostas rápidas compartilhadas por cliente
+- respostas rápidas pessoais por operador
+- envio de disponibilidades ao paciente
+- painel lateral de dados do contato e edição do intake
+- limpeza manual do intake para testes
 
 ### Realtime
 
-- Canal `desk:{clientId}` escuta mudanças na tabela `conversations` filtradas por `client_id`
-- Canal `chat:{conversationId}` escuta INSERT em `messages` e UPDATE em `conversations`
-- Notificações via toast (Sonner) + browser Notification API para `awaiting_human`
+- canal `desk:{clientId}` observa mudanças em `conversations`
+- canal `chat:{conversationId}` observa INSERT em `messages` e UPDATE em `conversations`
+- notificações via Sonner + browser Notification para `awaiting_human`
 
-### UI/UX
+### Analytics/SLA
 
-- Sidebar padrão abre em "Todas ativas" (exclui resolved)
-- Conversas com `stage = NULL` (legado Chatwoot) são excluídas pelo filtro `client_id` — não aparecem no Desk
-- Input de mensagem bloqueado até assumir a conversa
-- Operador pode assumir direto do `bot_triage` (não precisa esperar handoff)
-
----
+- migration 016 adiciona `stage_changed_at`
+- analytics do Desk usam `stage_changed_at` para medir aging e SLA de conversas em `awaiting_human`
+- para conversas migradas sem `stage_changed_at`, há fallback com `last_incoming_at`
 
 ## Funcionalidades do painel admin
 
 ### Dashboard
-- Lista de clientes com status visual (WhatsApp, Google, Bot)
-- Contadores: ativos, desconectados, pendentes, total
-- Health check em tempo real (polling Evolution a cada 30s)
-- Audit log recente
+- lista de clientes com status visual
+- contadores de ativos, desconectados, pendentes e total
+- health check em tempo real
+- audit log recente
 
 ### Página do cliente
-- Status cards (WhatsApp, Google, Bot)
-- Reconectar WhatsApp / renovar Google
-- Editar configuração do bot
-- **Pausar/Ativar** — para/retoma o bot
-- **Resetar histórico** — apaga messages/conversations/ai_pauses/appointments para testes
-- **Apagar cliente** — remove tudo
-- **Desk** — link direto para `/desk?client_id={id}`
-- Métricas básicas e audit log
+- status cards de WhatsApp, Google e Bot
+- reconectar WhatsApp / renovar Google
+- editar configuração do bot
+- pausar/ativar o bot
+- resetar histórico
+- apagar cliente
+- link direto para o Desk
+- gestão de respostas rápidas compartilhadas do cliente
 
 ### Pipeline
-- Kanban das conversas por stage_label (sistema legado de labels Chatwoot)
-- ⚠️ Mostra conversas **antigas** (pré-migration) que usam labels, não o campo `stage`
-- As conversas do novo pipeline Evolution (com campo `stage`) aparecem no **Desk**, não no Pipeline
-
----
+- kanban legado por `stage_labels`
+- continua separado do fluxo principal do Desk
+- conversas do novo pipeline Evolution com `stage` aparecem no Desk
 
 ## Cliente ativo: ChoiExpert Hair Clinic
 
 Clínica de transplante capilar em Tessalônica, Grécia. Primeiro cliente real do sistema.
-- **instance Evolution**: `choiexpert`
-- **client_id Supabase**: `3feeb364-86f6-4a2e-9b27-450f69d25752`
-- **Idioma dos pacientes**: inglês (internacional — Holanda, Itália, etc.)
-- **Operadores**: Nina, Konstantinos (respondem como a clínica via WhatsApp)
+
+- instance Evolution: `choiexpert`
+- client_id Supabase: `3feeb364-86f6-4a2e-9b27-450f69d25752`
+- idioma dos pacientes: inglês
+- operadores: Nina e Konstantinos
 
 ### Fluxo real de vendas da Choi
-```
+
+```text
 Novo lead (WhatsApp)
   → Bot coleta: nome, email, data nasc, país, como conheceu, medicações
   → Paciente envia 5 fotos do couro cabeludo
   → Operador avalia fotos e agenda video consultation
   → Operador envia plano cirúrgico (PDF) + orçamento (PDF)
   → Paciente confirma interesse
-  → Depósito €1000 + passagem aérea (por conta do paciente)
-  → Cirurgia agendada (1 ou 2 dias conforme caso)
-  → Pacote 2 dias inclui: hotel Elizabeth Boutique + transporte
+  → Depósito €1000 + passagem aérea
+  → Cirurgia agendada
+  → Pacote 2 dias inclui hotel + transporte
 ```
-
-### Preços praticados (referência)
-- Cirurgia 1 dia: não documentado ainda
-- Cirurgia 2 dias: €5.800 (só cirurgia) / €6.000 (com hotel + transporte)
-- Depósito: €1.000 + passagem por conta do paciente
 
 ### O que já foi implementado
 
-- ✅ **Bot responde em inglês por padrão** — system prompt base em inglês; override via `ai_language` para outros idiomas
-- ✅ **Visualizar imagens no Desk** — fotos recebidas são salvas no Supabase Storage (bucket `desk-media`) e exibidas no chat via signed URL; fallback para Evolution se mídia antiga
-- ✅ **Enviar arquivo (PDF/imagem) pelo Desk** — botão de clipe no chat; upload para Storage + envio via Evolution
-- ✅ **Bot envia imagem guia de fotos** — ao completar o intake, dispatcher envia automaticamente o `intake_photo_guide_url` antes de pedir as fotos
-- ✅ **Intake estruturado** — coleta campos um por vez antes de qualquer ação; configurável por cliente
+- bot responde em inglês por padrão, com override por `ai_language`
+- intake estruturado e configurável por cliente
+- envio automático da imagem guia de fotos com `intake_photo_guide_url`
+- visualização de imagens no Desk com Storage privado
+- envio de arquivo pelo Desk
+- notas internas no Desk
+- respostas rápidas compartilhadas e pessoais
+- `stage_changed_at` para analytics/SLA
+- hardening de RLS nas tabelas `panel_*`
 
-### O que ainda falta implementar (backlog priorizado)
+### Backlog atual
 
-**Alta prioridade:**
-1. **Funil de stages customizado** — os stages atuais (bot_triage → awaiting_human → in_service → resolved) não refletem o pipeline real de vendas da Choi
+Alta prioridade:
+1. Funil de stages customizado no Desk para refletir melhor o pipeline comercial real da Choi
 
-**Média prioridade:**
-2. **Anotações internas no Desk** — operador escreve obs sobre o paciente que não vão pro WhatsApp (nº grafts estimado, avaliação médica) — já existe migration 012
-3. **Templates de mensagem no Desk** — 1 clique para enviar mensagens padrão (pedido de fotos, envio de plano, etc.) — já existe migration 013/014
-
-**Baixa prioridade:**
-4. Agendamento de video consultation dedicado
-
----
+Baixa prioridade:
+2. Agendamento de video consultation dedicado
 
 ## Stack técnica
 
-- **Framework**: Next.js 16 (App Router)
-- **Linguagem**: TypeScript (ignoreBuildErrors: true no next.config.ts)
-- **Estilo**: Tailwind CSS + shadcn/ui
-- **UI Dialogs**: `@base-ui/react/dialog` — NÃO usar alert-dialog (não existe nesse projeto)
-- **Datas**: JavaScript nativo — `date-fns` NÃO está instalado
-- **Banco**: Supabase (PostgreSQL)
-- **Auth**: Supabase Auth (email/senha para admins)
-- **Realtime**: Supabase Realtime (postgres_changes) — usado pelo Desk
-- **Deploy**: EasyPanel — serviço `testeworkflow`, projeto `panel`
-- **Build**: Nixpacks 1.41.0
-- **Porta**: 80 (EasyPanel seta PORT=80)
+- Framework: Next.js 16 (App Router)
+- Linguagem: TypeScript
+- Estilo: Tailwind CSS + shadcn/ui
+- Dialogs: `@base-ui/react/dialog`
+- Datas: JavaScript nativo
+- Banco: Supabase PostgreSQL
+- Auth: Supabase Auth
+- Realtime: Supabase Realtime
+- Deploy: EasyPanel
+- Build: Nixpacks 1.41.0
+- Porta: 80
 
 ### Gotchas de deploy
-- `NEXT_PUBLIC_*` devem estar no `nixpacks.toml` para build time
-- `createAiClient()` deve ser chamado DENTRO das funções, nunca no module level
-- O SIGTERM nos logs após "Ready" é o container **anterior** sendo finalizado (normal)
-- `NEXT_PUBLIC_APP_URL` com trailing slash é tratado com `.replace(/\/$/, '')`
-- Páginas que fazem queries Supabase precisam de `export const dynamic = 'force-dynamic'`
-- `nixpacks.toml` tem `[start] cmd = "npm run start"` explícito — sem isso o nixpacks pode não detectar corretamente
 
----
+- `NEXT_PUBLIC_*` precisam estar no `nixpacks.toml` para build time
+- `createAiClient()` deve ser chamado dentro das funções
+- `NEXT_PUBLIC_APP_URL` com trailing slash é tratado com `.replace(/\/$/, '')`
+- páginas que consultam Supabase precisam de `export const dynamic = 'force-dynamic'`
+- `nixpacks.toml` tem `[start] cmd = "npm run start"` explícito
+- SIGTERM logo após `Ready` costuma ser o container anterior sendo finalizado
 
 ## Migrations de banco
 
-As migrations ficam em `supabase/migrations/` e são aplicadas **automaticamente** ao subir o app
-(`npm run start` executa `node scripts/migrate.mjs` antes do `next start`).
+As migrations ficam em `supabase/migrations/` e são aplicadas automaticamente no `npm run start` via `node scripts/migrate.mjs`.
 
-O script rastreia o que já foi aplicado na tabela `_schema_migrations`. Toda vez que o EasyPanel
-faz deploy, as migrations novas são rodadas antes do app aceitar requests.
+### Sequência relevante hoje
 
-### Para criar uma nova migration
-1. Crie o arquivo `supabase/migrations/NNN_nome.sql` com numeração sequencial
-2. Escreva o SQL com `IF NOT EXISTS` / `IF EXISTS` para ser idempotente
-3. Faça o commit junto com o código que depende dela — o deploy roda tudo junto
+- `010_evolution_migration.sql`
+- `011_intake.sql`
+- `012_desk_internal_notes.sql`
+- `013_canned_responses.sql`
+- `014_personal_canned_responses.sql`
+- `015_media_storage.sql`
+- `016_stage_changed_at.sql`
+- `017_panel_rls_hardening.sql`
 
-⚠️ **Nunca** fazer deploy de código que depende de coluna/tabela nova sem criar a migration
-antes — o app vai quebrar silenciosamente (queries retornam erro, tela em branco no Desk, etc).
+### Regras para novas migrations
 
-### Comportamento do migrate.mjs em primeiro deploy
-O script tolera erros de "already exists" (`42P07`, `42701`, etc.) — marca a migration como aplicada e continua.
-Isso resolve o caso onde o banco já existia antes do script ser criado.
+1. Criar `supabase/migrations/NNN_nome.sql` com numeração sequencial
+2. Escrever SQL idempotente com `IF NOT EXISTS` / `IF EXISTS`
+3. Comitar a migration junto com o código que depende dela
 
-### Supabase Storage — bucket desk-media
-Criado na migration 015. Bucket **privado** — nunca expõe URLs públicas diretas.
-Acesso via signed URLs geradas pelo servidor (expiram em 1h).
-Usado para: fotos recebidas dos pacientes, PDFs/imagens enviados por operadores.
+Nunca fazer deploy de código que depende de coluna/tabela nova sem criar a migration antes.
 
----
+### `migrate.mjs` no primeiro deploy
+
+O script tolera erros de `already exists` e marca a migration como aplicada.
+
+### Supabase Storage — bucket `desk-media`
+
+- criado na migration 015
+- bucket privado
+- acesso por signed URLs geradas no servidor
+- usado para fotos recebidas e arquivos enviados por operadores
 
 ## Comandos
 
-- `npm run dev` — Dev server
-- `npm run build` — Build de produção
-- `npm run start` — Roda migrations pendentes e sobe o app
-- `npm run lint` — ESLint
+- `npm run dev`
+- `npm run build`
+- `npm run start`
+- `npm run lint`
 
 ## Convenções
 
 - Server Components por padrão; `"use client"` só quando necessário
 - API routes em `src/app/api/`
-- Variáveis sensíveis via env, nunca no código
-- Commits em português, imperativos, < 72 chars
-- Prefixo `panel_` nas tabelas do painel
-- Loading states + toast notifications em toda operação assíncrona
-- Verificar CLAUDE.md e tabelas existentes antes de criar qualquer nova tabela ou coluna
+- variáveis sensíveis sempre via env
+- commits em português, imperativos e curtos
+- prefixo `panel_` nas tabelas do painel
+- loading states + toast notifications em operações assíncronas
+- verificar `CLAUDE.md` e tabelas existentes antes de criar nova tabela ou coluna
