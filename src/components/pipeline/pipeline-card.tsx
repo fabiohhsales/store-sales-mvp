@@ -3,12 +3,12 @@
 import { useDraggable } from '@dnd-kit/core'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Calendar, Clock, MessageCircle, Thermometer } from 'lucide-react'
-import type { PipelineConversation } from '@/types/pipeline'
+import { Calendar, Clock, GripVertical, MessageCircle, Thermometer } from 'lucide-react'
+import type { PipelineBoardConversation } from '@/types/pipeline'
 
 interface PipelineCardProps {
-  conversation: PipelineConversation
-  onClick: (conversation: PipelineConversation) => void
+  conversation: PipelineBoardConversation
+  onClick: (conversation: PipelineBoardConversation) => void
   isOverlay?: boolean
 }
 
@@ -49,7 +49,7 @@ function stageAge(dateStr: string | null): string {
   return `${days}d na etapa`
 }
 
-function temperatureClass(t: PipelineConversation['temperature']): string {
+function temperatureClass(t: PipelineBoardConversation['temperature']): string {
   if (t === 'hot') return 'bg-red-500/10 text-red-500 border-red-500/20'
   if (t === 'warm') return 'bg-amber-500/10 text-amber-500 border-amber-500/20'
   return 'bg-sky-500/10 text-sky-500 border-sky-500/20'
@@ -74,8 +74,6 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
     <Card
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
       onClick={() => onClick(conversation)}
       className={`
         cursor-pointer border-l-4 p-3 transition-shadow hover:shadow-md
@@ -86,15 +84,31 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
     >
       <div className="space-y-2">
         {/* Nome e telefone */}
-        <div>
-          <p className="font-medium text-sm leading-tight truncate">
-            {conversation.contact_name || 'Sem nome'}
-          </p>
-          {conversation.contact_phone && (
-            <p className="text-xs text-muted-foreground truncate">
-              {conversation.contact_phone}
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-sm leading-tight truncate">
+              {conversation.contact_name || 'Sem nome'}
             </p>
-          )}
+            {conversation.contact_phone && (
+              <p className="text-xs text-muted-foreground truncate">
+                {conversation.contact_phone}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            aria-label="Arrastar card"
+            onClick={(event) => event.stopPropagation()}
+            className={`
+              mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md
+              text-muted-foreground transition-colors
+              ${isOverlay ? 'cursor-default' : 'cursor-grab hover:bg-muted hover:text-foreground active:cursor-grabbing'}
+            `}
+            {...(!isOverlay ? listeners : {})}
+            {...(!isOverlay ? attributes : {})}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
         </div>
 
         {/* Última atividade + temperatura + followup */}

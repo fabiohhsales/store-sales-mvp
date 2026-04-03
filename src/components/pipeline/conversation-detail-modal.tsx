@@ -22,17 +22,17 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Calendar, Clock, ExternalLink, MessageCircle, Phone, User } from 'lucide-react'
 import { getChatwootPublicUrl } from '@/lib/config'
-import type { PipelineConversation } from '@/types/pipeline'
+import type { PipelineBoardConversation } from '@/types/pipeline'
 import type { StageLabelConfig } from '@/types/database'
 import { toast } from 'sonner'
 
 interface ConversationDetailModalProps {
-  conversation: PipelineConversation | null
+  conversation: PipelineBoardConversation | null
   columns: StageLabelConfig[]
   open: boolean
   onOpenChange: (open: boolean) => void
   onMoveStage: (conversationId: string, chatwootId: number | null, fromStage: string, toStage: string) => void
-  onMessageSent: () => void
+  onMessageSent: (nextStageSlug?: string) => void
   clientId: string
   token?: string
   chatwootAccountId?: number | null
@@ -146,6 +146,7 @@ export function ConversationDetailModal({
   }, [open, conversation, columns])
 
   if (!conversation) return null
+  const activeConversation = conversation
 
   async function handleSendReply() {
     const content = reply.trim()
@@ -157,7 +158,7 @@ export function ConversationDetailModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          conversation_id: conversation.id,
+          conversation_id: activeConversation.id,
           content,
           auto_move_enabled: autoMoveEnabled,
           auto_move_to_stage: autoMoveToStage,
@@ -184,7 +185,7 @@ export function ConversationDetailModal({
       localStorage.setItem('pipeline-auto-move-enabled', autoMoveEnabled ? '1' : '0')
       localStorage.setItem('pipeline-auto-move-stage', autoMoveToStage)
 
-      onMessageSent()
+      onMessageSent(autoMoveEnabled ? autoMoveToStage : undefined)
       toast.success('Mensagem enviada')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Falha ao enviar mensagem')
@@ -193,7 +194,7 @@ export function ConversationDetailModal({
     }
   }
 
-  const currentColumn = columns.find((c) => c.slug === conversation.stage_slug)
+  const currentColumn = columns.find((c) => c.slug === activeConversation.stage_slug)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -201,7 +202,7 @@ export function ConversationDetailModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <User className="h-5 w-5" />
-            {conversation.contact_name || 'Sem nome'}
+            {activeConversation.contact_name || 'Sem nome'}
           </DialogTitle>
         </DialogHeader>
 
@@ -209,27 +210,27 @@ export function ConversationDetailModal({
           <div className="space-y-4">
             {/* Contato */}
             <div className="space-y-1 text-sm">
-              {conversation.contact_phone && (
+              {activeConversation.contact_phone && (
                 <p className="flex items-center gap-2 text-muted-foreground">
                   <Phone className="h-3.5 w-3.5" />
-                  {conversation.contact_phone}
+                  {activeConversation.contact_phone}
                 </p>
               )}
-              {conversation.contact_identifier && (
+              {activeConversation.contact_identifier && (
                 <p className="text-xs text-muted-foreground">
-                  ID: {conversation.contact_identifier}
+                  ID: {activeConversation.contact_identifier}
                 </p>
               )}
             </div>
 
             {/* Status + Stage */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant={STATUS_VARIANTS[conversation.status]}>
-                {STATUS_LABELS[conversation.status]}
+              <Badge variant={STATUS_VARIANTS[activeConversation.status]}>
+                {STATUS_LABELS[activeConversation.status]}
               </Badge>
-              {chatwootUrl && chatwootAccountId && conversation.chatwoot_conversation_id && (
+              {chatwootUrl && chatwootAccountId && activeConversation.chatwoot_conversation_id && (
                 <a
-                  href={`${chatwootUrl}/accounts/${chatwootAccountId}/conversations/${conversation.chatwoot_conversation_id}`}
+                  href={`${chatwootUrl}/accounts/${chatwootAccountId}/conversations/${activeConversation.chatwoot_conversation_id}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -239,7 +240,7 @@ export function ConversationDetailModal({
                 </a>
               )}
               <Link
-                href={`/desk?client_id=${clientId}&conversation_id=${conversation.id}`}
+                href={`/desk?client_id=${clientId}&conversation_id=${activeConversation.id}`}
                 className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
               >
                 Ir para o Desk
@@ -247,10 +248,10 @@ export function ConversationDetailModal({
               {currentColumn && (
                 <Badge variant="outline">{currentColumn.display_name}</Badge>
               )}
-              {conversation.followup_cadence && (
+              {activeConversation.followup_cadence && (
                 <Badge variant="outline" className="text-xs">
                   <MessageCircle className="h-3 w-3 mr-1" />
-                  {conversation.followup_cadence}
+                  {activeConversation.followup_cadence}
                 </Badge>
               )}
             </div>
@@ -259,13 +260,13 @@ export function ConversationDetailModal({
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Mover para etapa</label>
               <Select
-                value={conversation.stage_slug}
+                value={activeConversation.stage_slug}
                 onValueChange={(newStage) => {
-                  if (newStage && newStage !== conversation.stage_slug) {
+                  if (newStage && newStage !== activeConversation.stage_slug) {
                     onMoveStage(
-                      conversation.id,
-                      conversation.chatwoot_conversation_id,
-                      conversation.stage_slug,
+                      activeConversation.id,
+                      activeConversation.chatwoot_conversation_id,
+                      activeConversation.stage_slug,
                       newStage
                     )
                   }
@@ -343,7 +344,7 @@ export function ConversationDetailModal({
                 </div>
                 <Select
                   value={autoMoveToStage}
-                  onValueChange={setAutoMoveToStage}
+                  onValueChange={(value) => setAutoMoveToStage(value ?? '')}
                   disabled={!autoMoveEnabled}
                 >
                   <SelectTrigger>
@@ -368,22 +369,22 @@ export function ConversationDetailModal({
 
           <div className="space-y-4">
             {/* Appointment */}
-            {conversation.appointment && (
+            {activeConversation.appointment && (
               <div className="space-y-2 rounded-md border p-3">
                 <h4 className="text-sm font-medium flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
                   Agendamento
                 </h4>
                 <div className="text-sm text-muted-foreground space-y-1">
-                  <p>{formatDateTime(conversation.appointment.start_at)}</p>
-                  {conversation.appointment.status && (
+                  <p>{formatDateTime(activeConversation.appointment.start_at)}</p>
+                  {activeConversation.appointment.status && (
                     <Badge variant="outline" className="text-xs">
-                      {conversation.appointment.status}
+                      {activeConversation.appointment.status}
                     </Badge>
                   )}
-                  {conversation.appointment.meet_link && (
+                  {activeConversation.appointment.meet_link && (
                     <a
-                      href={conversation.appointment.meet_link}
+                      href={activeConversation.appointment.meet_link}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-primary hover:underline flex items-center gap-1 text-xs"

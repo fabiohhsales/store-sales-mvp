@@ -4,7 +4,42 @@ import { isAuthError } from '@/lib/auth/request-context'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getBotConfigByClientId } from '@/lib/db/bot-config'
 import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
-import type { PipelineConversation } from '@/types/pipeline'
+import type { PipelineBoardConversation } from '@/types/pipeline'
+
+interface ConversationRow {
+  id: string
+  chatwoot_conversation_id: number | null
+  status: 'pending' | 'open' | 'resolved' | null
+  stage: string | null
+  labels: string[] | null
+  last_incoming_at: string | null
+  last_outgoing_at: string | null
+  followup_cadence: string | null
+  appointment_status: string | null
+  summary: string | null
+  contacts: Array<{
+    name: string | null
+    phone_number: string | null
+    identifier: string | null
+  }> | null
+}
+
+interface AppointmentRow {
+  id: string
+  conversation_id: string
+  start_at: string
+  end_at: string
+  status: string | null
+  meet_link: string | null
+}
+
+function classifyPipelineTemperature(lastIncomingAt: string | null): 'hot' | 'warm' | 'cold' {
+  if (!lastIncomingAt) return 'cold'
+  const diffDays = (Date.now() - new Date(lastIncomingAt).getTime()) / (1000 * 60 * 60 * 24)
+  if (diffDays < 1) return 'hot'
+  if (diffDays < 3) return 'warm'
+  return 'cold'
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,16 +53,34 @@ export async function GET(request: NextRequest) {
     // Busca stage_labels do bot config
     const botConfig = await getBotConfigByClientId(auth.client_id)
     const stageLabels = sanitizeStageLabels(botConfig?.stage_labels)
+    const stageSlugs = new Set(stageLabels.map((s) => s.slug))
 
-    // Query conversations por client_id (novo modelo Evolution)
+    const conversationSelect = `
+      id,
+      chatwoot_conversation_id,
+      status,
+      stage,
+      labels,
+      last_incoming_at,
+      last_outgoing_at,
+      followup_cadence,
+      appointment_status,
+      summary,
+      contacts!inner(name, phone_number, identifier)
+    `
+
     let query = admin
       .from('conversations')
-      .select('*, contacts!inner(name, phone_number, identifier)')
+      .select(conversationSelect)
       .eq('client_id', auth.client_id)
-      .neq('stage', 'resolved')
 
-    if (statusFilter && statusFilter !== 'all') {
-      query = query.eq('status', statusFilter)
+    if (statusFilter === 'resolved') {
+      query = query.eq('stage', 'resolved')
+    } else {
+      query = query.or('stage.neq.resolved,stage.is.null')
+      if (statusFilter && statusFilter !== 'all') {
+        query = query.eq('status', statusFilter)
+      }
     }
 
     const { data: conversations, error: convError } = await query
@@ -35,9 +88,9 @@ export async function GET(request: NextRequest) {
 
     if (convError) throw convError
 
-    // Busca appointments mais recentes por conversation
-    const conversationIds = (conversations || []).map((c: Record<string, unknown>) => c.id as string)
-    const appointmentsMap: Record<string, Record<string, unknown>> = {}
+    const typedConversations = (conversations ?? []) as ConversationRow[]
+    const conversationIds = typedConversations.map((conversation) => conversation.id)
+    const appointmentsMap: Record<string, AppointmentRow> = {}
 
     if (conversationIds.length > 0) {
       const { data: appointments } = await admin
@@ -46,64 +99,57 @@ export async function GET(request: NextRequest) {
         .in('conversation_id', conversationIds)
         .order('start_at', { ascending: false })
 
-      if (appointments) {
-        for (const apt of appointments) {
-          if (!appointmentsMap[apt.conversation_id]) {
-            appointmentsMap[apt.conversation_id] = apt
-          }
+      for (const appointment of (appointments ?? []) as AppointmentRow[]) {
+        if (!appointmentsMap[appointment.conversation_id]) {
+          appointmentsMap[appointment.conversation_id] = appointment
         }
       }
     }
 
-    // Monta conjunto de slugs válidos para identificar stage label
-    const stageSlugs = new Set(stageLabels.map((s) => s.slug))
+    const pipelineConversations: PipelineBoardConversation[] = typedConversations.map((conversation) => {
+      const labels = conversation.labels ?? []
+      const contact = conversation.contacts?.[0] ?? null
 
-    const pipelineConversations: PipelineConversation[] = (conversations || []).map(
-      (conv: Record<string, unknown>) => {
-        const contact = conv.contacts as Record<string, unknown> | null
-        const labels = (conv.labels as string[]) || []
+      // Posição no funil é determinada apenas por labels[].
+      // conversations.stage permanece reservado ao estado operacional do Desk.
+      const funnelLabel = labels.find((label) => stageSlugs.has(label))
+      const appointment = appointmentsMap[conversation.id] ?? null
+      const lastIncomingAt = conversation.last_incoming_at
 
-        let stageSlug = '_sem_etapa'
-        if (conv.stage && typeof conv.stage === 'string' && stageSlugs.has(conv.stage)) {
-          stageSlug = conv.stage
-        } else {
-          stageSlug = labels.find((l) => stageSlugs.has(l)) || '_sem_etapa'
-        }
-
-        const apt = appointmentsMap[conv.id as string] || null
-
-        return {
-          id: conv.id as string,
-          chatwoot_conversation_id: (conv.chatwoot_conversation_id as number) ?? null,
-          contact_name: (contact?.name as string) || null,
-          contact_phone: (contact?.phone_number as string) || null,
-          contact_identifier: (contact?.identifier as string) || null,
-          status: (conv.status as 'pending' | 'open' | 'resolved') || 'open',
-          stage_slug: stageSlug,
-          labels,
-          last_incoming_at: (conv.last_incoming_at as string) || null,
-          last_outgoing_at: (conv.last_outgoing_at as string) || null,
-          followup_cadence: (conv.followup_cadence as string) || null,
-          appointment_status: (conv.appointment_status as string) || null,
-          appointment: apt
-            ? {
-                id: apt.id as string,
-                start_at: apt.start_at as string,
-                end_at: apt.end_at as string,
-                status: (apt.status as string) || null,
-                meet_link: (apt.meet_link as string) || null,
-              }
-            : null,
-        }
+      return {
+        id: conversation.id,
+        chatwoot_conversation_id: conversation.chatwoot_conversation_id ?? null,
+        contact_name: contact?.name ?? null,
+        contact_phone: contact?.phone_number ?? null,
+        contact_identifier: contact?.identifier ?? null,
+        status: conversation.status ?? 'open',
+        stage_slug: funnelLabel ?? '_sem_etapa',
+        labels,
+        last_incoming_at: lastIncomingAt,
+        last_outgoing_at: conversation.last_outgoing_at ?? null,
+        stage_entered_at: null,
+        followup_cadence: conversation.followup_cadence ?? null,
+        summary: conversation.summary ?? null,
+        intake_fields_filled: 0,
+        intake_fields_total: 0,
+        temperature: classifyPipelineTemperature(lastIncomingAt),
+        appointment_status: conversation.appointment_status ?? null,
+        appointment: appointment
+          ? {
+              id: appointment.id,
+              start_at: appointment.start_at,
+              end_at: appointment.end_at,
+              status: appointment.status ?? null,
+              meet_link: appointment.meet_link ?? null,
+            }
+          : null,
       }
-    )
+    })
 
-    // Sempre retorna TODAS as stageLabels como colunas (mesmo sem cards)
-    const columns = [...stageLabels]
-    const hasUnstaged = pipelineConversations.some((c) => c.stage_slug === '_sem_etapa')
-    if (hasUnstaged) {
-      columns.unshift({ slug: '_sem_etapa', display_name: 'Sem etapa', followup_cadence: null })
-    }
+    const columns = [
+      { slug: '_sem_etapa', display_name: 'Sem etapa', followup_cadence: null },
+      ...stageLabels,
+    ]
 
     return NextResponse.json({
       columns,

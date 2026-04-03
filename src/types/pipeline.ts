@@ -8,7 +8,7 @@ export interface PipelineAppointment {
   meet_link: string | null
 }
 
-export interface PipelineConversation {
+export interface PipelineBoardConversation {
   id: string
   chatwoot_conversation_id: number | null
   contact_name: string | null
@@ -29,11 +29,14 @@ export interface PipelineConversation {
   appointment: PipelineAppointment | null
 }
 
-export interface PipelineData {
+export interface PipelineBoardData {
   columns: StageLabelConfig[]
-  conversations: PipelineConversation[]
+  conversations: PipelineBoardConversation[]
   chatwootAccountId?: number | null
 }
+
+export type PipelineConversation = PipelineBoardConversation
+export type PipelineData = PipelineBoardData
 
 export interface AgendaAppointment {
   id: string

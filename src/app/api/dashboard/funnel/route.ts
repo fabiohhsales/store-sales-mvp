@@ -16,6 +16,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser } from '@/lib/desk/auth'
+import { getBotConfigByClientId } from '@/lib/db/bot-config'
+import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
 
 function classifyTemperature(lastIncomingAt: string | null): 'hot' | 'warm' | 'cold' | 'frozen' {
@@ -40,11 +42,16 @@ export async function GET(request: NextRequest) {
   // Batch 1: todas as conversas do cliente (evita múltiplas queries à mesma tabela)
   const { data: convRows } = await admin
     .from('conversations')
-    .select('id, stage, last_incoming_at, resolved_at')
+    .select('id, stage, labels, last_incoming_at, resolved_at')
     .eq('client_id', deskUser.clientId)
 
   const conversations = convRows ?? []
   const conversationIds = conversations.map((c) => c.id)
+
+  // Busca stage_labels configurados para contagem por funil
+  const botConfig = await getBotConfigByClientId(deskUser.clientId)
+  const stageLabels = sanitizeStageLabels(botConfig?.stage_labels)
+  const stageSlugs = new Set(stageLabels.map((s) => s.slug))
 
   // Batch 2: followup steps dos últimos 7 dias + agenda próximos 7 dias (em paralelo)
   const [{ data: followupRows }, { data: agendaRows }] = await Promise.all([
@@ -63,20 +70,34 @@ export async function GET(request: NextRequest) {
       .lte('start_at', sevenDaysAhead),
   ])
 
-  // --- Stage counts + Temperatura ---
+  // --- Stage counts (operacional) + Temperatura + Funil (labels) ---
   const stageCounts = { bot_triage: 0, awaiting_human: 0, in_service: 0, resolved_week: 0 }
   const temperatureCounts = { hot: 0, warm: 0, cold: 0, frozen: 0 }
+  const funnelCounts: Record<string, number> = {}
+  for (const sl of stageLabels) funnelCounts[sl.slug] = 0
+  funnelCounts['_sem_etapa'] = 0
 
   for (const conv of conversations) {
     if (conv.stage === 'resolved') {
       if (conv.resolved_at && conv.resolved_at >= sevenDaysAgo) {
         stageCounts.resolved_week++
       }
-    } else if (conv.stage != null) {
-      if (conv.stage in stageCounts) {
+    } else {
+      // Conta stage operacional (pode ser null para conversas ativas legadas)
+      if (conv.stage != null && conv.stage in stageCounts) {
         stageCounts[conv.stage as keyof typeof stageCounts]++
       }
+      // Temperatura: conta toda conversa não-resolvida (inclusive stage null)
       temperatureCounts[classifyTemperature(conv.last_incoming_at)]++
+
+      // Funil via labels
+      const labels = (conv.labels as string[]) || []
+      const funnelLabel = labels.find((l) => stageSlugs.has(l))
+      if (funnelLabel) {
+        funnelCounts[funnelLabel]++
+      } else {
+        funnelCounts['_sem_etapa']++
+      }
     }
   }
 
@@ -102,5 +123,7 @@ export async function GET(request: NextRequest) {
     temperatureCounts,
     followupSentWeek,
     agendaWeek,
+    funnelCounts,
+    funnelLabels: stageLabels,
   })
 }

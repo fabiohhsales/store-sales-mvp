@@ -373,7 +373,7 @@ async function upsertEvolutionConversation(
     .select('*')
     .eq('contact_id', contact.id)
     .eq('client_id', clientId)
-    .neq('stage', 'resolved')
+    .or('stage.neq.resolved,stage.is.null')
     .order('last_incoming_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -397,6 +397,7 @@ async function upsertEvolutionConversation(
       contact_id: contact.id,
       client_id: clientId,
       status: 'open',
+      // stage permanece no domínio operacional do Desk; o funil do Kanban fica em labels[].
       stage: 'bot_triage',
       labels: [defaultLabel],
       last_incoming_at: new Date().toISOString(),

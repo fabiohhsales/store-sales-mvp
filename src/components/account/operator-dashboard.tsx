@@ -4,11 +4,19 @@ import { useState, useEffect } from 'react'
 import { MessageSquare, Calendar, CheckCircle, ExternalLink, Loader2, Thermometer, Send } from 'lucide-react'
 import Link from 'next/link'
 
+interface FunnelLabel {
+  slug: string
+  display_name: string
+  followup_cadence: string | null
+}
+
 interface FunnelData {
   stageCounts: { bot_triage: number; awaiting_human: number; in_service: number; resolved_week: number }
   temperatureCounts: { hot: number; warm: number; cold: number; frozen: number }
   followupSentWeek: { lead: number; atendimento: number; agendado: number }
   agendaWeek: { total: number; confirmed: number; scheduled: number; noshow: number }
+  funnelCounts?: Record<string, number>
+  funnelLabels?: FunnelLabel[]
 }
 
 const TEMPERATURE_CONFIG = [
@@ -56,7 +64,12 @@ export function OperatorDashboard({ clientId, clientName }: OperatorDashboardPro
   }
 
   const s = funnel?.stageCounts
-  const totalAtivas = (s?.bot_triage ?? 0) + (s?.awaiting_human ?? 0) + (s?.in_service ?? 0)
+  const fc = funnel?.funnelCounts
+  // Conta total ativo a partir dos funnelCounts (baseado em labels, não em stage)
+  // para incluir conversas com stage null ou valores inesperados
+  const totalAtivas = fc
+    ? Object.values(fc).reduce((sum, v) => sum + v, 0)
+    : (s?.bot_triage ?? 0) + (s?.awaiting_human ?? 0) + (s?.in_service ?? 0)
 
   const statCards = [
     {
@@ -213,6 +226,40 @@ export function OperatorDashboard({ clientId, clientName }: OperatorDashboardPro
           </div>
         </div>
       </div>
+
+      {/* Distribuição por etapa do funil */}
+      {funnel?.funnelLabels && funnel.funnelLabels.length > 0 && (
+        <div className="rounded-lg border bg-card p-5 space-y-4">
+          <span className="text-sm font-medium text-foreground">Distribuição por etapa</span>
+          <div className="space-y-2">
+            {funnel.funnelLabels.map((label) => {
+              const count = fc?.[label.slug] ?? 0
+              const pct = totalAtivas > 0 ? Math.round((count / totalAtivas) * 100) : 0
+              return (
+                <div key={label.slug} className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground w-24 truncate">{label.display_name}</span>
+                  <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full bg-primary/60 transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-xs font-medium text-foreground w-8 text-right">{count}</span>
+                </div>
+              )
+            })}
+            {(fc?.['_sem_etapa'] ?? 0) > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground w-24 truncate">Sem etapa</span>
+                <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-muted-foreground/40 transition-all"
+                    style={{ width: `${totalAtivas > 0 ? Math.round(((fc?.['_sem_etapa'] ?? 0) / totalAtivas) * 100) : 0}%` }}
+                  />
+                </div>
+                <span className="text-xs font-medium text-foreground w-8 text-right">{fc?.['_sem_etapa'] ?? 0}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Quick links */}
       <div className="grid gap-4 sm:grid-cols-2">

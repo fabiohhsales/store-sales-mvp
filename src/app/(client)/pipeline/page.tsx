@@ -1,13 +1,13 @@
 import { redirect } from 'next/navigation'
 import { PipelinePageClient } from '@/app/(admin)/pipeline/pipeline-client'
-import { listClients } from '@/lib/db/clients'
+import { listClientsAdmin } from '@/lib/db/clients'
 import { getPanelSession } from '@/lib/auth/panel-session'
 
 export default async function PipelinePage() {
   const session = await getPanelSession()
   if (!session) redirect('/login')
 
-  const clients = await listClients()
+  const clients = await listClientsAdmin()
   const active = clients.filter((c) => c.status === 'active' || c.status === 'paused')
   const scopedClients =
     session.role === 'operator' && session.clientId

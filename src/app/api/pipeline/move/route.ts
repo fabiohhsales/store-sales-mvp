@@ -95,23 +95,37 @@ export async function POST(request: NextRequest) {
     }
 
     // Remove labels de etapa antigas e aplica a nova etapa.
-    // Assim stage e labels ficam consistentes mesmo com dados legados.
+    // Kanban/funil é rastreado APENAS via labels[]; conversations.stage
+    // é reservado para o estado operacional (bot_triage|awaiting_human|in_service|resolved)
+    // e possui CHECK constraint no banco.
     const currentLabels = (conversation.labels as string[]) || []
     const baseLabels = currentLabels.filter((label) => !stageSlugsForLabels.has(label))
     const newLabels = to_stage === '_sem_etapa' ? baseLabels : [...baseLabels, to_stage]
-    const newStage = to_stage === '_sem_etapa' ? null : to_stage
 
     const { error: updateError } = await admin
       .from('conversations')
       .update({
         labels: newLabels,
-        stage: newStage,
       })
       .eq('id', conversation.id)
 
     if (updateError) {
+      console.error('[pipeline/move] Falha ao atualizar conversa:', {
+        conversationId: conversation.id,
+        from_stage,
+        to_stage,
+        error: updateError,
+      })
       throw updateError
     }
+
+    console.log('[pipeline/move] Etapa movida com sucesso:', {
+      conversationId: conversation.id,
+      from_stage,
+      to_stage,
+      newLabels,
+      authSource: auth.source ?? 'session',
+    })
 
     // Sincroniza com Chatwoot se a conversa tiver chatwoot_conversation_id (fallback)
     if (conversation.chatwoot_conversation_id) {
@@ -146,7 +160,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, labels: newLabels, stage: newStage })
+    return NextResponse.json({ success: true, labels: newLabels })
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: error.message }, { status: error.status })
