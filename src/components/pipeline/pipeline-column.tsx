@@ -2,14 +2,14 @@
 
 import { useDroppable } from '@dnd-kit/core'
 import { PipelineCard } from './pipeline-card'
-import type { PipelineConversation } from '@/types/pipeline'
+import type { PipelineBoardConversation } from '@/types/pipeline'
 
 interface PipelineColumnProps {
   id: string
   title: string
-  conversations: PipelineConversation[]
+  conversations: PipelineBoardConversation[]
   colorIndex: number
-  onCardClick: (conversation: PipelineConversation) => void
+  onCardClick: (conversation: PipelineBoardConversation) => void
 }
 
 const COLUMN_COLORS = [

@@ -134,13 +134,12 @@ describe('POST /api/pipeline/move', () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
       success: true,
-      stage: 'etapa_qualificacao',
       labels: ['vip', 'manual_tag', 'etapa_qualificacao'],
     })
 
+    // Kanban move atualiza APENAS labels; stage operacional não é alterado
     expect(client.getUpdatePayload()).toEqual({
       labels: ['vip', 'manual_tag', 'etapa_qualificacao'],
-      stage: 'etapa_qualificacao',
     })
   })
 

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { OperatorDashboard } from '@/components/account/operator-dashboard'
-import { listClients } from '@/lib/db/clients'
+import { listClientsAdmin } from '@/lib/db/clients'
 import { getPanelSession } from '@/lib/auth/panel-session'
 import type { ClientStatus } from '@/types/database'
 
@@ -19,7 +19,7 @@ export default async function AccountPage() {
   const session = await getPanelSession()
   if (!session) redirect('/login')
 
-  let clients = await listClients()
+  let clients = await listClientsAdmin()
 
   if (session.role === 'operator' && session.clientId) {
     clients = clients.filter((c) => c.id === session.clientId)

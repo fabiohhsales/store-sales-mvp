@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser } from '@/lib/desk/auth'
 import { sendTextMessage } from '@/lib/api/evolution'
+import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
 
 /**
  * POST /api/conversations/start
@@ -68,6 +69,15 @@ export async function POST(request: NextRequest) {
   const conversationId = crypto.randomUUID()
   const now = new Date().toISOString()
 
+  // Busca stage_labels do bot config para posicionar no funil via labels
+  const { data: botConfigRow } = await admin
+    .from('panel_bot_config')
+    .select('stage_labels')
+    .eq('client_id', deskUser.clientId)
+    .maybeSingle()
+  const stageLabels = sanitizeStageLabels(botConfigRow?.stage_labels)
+  const defaultFunnelLabel = stageLabels[0]?.slug ?? null
+
   const { error: convError } = await admin
     .from('conversations')
     .insert({
@@ -75,9 +85,10 @@ export async function POST(request: NextRequest) {
       contact_id: contactId,
       client_id: deskUser.clientId,
       status: 'open',
+      // stage permanece operacional para o Desk; o funil do Kanban vive em labels[].
       stage: 'in_service',
       assigned_operator_id: deskUser.userId,
-      labels: [],
+      labels: defaultFunnelLabel ? [defaultFunnelLabel] : [],
       last_outgoing_at: now,
       last_outgoing_by: 'operator',
     })

@@ -9,8 +9,8 @@ import {
   useSensor,
   useSensors,
   DragOverlay,
-  DragStartEvent,
-  DragEndEvent,
+  type DragStartEvent,
+  type DragEndEvent,
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { PipelineColumn } from './pipeline-column'
@@ -18,7 +18,8 @@ import { PipelineCard } from './pipeline-card'
 import { PipelineFilters } from './pipeline-filters'
 import { ConversationDetailModal } from './conversation-detail-modal'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { PipelineConversation, PipelineData } from '@/types/pipeline'
+import { toast } from 'sonner'
+import type { PipelineBoardConversation, PipelineBoardData } from '@/types/pipeline'
 
 interface KanbanBoardProps {
   clientId: string
@@ -27,23 +28,20 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardProps) {
-  const [data, setData] = useState<PipelineData | null>(null)
+  const [data, setData] = useState<PipelineBoardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Filtros
   const [statusFilter, setStatusFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Drag
-  const [activeDrag, setActiveDrag] = useState<PipelineConversation | null>(null)
+  const [activeDrag, setActiveDrag] = useState<PipelineBoardConversation | null>(null)
 
-  // Modal
-  const [selectedConversation, setSelectedConversation] = useState<PipelineConversation | null>(null)
+  const [selectedConversation, setSelectedConversation] = useState<PipelineBoardConversation | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
@@ -60,7 +58,7 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
         throw new Error(errData.error || 'Erro ao carregar dados')
       }
 
-      const result: PipelineData = await res.json()
+      const result: PipelineBoardData = await res.json()
       setData(result)
       setError(null)
     } catch (err) {
@@ -70,30 +68,52 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
     }
   }, [clientId, token, statusFilter])
 
-  // Fetch inicial + auto-refresh 30s
   useEffect(() => {
     setLoading(true)
-    fetchData()
-    const interval = setInterval(fetchData, 30000)
+    void fetchData()
+    const interval = setInterval(() => {
+      void fetchData()
+    }, 30000)
     return () => clearInterval(interval)
   }, [fetchData, refreshToken])
 
-  // Filtro local por nome/telefone
   const filteredConversations = useMemo(() => {
     if (!data) return []
     if (!searchQuery.trim()) return data.conversations
 
-    const q = searchQuery.toLowerCase()
+    const normalizedQuery = searchQuery.toLowerCase()
     return data.conversations.filter(
-      (c) =>
-        (c.contact_name?.toLowerCase().includes(q)) ||
-        (c.contact_phone?.includes(q))
+      (conversation) =>
+        conversation.contact_name?.toLowerCase().includes(normalizedQuery) ||
+        conversation.contact_phone?.includes(normalizedQuery)
     )
   }, [data, searchQuery])
 
+  const applyStageLocally = useCallback((conversationId: string, stageSlug: string) => {
+    setData((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        conversations: prev.conversations.map((conversation) =>
+          conversation.id === conversationId
+            ? { ...conversation, stage_slug: stageSlug }
+            : conversation
+        ),
+      }
+    })
+
+    setSelectedConversation((prev) =>
+      prev && prev.id === conversationId
+        ? { ...prev, stage_slug: stageSlug }
+        : prev
+    )
+  }, [])
+
   function handleDragStart(event: DragStartEvent) {
-    const conv = data?.conversations.find((c) => c.id === event.active.id)
-    if (conv) setActiveDrag(conv)
+    const conversation = data?.conversations.find((item) => item.id === event.active.id)
+    if (conversation) {
+      setActiveDrag(conversation)
+    }
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -101,101 +121,87 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
     const { active, over } = event
     if (!over || !data) return
 
-    const draggedConv = data.conversations.find((c) => c.id === active.id)
-    if (!draggedConv) return
+    const draggedConversation = data.conversations.find((conversation) => conversation.id === active.id)
+    if (!draggedConversation) return
 
     const targetColumnId = over.id as string
-    if (targetColumnId === draggedConv.stage_slug) return
+    if (targetColumnId === draggedConversation.stage_slug) return
 
-    // Update otimista
-    setData((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        conversations: prev.conversations.map((c) =>
-          c.id === draggedConv.id ? { ...c, stage_slug: targetColumnId } : c
-        ),
-      }
-    })
+    const previousStage = draggedConversation.stage_slug
+    applyStageLocally(draggedConversation.id, targetColumnId)
 
-    // Chamada API
     try {
-      const body = {
-        conversation_id: draggedConv.id,
-        ...(typeof draggedConv.chatwoot_conversation_id === 'number'
-          ? { chatwoot_conversation_id: draggedConv.chatwoot_conversation_id }
-          : {}),
-        from_stage: draggedConv.stage_slug,
-        to_stage: targetColumnId,
-        ...(token ? { token } : { client_id: clientId }),
-      }
-
       const res = await fetch('/api/pipeline/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          conversation_id: draggedConversation.id,
+          ...(typeof draggedConversation.chatwoot_conversation_id === 'number'
+            ? { chatwoot_conversation_id: draggedConversation.chatwoot_conversation_id }
+            : {}),
+          from_stage: previousStage,
+          to_stage: targetColumnId,
+          ...(token ? { token } : { client_id: clientId }),
+        }),
       })
 
       if (!res.ok) {
-        // Reverte em caso de erro
-        fetchData()
+        const errBody = await res.json().catch(() => ({}))
+        toast.error(errBody.error || 'Erro ao mover etapa')
+        applyStageLocally(draggedConversation.id, previousStage)
+        void fetchData()
       }
     } catch {
-      fetchData()
+      toast.error('Erro de conexão ao mover etapa')
+      applyStageLocally(draggedConversation.id, previousStage)
+      void fetchData()
     }
   }
 
-  function handleCardClick(conversation: PipelineConversation) {
+  function handleCardClick(conversation: PipelineBoardConversation) {
     setSelectedConversation(conversation)
     setModalOpen(true)
   }
 
-  function handleMoveStage(
+  async function handleMoveStage(
     conversationId: string,
     chatwootId: number | null,
     fromStage: string,
     toStage: string
   ) {
-    // Update otimista
-    setData((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        conversations: prev.conversations.map((c) =>
-          c.id === conversationId
-            ? { ...c, stage_slug: toStage }
-            : c
-        ),
-      }
-    })
+    applyStageLocally(conversationId, toStage)
 
-    // Atualiza o conversation selecionado no modal
-    setSelectedConversation((prev) =>
-      prev && prev.id === conversationId
-        ? { ...prev, stage_slug: toStage }
-        : prev
-    )
-
-    // API call
-    fetch('/api/pipeline/move', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        conversation_id: conversationId,
-        ...(typeof chatwootId === 'number' ? { chatwoot_conversation_id: chatwootId } : {}),
-        from_stage: fromStage,
-        to_stage: toStage,
-        ...(token ? { token } : { client_id: clientId }),
-      }),
-    })
-      .then((res) => {
-        if (!res.ok) fetchData()
+    try {
+      const res = await fetch('/api/pipeline/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          ...(typeof chatwootId === 'number' ? { chatwoot_conversation_id: chatwootId } : {}),
+          from_stage: fromStage,
+          to_stage: toStage,
+          ...(token ? { token } : { client_id: clientId }),
+        }),
       })
-      .catch(() => fetchData())
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        toast.error(errBody.error || 'Erro ao mover etapa')
+        applyStageLocally(conversationId, fromStage)
+        void fetchData()
+      }
+    } catch {
+      toast.error('Erro de conexão ao mover etapa')
+      applyStageLocally(conversationId, fromStage)
+      void fetchData()
+    }
   }
 
-  function handleMessageSent() {
-    fetchData()
+  function handleMessageSent(nextStageSlug?: string) {
+    if (selectedConversation && nextStageSlug) {
+      applyStageLocally(selectedConversation.id, nextStageSlug)
+    }
+    void fetchData()
   }
 
   if (loading) {
@@ -203,8 +209,8 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
       <div className="flex h-full flex-col gap-4 p-4">
         <Skeleton className="h-10 w-full" />
         <div className="flex gap-4">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-96 w-72" />
+          {Array.from({ length: 5 }).map((_, index) => (
+            <Skeleton key={index} className="h-96 w-72" />
           ))}
         </div>
       </div>
@@ -214,10 +220,13 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
   if (error) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-center space-y-2">
-          <p className="text-destructive font-medium">{error}</p>
+        <div className="space-y-2 text-center">
+          <p className="font-medium text-destructive">{error}</p>
           <button
-            onClick={() => { setLoading(true); fetchData() }}
+            onClick={() => {
+              setLoading(true)
+              void fetchData()
+            }}
             className="text-sm text-primary hover:underline"
           >
             Tentar novamente
@@ -231,7 +240,6 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
 
   return (
     <div className="flex h-full flex-col gap-4">
-      {/* Filtros */}
       <PipelineFilters
         statusFilter={statusFilter}
         onStatusChange={setStatusFilter}
@@ -240,7 +248,6 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
         totalCount={filteredConversations.length}
       />
 
-      {/* Board */}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -254,7 +261,7 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
               id={column.slug}
               title={column.display_name}
               conversations={filteredConversations.filter(
-                (c) => c.stage_slug === column.slug
+                (conversation) => conversation.stage_slug === column.slug
               )}
               colorIndex={index}
               onCardClick={handleCardClick}
@@ -263,16 +270,11 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
         </div>
         <DragOverlay>
           {activeDrag ? (
-            <PipelineCard
-              conversation={activeDrag}
-              onClick={() => {}}
-              isOverlay
-            />
+            <PipelineCard conversation={activeDrag} onClick={() => {}} isOverlay />
           ) : null}
         </DragOverlay>
       </DndContext>
 
-      {/* Modal de detalhe */}
       <ConversationDetailModal
         conversation={selectedConversation}
         columns={data.columns}

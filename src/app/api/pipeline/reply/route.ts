@@ -22,14 +22,14 @@ export async function POST(request: NextRequest) {
     const auth = await authenticateRequest(token || null, client_id || null)
     const admin = createAdminClient()
 
-    const { data: conv } = await admin
+    const { data: conversation } = await admin
       .from('conversations')
-      .select('id, client_id, contact_id, labels, stage, chatwoot_conversation_id')
+      .select('id, client_id, contact_id, labels, chatwoot_conversation_id')
       .eq('id', conversation_id)
       .eq('client_id', auth.client_id)
       .maybeSingle()
 
-    if (!conv) {
+    if (!conversation) {
       return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
     }
 
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       admin
         .from('contacts')
         .select('identifier, phone_number')
-        .eq('id', conv.contact_id)
+        .eq('id', conversation.contact_id)
         .maybeSingle(),
       admin
         .from('panel_whatsapp_config')
@@ -53,6 +53,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Configuração de envio indisponível para a conversa' }, { status: 422 })
     }
 
+    const shouldAutoMove = Boolean(
+      auto_move_enabled &&
+      typeof auto_move_to_stage === 'string' &&
+      auto_move_to_stage.trim()
+    )
+
+    let nextLabels: string[] | null = null
+    if (shouldAutoMove) {
+      const targetStage = auto_move_to_stage as string
+
+      const { data: botConfigRow } = await admin
+        .from('panel_bot_config')
+        .select('stage_labels')
+        .eq('client_id', auth.client_id)
+        .maybeSingle()
+
+      const stageLabels = sanitizeStageLabels(botConfigRow?.stage_labels)
+      const validStageSlugs = new Set(stageLabels.map((item) => item.slug))
+      if (targetStage !== '_sem_etapa' && !validStageSlugs.has(targetStage)) {
+        return NextResponse.json({ error: 'auto_move_to_stage inválido para o cliente' }, { status: 400 })
+      }
+
+      const stageSlugsForLabels = new Set([...validStageSlugs, '_sem_etapa'])
+      const currentLabels = (conversation.labels as string[]) || []
+      const baseLabels = currentLabels.filter((label) => !stageSlugsForLabels.has(label))
+      nextLabels = targetStage === '_sem_etapa' ? baseLabels : [...baseLabels, targetStage]
+    }
+
     const text = content.trim()
     await sendTextMessage(instanceName, recipient, text)
 
@@ -61,7 +89,7 @@ export async function POST(request: NextRequest) {
       .from('messages')
       .insert({
         id: crypto.randomUUID(),
-        conversation_id: conversation_id,
+        conversation_id,
         client_id: auth.client_id,
         content: text,
         content_type: 'text',
@@ -76,41 +104,24 @@ export async function POST(request: NextRequest) {
       throw insertError
     }
 
-    const shouldAutoMove = Boolean(auto_move_enabled && typeof auto_move_to_stage === 'string' && auto_move_to_stage.trim())
-
-    if (shouldAutoMove) {
-      const targetStage = auto_move_to_stage as string
-
-      const { data: botConfigRow } = await admin
-        .from('panel_bot_config')
-        .select('stage_labels')
-        .eq('client_id', auth.client_id)
-        .maybeSingle()
-
-      const stageLabels = sanitizeStageLabels(botConfigRow?.stage_labels)
-      const validStageSlugs = new Set(stageLabels.map((s) => s.slug))
-      if (!validStageSlugs.has(targetStage)) {
-        return NextResponse.json({ error: 'auto_move_to_stage inválido para o cliente' }, { status: 400 })
-      }
-
-      const stageSlugsForLabels = new Set([...validStageSlugs, '_sem_etapa'])
-      const currentLabels = (conv.labels as string[]) || []
-      const baseLabels = currentLabels.filter((label) => !stageSlugsForLabels.has(label))
-      const newLabels = [...baseLabels, targetStage]
-
-      await admin
+    if (nextLabels) {
+      // Resposta inline pode reposicionar o funil, mas não altera o stage operacional.
+      const { error: updateError } = await admin
         .from('conversations')
         .update({
-          labels: newLabels,
-          stage: targetStage,
+          labels: nextLabels,
           last_outgoing_at: now,
           last_outgoing_by: 'operator',
         })
         .eq('id', conversation_id)
 
-      if (conv.chatwoot_conversation_id) {
+      if (updateError) {
+        throw updateError
+      }
+
+      if (conversation.chatwoot_conversation_id) {
         try {
-          const [{ data: whatsappConfig }, { data: clientRow }] = await Promise.all([
+          const [{ data: whatsappConfigRow }, { data: clientRow }] = await Promise.all([
             admin
               .from('panel_whatsapp_config')
               .select('chatwoot_account_id, chatwoot_agent_token')
@@ -123,24 +134,28 @@ export async function POST(request: NextRequest) {
               .maybeSingle(),
           ])
 
-          const accountId = whatsappConfig?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null
-          const agentToken = whatsappConfig?.chatwoot_agent_token ?? clientRow?.chatwoot_agent_token ?? null
+          const accountId = whatsappConfigRow?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null
+          const agentToken = whatsappConfigRow?.chatwoot_agent_token ?? clientRow?.chatwoot_agent_token ?? null
 
           if (accountId && agentToken) {
-            await updateConversationLabels(accountId, agentToken, conv.chatwoot_conversation_id, newLabels)
+            await updateConversationLabels(accountId, agentToken, conversation.chatwoot_conversation_id, nextLabels)
           }
         } catch (chatwootErr) {
           console.warn('[pipeline/reply] Chatwoot sync falhou (ignorado):', chatwootErr)
         }
       }
     } else {
-      await admin
+      const { error: updateError } = await admin
         .from('conversations')
         .update({
           last_outgoing_at: now,
           last_outgoing_by: 'operator',
         })
         .eq('id', conversation_id)
+
+      if (updateError) {
+        throw updateError
+      }
     }
 
     return NextResponse.json(message)

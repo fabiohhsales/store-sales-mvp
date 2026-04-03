@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type {
   PanelClient,
   PanelClientInsert,
@@ -9,6 +10,22 @@ import type {
 export async function listClients(): Promise<PanelClientWithRelations[]> {
   const supabase = await createClient()
   const { data, error } = await supabase
+    .from('panel_clients')
+    .select('*, panel_whatsapp_config(*), panel_google_config(*), panel_bot_config(*)')
+    .order('created_at', { ascending: false })
+
+  if (error) throw error
+  return data as PanelClientWithRelations[]
+}
+
+/**
+ * Lista clientes usando service role key (bypassa RLS).
+ * Usar em server components onde o usuário logado pode não ter
+ * policy de SELECT no panel_clients (e.g. operadores).
+ */
+export async function listClientsAdmin(): Promise<PanelClientWithRelations[]> {
+  const admin = createAdminClient()
+  const { data, error } = await admin
     .from('panel_clients')
     .select('*, panel_whatsapp_config(*), panel_google_config(*), panel_bot_config(*)')
     .order('created_at', { ascending: false })
