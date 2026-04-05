@@ -185,6 +185,66 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
 
 const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 }
 
+async function checkGlobalConflicts(): Promise<SOCAlert[]> {
+  const supabase = await createClient()
+  const alerts: SOCAlert[] = []
+
+  // Detecta o mesmo número de WhatsApp conectado em 2+ instâncias
+  const { data: configs } = await supabase
+    .from('panel_whatsapp_config')
+    .select('client_id, evolution_instance_name, connected_phone')
+    .not('connected_phone', 'is', null)
+
+  if (configs) {
+    const phoneMap = new Map<string, { client_id: string; instance: string }[]>()
+    for (const cfg of configs) {
+      if (!cfg.connected_phone) continue
+      const existing = phoneMap.get(cfg.connected_phone) ?? []
+      existing.push({ client_id: cfg.client_id, instance: cfg.evolution_instance_name })
+      phoneMap.set(cfg.connected_phone, existing)
+    }
+    for (const [phone, entries] of phoneMap) {
+      if (entries.length > 1) {
+        const instanceList = entries.map((e) => e.instance).join(', ')
+        alerts.push({
+          id: `global:phone_conflict:${phone}`,
+          client_id: entries[0].client_id,
+          client_name: 'CONFLITO GLOBAL',
+          severity: 'critical',
+          type: 'phone_number_conflict',
+          message: `Número ${phone} conectado em ${entries.length} instâncias simultâneas: ${instanceList}`,
+          action_url: '/clients',
+        })
+      }
+    }
+  }
+
+  // Detecta clientes em draft que já têm instância vinculada (onboarding incompleto)
+  const { data: draftWithInstance } = await supabase
+    .from('panel_clients')
+    .select('id, name, panel_whatsapp_config(evolution_instance_name)')
+    .eq('status', 'draft')
+    .not('panel_whatsapp_config', 'is', null)
+
+  if (draftWithInstance) {
+    for (const client of draftWithInstance as PanelClientWithRelations[]) {
+      if (client.panel_whatsapp_config?.evolution_instance_name) {
+        alerts.push({
+          id: `${client.id}:draft_with_instance`,
+          client_id: client.id as string,
+          client_name: client.name,
+          severity: 'warning',
+          type: 'client_draft_with_instance',
+          message: `Cliente em rascunho com instância WhatsApp vinculada — onboarding incompleto`,
+          action_url: `/clients/${client.id}`,
+        })
+      }
+    }
+  }
+
+  return alerts
+}
+
 async function runCheck(): Promise<CacheEntry> {
   const supabase = await createClient()
   const { data: clients, error } = await supabase
@@ -195,14 +255,20 @@ async function runCheck(): Promise<CacheEntry> {
 
   if (error) throw error
 
-  const results = await Promise.allSettled(
-    (clients as PanelClientWithRelations[]).map(buildAlertsForClient)
-  )
+  const [results, globalAlerts] = await Promise.all([
+    Promise.allSettled(
+      (clients as PanelClientWithRelations[]).map(buildAlertsForClient)
+    ),
+    checkGlobalConflicts().catch(() => [] as SOCAlert[]),
+  ])
 
-  const alerts = results
+  const clientAlerts = results
     .filter((r): r is PromiseFulfilledResult<SOCAlert[]> => r.status === 'fulfilled')
     .flatMap((r) => r.value)
-    .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+
+  const alerts = [...globalAlerts, ...clientAlerts].sort(
+    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
+  )
 
   return { alerts, checked_at: new Date().toISOString() }
 }

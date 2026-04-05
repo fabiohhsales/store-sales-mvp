@@ -134,6 +134,39 @@ export async function persistConnectionSnapshot(
 ): Promise<void> {
   const supabase = createAdminClient()
   const dbStatus = toDbConnectionStatus(snapshot.state)
+
+  // Ao conectar, verificar se o número já está em uso por outra instância
+  if (snapshot.state === 'open' && snapshot.connectedPhone) {
+    const { data: conflict } = await supabase
+      .from('panel_whatsapp_config')
+      .select('client_id, evolution_instance_name')
+      .eq('connected_phone', snapshot.connectedPhone)
+      .neq('evolution_instance_name', snapshot.instanceName)
+      .maybeSingle()
+
+    if (conflict) {
+      console.error(
+        `[ConnectionState] CONFLITO DE NÚMERO: phone=${snapshot.connectedPhone} ` +
+        `já está conectado na instância "${conflict.evolution_instance_name}" ` +
+        `(client_id=${conflict.client_id}). ` +
+        `Instância "${snapshot.instanceName}" não pode usar o mesmo número.`
+      )
+      // Persiste estado mas SEM sobrescrever connected_phone para evitar corromper dados
+      const safeUpdates = {
+        connection_status: dbStatus,
+        connected_phone: null,
+        updated_at: snapshot.lastUpdatedAt,
+        connected_at: snapshot.lastUpdatedAt,
+        disconnected_at: null,
+      }
+      await supabase
+        .from('panel_whatsapp_config')
+        .update(safeUpdates)
+        .eq('evolution_instance_name', snapshot.instanceName)
+      return
+    }
+  }
+
   const updates: Record<string, unknown> = {
     connection_status: dbStatus,
     connected_phone: snapshot.state === 'open' ? snapshot.connectedPhone : null,
