@@ -110,7 +110,8 @@ async function resolveClientContext(chatwootAccountId: number): Promise<ClientCo
     .eq('id', wConfig.client_id)
     .maybeSingle()
 
-  if (clientRow?.status !== 'active') {
+  const BOT_ALLOWED_STATUSES = ['active', 'pending_google', 'configuring']
+  if (!BOT_ALLOWED_STATUSES.includes(clientRow?.status ?? '')) {
     console.log(`[Pipeline] client=${wConfig.client_id} status=${clientRow?.status} — bot pausado`)
     return null
   }
@@ -286,7 +287,8 @@ async function resolveClientByInstance(instanceName: string): Promise<ClientCont
     .eq('id', wConfig.client_id)
     .maybeSingle()
 
-  if (clientRow?.status !== 'active') {
+  const BOT_ALLOWED_STATUSES = ['active', 'pending_google', 'configuring']
+  if (!BOT_ALLOWED_STATUSES.includes(clientRow?.status ?? '')) {
     console.log(`[Pipeline] client=${wConfig.client_id} status=${clientRow?.status} — bot pausado`)
     return null
   }

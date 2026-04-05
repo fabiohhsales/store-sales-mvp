@@ -194,11 +194,20 @@ export async function persistConnectionSnapshot(
   if (!config?.client_id) return
 
   if (snapshot.state === 'open') {
+    // Se bot config já existe, ativar direto; senão, pending_google
+    const { data: botConfig } = await supabase
+      .from('panel_bot_config')
+      .select('client_id')
+      .eq('client_id', config.client_id)
+      .maybeSingle()
+
+    const nextStatus = botConfig ? 'active' : 'pending_google'
+
     const { error } = await supabase
       .from('panel_clients')
-      .update({ status: 'pending_google' })
+      .update({ status: nextStatus })
       .eq('id', config.client_id)
-      .in('status', ['pending_whatsapp', 'disconnected'])
+      .in('status', ['pending_whatsapp', 'pending_google', 'disconnected', 'configuring'])
 
     if (error) {
       throw new Error(`Falha ao atualizar panel_clients: ${error.message}`)
