@@ -103,6 +103,12 @@ async function resolveClientContext(chatwootAccountId: number): Promise<ClientCo
 
   if (!wConfig) return null
 
+  // Instâncias com Evolution direto são gerenciadas pelo pipeline Evolution — não processar aqui
+  if (wConfig.evolution_instance_name) {
+    console.log(`[Pipeline-Chatwoot] instância ${wConfig.evolution_instance_name} usa Evolution direto — skipping`)
+    return null
+  }
+
   // Verifica se o cliente está ativo — paused/disconnected param o bot
   const { data: clientRow } = await supabase
     .from('panel_clients')
@@ -131,12 +137,14 @@ async function resolveClientContext(chatwootAccountId: number): Promise<ClientCo
 
 async function upsertContact(
   supabase: ReturnType<typeof createAdminClient>,
-  msg: NormalizedWebhookMessage
+  msg: NormalizedWebhookMessage,
+  clientId: string
 ): Promise<BotContact> {
   const { data: existing } = await supabase
     .from('contacts')
     .select('*')
     .eq('chatwoot_id', msg.chatwootContactId)
+    .eq('client_id', clientId)
     .maybeSingle()
 
   if (existing) return existing as BotContact
@@ -149,18 +157,20 @@ async function upsertContact(
       name: msg.contactName,
       phone_number: msg.contactPhone,
       identifier: msg.contactIdentifier,
+      client_id: clientId,
       created_at: new Date().toISOString(),
     })
     .select()
     .single()
 
   if (error) {
-    // Duplicate key — tenta por chatwoot_id (mais específico) ou telefone
+    // Duplicate key — tenta por chatwoot_id + client_id (mais específico) ou telefone + client_id
     if (error.code === '23505') {
       const { data: byChatwootId } = await supabase
         .from('contacts')
         .select('*')
         .eq('chatwoot_id', msg.chatwootContactId)
+        .eq('client_id', clientId)
         .maybeSingle()
       if (byChatwootId) return byChatwootId as BotContact
 
@@ -169,6 +179,7 @@ async function upsertContact(
           .from('contacts')
           .select('*')
           .eq('phone_number', msg.contactPhone)
+          .eq('client_id', clientId)
           .limit(1)
         if (byPhone && byPhone.length > 0) return byPhone[0] as BotContact
       }
@@ -182,7 +193,8 @@ async function upsertConversation(
   supabase: ReturnType<typeof createAdminClient>,
   msg: NormalizedWebhookMessage,
   contact: BotContact,
-  defaultLabel: string
+  defaultLabel: string,
+  clientId: string
 ): Promise<BotConversation> {
   const { data: existing } = await supabase
     .from('conversations')
@@ -209,7 +221,9 @@ async function upsertConversation(
       id: crypto.randomUUID(),
       chatwoot_conversation_id: msg.chatwootConversationId,
       contact_id: contact.id,
-      status: 'pending',
+      client_id: clientId,
+      status: 'open',
+      stage: 'bot_triage',
       account_id: msg.chatwootAccountId,
       chatwoot_contact_id: msg.chatwootContactId,
       labels: [defaultLabel],
@@ -225,7 +239,8 @@ async function upsertConversation(
 async function saveMessage(
   supabase: ReturnType<typeof createAdminClient>,
   msg: NormalizedWebhookMessage,
-  conversation: BotConversation
+  conversation: BotConversation,
+  clientId: string
 ): Promise<BotMessage> {
   const { data: saved, error } = await supabase
     .from('messages')
@@ -233,6 +248,7 @@ async function saveMessage(
       id: crypto.randomUUID(),
       chatwoot_message_id: msg.chatwootMessageId,
       conversation_id: conversation.id,
+      client_id: clientId,
       content: msg.messageContent,
       content_type: msg.contentType,
       sender_type: 'contact',
@@ -524,10 +540,10 @@ export async function runBasePipeline(msg: NormalizedWebhookMessage): Promise<Pi
   if (!clientContext) return null
 
   const supabase = createAdminClient()
-  const contact = await upsertContact(supabase, msg)
   const stageSlugs = stageLabelSlugs(clientContext.botConfig?.stage_labels)
-  const conversation = await upsertConversation(supabase, msg, contact, stageSlugs[0])
-  const message = await saveMessage(supabase, msg, conversation)
+  const contact = await upsertContact(supabase, msg, clientContext.clientId)
+  const conversation = await upsertConversation(supabase, msg, contact, stageSlugs[0], clientContext.clientId)
+  const message = await saveMessage(supabase, msg, conversation, clientContext.clientId)
   const messageHistory = await getMessageHistory(supabase, conversation.id)
 
   return { clientContext, contact, conversation, message, messageHistory }
