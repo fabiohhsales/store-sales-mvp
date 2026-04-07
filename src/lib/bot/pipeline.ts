@@ -363,15 +363,41 @@ async function upsertEvolutionContact(
     .single()
 
   if (error) {
-    // Race condition: outro processo criou antes — busca pelo telefone
     if (error.code === '23505') {
-      const { data: byPhone } = await supabase
+      // 1. Race condition: outro processo criou antes — busca pela chave natural nova
+      const { data: byPhoneClient } = await supabase
         .from('contacts')
         .select('*')
         .eq('phone_number', msg.phoneNumber)
         .eq('client_id', clientId)
         .maybeSingle()
-      if (byPhone) return byPhone as BotContact
+      if (byPhoneClient) return byPhoneClient as BotContact
+
+      // 2. Contato legado órfão (Chatwoot-era, client_id = NULL) violando o
+      //    constraint antigo contacts_phone_account_id_unique.
+      //    "Reivindica" o contato para este cliente setando client_id.
+      const { data: orphans } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('phone_number', msg.phoneNumber)
+        .is('client_id', null)
+        .limit(1)
+
+      if (orphans && orphans.length > 0) {
+        const orphan = orphans[0]
+        const { data: claimed } = await supabase
+          .from('contacts')
+          .update({
+            client_id: clientId,
+            name: msg.contactName || orphan.name || msg.phoneNumber,
+            identifier: msg.remoteJid ?? orphan.identifier,
+          })
+          .eq('id', orphan.id)
+          .select()
+          .single()
+        console.log(`[Pipeline] contato órfão reivindicado: id=${orphan.id} phone=${msg.phoneNumber} → client=${clientId}`)
+        return (claimed ?? orphan) as BotContact
+      }
     }
     throw new Error(`Falha ao criar contato Evolution: ${error.message}`)
   }
