@@ -467,13 +467,42 @@ async function saveEvolutionMessage(
     .maybeSingle()
 
   if (duplicate) {
-    console.log(`[Pipeline] Mensagem duplicada ignorada: ${msg.messageId}`)
-    const { data: existing } = await supabase
+    // Verifica se a mensagem duplicada pertence à conversa atual
+    const { data: existingMsg } = await supabase
       .from('messages')
       .select('*')
       .eq('evolution_message_id', msg.messageId)
       .single()
-    return existing as BotMessage
+
+    if (existingMsg && existingMsg.conversation_id === conversation.id) {
+      console.log(`[Pipeline] Mensagem duplicada na mesma conversa — ignorada: ${msg.messageId}`)
+      return existingMsg as BotMessage
+    }
+
+    // Mensagem existe em outra conversa — re-salva na conversa atual (sem evolution_message_id para evitar conflito de unique)
+    console.log(`[Pipeline] Mensagem duplicada em outra conversa, re-salvando na conversa atual: ${msg.messageId}`)
+    const { data: reSaved, error: reError } = await supabase
+      .from('messages')
+      .insert({
+        id: crypto.randomUUID(),
+        conversation_id: conversation.id,
+        client_id: clientId,
+        content: msg.content,
+        content_type: msg.contentType,
+        sender_type: 'contact',
+        from_who: 'lead',
+        created_at: msg.timestamp.toISOString(),
+        // evolution_message_id omitido para não violar unique index
+      })
+      .select()
+      .single()
+
+    if (reError) {
+      console.error(`[Pipeline] Falha ao re-salvar mensagem duplicada: ${reError.message}`)
+      // Retorna a mensagem existente como fallback
+      return (existingMsg ?? duplicate) as BotMessage
+    }
+    return reSaved as BotMessage
   }
 
   const { data: saved, error } = await supabase

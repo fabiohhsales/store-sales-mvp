@@ -229,7 +229,7 @@ async function saveAiMessage(
   reply: string
 ): Promise<void> {
   const supabase = createAdminClient()
-  await supabase.from('messages').insert({
+  const { error } = await supabase.from('messages').insert({
     id: crypto.randomUUID(),
     conversation_id: conversationId,
     client_id: clientId,
@@ -239,6 +239,9 @@ async function saveAiMessage(
     from_who: 'ai',
     created_at: new Date().toISOString(),
   })
+  if (error) {
+    console.error(`[Dispatcher] Falha ao salvar mensagem da IA na conversa ${conversationId}: ${error.message}`)
+  }
 }
 
 // Move a conversa para awaiting_human, envia mensagem de handoff ao paciente e persiste resumo

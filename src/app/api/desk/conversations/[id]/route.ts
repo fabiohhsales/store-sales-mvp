@@ -34,12 +34,15 @@ export async function GET(
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
-  const { data: messages } = await admin
+  const { data: messages, error: msgError } = await admin
     .from('messages')
     .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url')
     .eq('conversation_id', id)
     .order('created_at', { ascending: true })
     .limit(100)
+
+  if (msgError) console.error(`[desk/conversations/${id}] Erro ao buscar mensagens: ${msgError.message}`)
+  console.log(`[desk/conversations/${id}] ${messages?.length ?? 0} mensagem(ns) retornada(s)`)
 
   return NextResponse.json({ conversation, messages: messages ?? [] })
 }
