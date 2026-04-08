@@ -1,3 +1,7 @@
+// @deprecated — usar apenas para clientes com account_id legado
+// Pipeline ativo: Evolution API direta via /api/webhooks/evolution
+// Data-alvo de remoção: após 100% dos clientes migrarem para Evolution
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'

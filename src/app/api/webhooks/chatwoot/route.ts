@@ -1,3 +1,7 @@
+// @deprecated — usar apenas para clientes com account_id legado
+// Pipeline ativo: Evolution API direta via /api/webhooks/evolution
+// Data-alvo de remoção: após 100% dos clientes migrarem para Evolution
+
 // Webhook receiver: substitui o endpoint do n8n para todas as instâncias do Chatwoot.
 // Cada cliente tem sua própria Account Chatwoot — identificamos pelo account.id do payload.
 

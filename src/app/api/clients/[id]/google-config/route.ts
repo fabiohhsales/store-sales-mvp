@@ -15,7 +15,7 @@ export async function PATCH(
 
   const { id } = await params
   const body = await req.json()
-  const { google_email, calendar_id } = body
+  const { google_email, calendar_id, calendar_mode } = body
 
   const supabase = createAdminClient()
 
@@ -26,6 +26,7 @@ export async function PATCH(
         client_id: id,
         google_email: google_email ?? null,
         calendar_id: calendar_id ?? null,
+        ...(calendar_mode ? { calendar_mode } : {}),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'client_id' }

@@ -91,6 +91,8 @@ export type PanelWhatsAppConfigUpdate = Partial<Omit<PanelWhatsAppConfig, 'id' |
 
 // --- Panel Google Config ---
 
+export type CalendarMode = 'google_shared' | 'google_oauth' | 'native'
+
 export interface PanelGoogleConfig {
   id: string
   client_id: string
@@ -101,6 +103,8 @@ export interface PanelGoogleConfig {
   token_expiry: string | null
   scopes: string[]
   authorized_at: string | null
+  /** Modo de integração com Google Calendar (migration 022). */
+  calendar_mode: CalendarMode
   created_at: string
   updated_at: string
 }

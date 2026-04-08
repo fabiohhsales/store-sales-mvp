@@ -2,7 +2,7 @@
 // Chamado pelo dispatcher quando o AI Agent sinaliza intenção de agendamento.
 // appointments no Supabase são a fonte de verdade; Google Calendar é sync opcional.
 
-import { getCalendarClient } from '@/lib/calendar/client'
+import { getCalendarClientForConfig } from '@/lib/calendar/client'
 import { parseTimeWindow, getAvailableSlots, formatSlotsMessage } from '@/lib/calendar/slots'
 import { sendTextMessage } from '@/lib/api/evolution'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -27,7 +27,10 @@ export async function handleAgendaCheck(
     return
   }
 
-  if (!process.env.GOOGLE_REFRESH_TOKEN) {
+  const calendarId = googleConfig?.calendar_id
+  const calendar = getCalendarClientForConfig(googleConfig ?? null)
+
+  if (!calendar) {
     await sendAndSave(
       whatsappConfig,
       contact,
@@ -37,7 +40,6 @@ export async function handleAgendaCheck(
     return
   }
 
-  const calendarId = googleConfig?.calendar_id
   if (!calendarId) {
     await sendAndSave(
       whatsappConfig,
@@ -49,7 +51,6 @@ export async function handleAgendaCheck(
   }
 
   try {
-    const calendar = getCalendarClient()
     const hint = output.actions.agenda_check.time_window_hint
     const dateRange = await parseTimeWindow(hint)
     const language = botConfig.ai_language ?? 'pt-BR'
@@ -168,10 +169,10 @@ export async function handleAgendaCreate(
           .eq('id', existingId)
 
         // Atualiza evento no Google Calendar se disponível
-        if (existingGoogleEventId && process.env.GOOGLE_REFRESH_TOKEN && googleConfig?.calendar_id) {
+        const calendarForUpdate = getCalendarClientForConfig(googleConfig ?? null)
+        if (existingGoogleEventId && calendarForUpdate && googleConfig?.calendar_id) {
           try {
-            const calendar = getCalendarClient()
-            await calendar.events.patch({
+            await calendarForUpdate.events.patch({
               calendarId: googleConfig.calendar_id,
               eventId: existingGoogleEventId,
               requestBody: {

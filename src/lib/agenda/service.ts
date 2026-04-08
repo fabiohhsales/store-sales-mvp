@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getCalendarClient } from '@/lib/calendar/client'
+import { getCalendarClientForConfig } from '@/lib/calendar/client'
 import type { CalendarClient } from '@/lib/calendar/client'
 import type { PanelBotConfig, PanelGoogleConfig } from '@/types/database'
 import type { AgendaAppointment } from '@/types/pipeline'
@@ -407,7 +407,9 @@ async function buildSyncResult(options: {
     }
   }
 
-  if (!process.env.GOOGLE_REFRESH_TOKEN || !googleConfig?.calendar_id) {
+  const calendar = getCalendarClientForConfig(googleConfig ?? null)
+
+  if (!calendar || !googleConfig?.calendar_id) {
     return {
       sync_status: 'disabled',
       sync_error: 'Google Calendar não configurado para este cliente',
@@ -420,7 +422,6 @@ async function buildSyncResult(options: {
   }
 
   try {
-    const calendar = getCalendarClient()
     const synced = await syncAppointmentEvent({
       calendar,
       calendarId: googleConfig.calendar_id,
@@ -820,10 +821,10 @@ export async function cancelAgendaAppointment(id: string, clientId: string) {
   let syncStatus: AgendaSyncStatus = existing.sync_status ?? 'pending'
   let syncError: string | null = existing.sync_error ?? null
 
-  if (existing.external_event_id && process.env.GOOGLE_REFRESH_TOKEN && googleConfig?.calendar_id) {
+  const calendarForCancel = getCalendarClientForConfig(googleConfig ?? null)
+  if (existing.external_event_id && calendarForCancel && googleConfig?.calendar_id) {
     try {
-      const calendar = getCalendarClient()
-      await calendar.events.delete({
+      await calendarForCancel.events.delete({
         calendarId: googleConfig.calendar_id,
         eventId: existing.external_event_id,
       })
