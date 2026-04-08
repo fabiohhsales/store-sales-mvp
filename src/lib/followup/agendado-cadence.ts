@@ -194,6 +194,10 @@ async function processClient(ctx: ClientFollowupContext) {
 
 export async function runAgendadoCadencePipeline(): Promise<AgendadoCadenceSummary> {
   const outsideHours = !isWithinBusinessHours()
+  if (outsideHours) {
+    return { clients: 0, stepsSent: 0, skippedOutsideHours: true }
+  }
+
   const supabase = createAdminClient()
   const { data: rows, error } = await supabase
     .from('panel_bot_config')

@@ -124,6 +124,99 @@ export async function handleAgendaCreate(
   }
 
   try {
+    const supabase = createAdminClient()
+
+    // Reagendamento: encontra appointment existente e atualiza em vez de criar novo
+    if (agenda_update.should_update) {
+      let existingId: string | null = null
+      let existingGoogleEventId: string | null = null
+
+      if (agenda_update.google_event_id) {
+        const { data } = await supabase
+          .from('appointments')
+          .select('id, google_event_id, external_event_id')
+          .or(`google_event_id.eq.${agenda_update.google_event_id},external_event_id.eq.${agenda_update.google_event_id}`)
+          .maybeSingle()
+        existingId = data?.id ?? null
+        existingGoogleEventId = data?.google_event_id ?? data?.external_event_id ?? null
+      }
+
+      if (!existingId) {
+        // Fallback: appointment agendado mais recente desta conversa
+        const { data } = await supabase
+          .from('appointments')
+          .select('id, google_event_id, external_event_id')
+          .eq('conversation_id', conversation.id)
+          .in('status', ['scheduled', 'confirmed'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        existingId = data?.id ?? null
+        existingGoogleEventId = data?.google_event_id ?? data?.external_event_id ?? null
+      }
+
+      if (existingId) {
+        await supabase
+          .from('appointments')
+          .update({
+            start_at: agenda_create.start_iso,
+            end_at: agenda_create.end_iso,
+            ...(agenda_create.title ? { title: agenda_create.title } : {}),
+            status: 'scheduled',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingId)
+
+        // Atualiza evento no Google Calendar se disponível
+        if (existingGoogleEventId && process.env.GOOGLE_REFRESH_TOKEN && googleConfig?.calendar_id) {
+          try {
+            const calendar = getCalendarClient()
+            await calendar.events.patch({
+              calendarId: googleConfig.calendar_id,
+              eventId: existingGoogleEventId,
+              requestBody: {
+                start: { dateTime: agenda_create.start_iso!, timeZone: 'America/Sao_Paulo' },
+                end: { dateTime: agenda_create.end_iso!, timeZone: 'America/Sao_Paulo' },
+                ...(agenda_create.title ? { summary: agenda_create.title } : {}),
+              },
+            })
+          } catch (calErr) {
+            console.error('[CalendarAgent] Falha ao atualizar evento Google no reagendamento:', calErr)
+          }
+        }
+
+        const startDate = new Date(agenda_create.start_iso!)
+        const formattedDate = startDate.toLocaleString('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+
+        await sendAndSave(
+          whatsappConfig,
+          contact,
+          conversation,
+          `Reagendamento confirmado!\n${formattedDate}\nSe precisar remarcar novamente, é só me avisar!`
+        )
+
+        await supabase
+          .from('conversations')
+          .update({
+            labels: output.labels_next,
+            appointment_status: 'scheduled',
+            pending_slots: null,
+          })
+          .eq('id', conversation.id)
+
+        return
+      }
+
+      console.warn('[CalendarAgent] Reagendamento solicitado mas appointment existente não encontrado — criando novo.')
+    }
+
     const appointment = await createAgendaAppointment({
       clientId: clientContext.clientId,
       conversationId: conversation.id,
@@ -133,11 +226,9 @@ export async function handleAgendaCreate(
       title: agenda_create.title ?? null,
       modality: 'presencial',
       status: 'scheduled',
-      notes: agenda_update.should_update && agenda_update.google_event_id
-        ? `Reagendamento do evento ${agenda_update.google_event_id}`
-        : googleConfig?.google_email
-          ? `Contato do profissional para convite: ${googleConfig.google_email}`
-          : null,
+      notes: googleConfig?.google_email
+        ? `Contato do profissional para convite: ${googleConfig.google_email}`
+        : null,
       startAt: agenda_create.start_iso,
       endAt: agenda_create.end_iso,
       syncToGoogle: true,
@@ -163,14 +254,12 @@ export async function handleAgendaCreate(
 
     await sendAndSave(whatsappConfig, contact, conversation, confirmMsg)
 
-    const supabase = createAdminClient()
     await supabase
       .from('conversations')
       .update({
-        labels: ['etapa_agendado'],
+        labels: output.labels_next,
         appointment_status: 'scheduled',
         pending_slots: null,
-        updated_at: new Date().toISOString(),
       })
       .eq('id', conversation.id)
   } catch (error) {
@@ -202,20 +291,16 @@ async function sendAndSave(
     .update({
       last_outgoing_by: 'ai',
       last_outgoing_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     })
     .eq('id', conversation.id)
 
   await supabase.from('messages').insert({
     id: crypto.randomUUID(),
-    chatwoot_message_id: 0,
     conversation_id: conversation.id,
     content: message,
     content_type: 'text',
     sender_type: 'agent_bot',
     created_at: new Date().toISOString(),
     from_who: 'ai',
-    chatwoot_conversation_id: String(conversation.chatwoot_conversation_id),
-    source_id: null,
   })
 }

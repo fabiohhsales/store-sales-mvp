@@ -147,11 +147,11 @@ function isAtendimentoStage(conversation: AtendimentoConversation, botConfig: Pa
     return false
   }
 
-  return conversation.followup_cadence === 'atendimento' || conversation.followup_cadence === null
+  return conversation.followup_cadence === 'atendimento'
 }
 
 async function queryAtendimentoConversations(
-  accountId: number,
+  clientId: string,
   botConfig: PanelBotConfig
 ): Promise<AtendimentoConversation[]> {
   const supabase = createAdminClient()
@@ -159,7 +159,7 @@ async function queryAtendimentoConversations(
   const { data, error } = await supabase
     .from('conversations')
     .select('id, contact_id, status, labels, followup_cadence, last_incoming_at, last_outgoing_at')
-    .eq('account_id', accountId)
+    .eq('client_id', clientId)
     .not('last_incoming_at', 'is', null)
 
   if (error) {
@@ -310,12 +310,7 @@ async function sendAtendimentoStep(
 }
 
 async function processClient(ctx: ClientFollowupContext): Promise<number> {
-  const accountId = ctx.whatsappConfig.chatwoot_account_id
-  if (!accountId) {
-    return 0
-  }
-
-  const conversations = await queryAtendimentoConversations(accountId, ctx.botConfig)
+  const conversations = await queryAtendimentoConversations(ctx.clientId, ctx.botConfig)
   if (!conversations.length) {
     return 0
   }

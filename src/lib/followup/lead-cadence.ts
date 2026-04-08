@@ -90,13 +90,13 @@ function getTemplateForStep(config: PanelBotConfig, stepKey: LeadStepKey): strin
   return customTemplate?.trim() ? customTemplate : DEFAULT_STEP_TEMPLATES[stepKey]
 }
 
-async function queryLeadConversations(accountId: number): Promise<LeadConversation[]> {
+async function queryLeadConversations(clientId: string): Promise<LeadConversation[]> {
   const supabase = createAdminClient()
 
   const { data, error } = await supabase
     .from('conversations')
     .select('id, contact_id, last_incoming_at, last_outgoing_at')
-    .eq('account_id', accountId)
+    .eq('client_id', clientId)
     .not('last_outgoing_at', 'is', null)
 
   if (error) {
@@ -232,12 +232,7 @@ async function sendLeadStep(
 }
 
 async function processClient(ctx: ClientFollowupContext): Promise<number> {
-  const accountId = ctx.whatsappConfig.chatwoot_account_id
-  if (!accountId) {
-    return 0
-  }
-
-  const conversations = await queryLeadConversations(accountId)
+  const conversations = await queryLeadConversations(ctx.clientId)
   if (!conversations.length) {
     return 0
   }

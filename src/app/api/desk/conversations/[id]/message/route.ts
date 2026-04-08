@@ -24,7 +24,7 @@ export async function POST(
   const { data: conv } = await admin
     .from('conversations')
     .select(`
-      id, client_id, stage,
+      id, client_id, stage, status,
       contacts ( phone_number, identifier ),
       panel_clients!client_id (
         panel_whatsapp_config ( evolution_instance_name )
@@ -49,6 +49,22 @@ export async function POST(
   const identifier = contact?.identifier ?? contact?.phone_number
   if (!identifier) {
     return NextResponse.json({ error: 'Contato sem número WhatsApp' }, { status: 422 })
+  }
+
+  // Auto-assume: operador que envia mensagem assume a conversa automaticamente
+  if (conv.stage !== 'in_service') {
+    await admin.from('ai_pauses').upsert({
+      conversation_id: id,
+      paused_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      paused_reason: 'operator_assumed',
+      paused_by: deskUser.userId,
+      updated_at: new Date().toISOString(),
+    })
+    await admin.from('conversations').update({
+      stage: 'in_service',
+      ...(conv.status === 'resolved' ? { status: 'open' } : {}),
+      stage_changed_at: new Date().toISOString(),
+    }).eq('id', id)
   }
 
   // Envia via Evolution API

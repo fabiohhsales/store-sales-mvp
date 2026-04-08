@@ -460,49 +460,35 @@ async function saveEvolutionMessage(
   clientId: string
 ): Promise<BotMessage> {
   // Deduplicação: ignora se a mensagem já foi processada
-  const { data: duplicate } = await supabase
+  const { data: existingMsg } = await supabase
     .from('messages')
-    .select('id')
+    .select('*')
     .eq('evolution_message_id', msg.messageId)
     .maybeSingle()
 
-  if (duplicate) {
-    // Verifica se a mensagem duplicada pertence à conversa atual
-    const { data: existingMsg } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('evolution_message_id', msg.messageId)
-      .single()
-
-    if (existingMsg && existingMsg.conversation_id === conversation.id) {
+  if (existingMsg) {
+    if (existingMsg.conversation_id === conversation.id) {
       console.log(`[Pipeline] Mensagem duplicada na mesma conversa — ignorada: ${msg.messageId}`)
       return existingMsg as BotMessage
     }
 
-    // Mensagem existe em outra conversa — re-salva na conversa atual (sem evolution_message_id para evitar conflito de unique)
-    console.log(`[Pipeline] Mensagem duplicada em outra conversa, re-salvando na conversa atual: ${msg.messageId}`)
-    const { data: reSaved, error: reError } = await supabase
+    // Mensagem existe em outra conversa — migra para a conversa atual (UPDATE mantém evolution_message_id para deduplicação)
+    console.log(`[Pipeline] Mensagem em outra conversa, migrando para conversa atual: ${msg.messageId}`)
+    const { data: migrated, error: migrateError } = await supabase
       .from('messages')
-      .insert({
-        id: crypto.randomUUID(),
+      .update({
         conversation_id: conversation.id,
         client_id: clientId,
-        content: msg.content,
-        content_type: msg.contentType,
-        sender_type: 'contact',
-        from_who: 'lead',
-        created_at: msg.timestamp.toISOString(),
-        // evolution_message_id omitido para não violar unique index
       })
+      .eq('evolution_message_id', msg.messageId)
       .select()
       .single()
 
-    if (reError) {
-      console.error(`[Pipeline] Falha ao re-salvar mensagem duplicada: ${reError.message}`)
-      // Retorna a mensagem existente como fallback
-      return (existingMsg ?? duplicate) as BotMessage
+    if (migrateError) {
+      console.error(`[Pipeline] Falha ao migrar mensagem para conversa atual: ${migrateError.message}`)
+      return existingMsg as BotMessage // fallback seguro — tem todos os campos
     }
-    return reSaved as BotMessage
+    return migrated as BotMessage
   }
 
   const { data: saved, error } = await supabase
