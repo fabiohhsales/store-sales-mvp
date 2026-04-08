@@ -127,6 +127,17 @@ export async function POST(request: Request) {
       ai_fallback_message: body.ai_fallback_message || null,
       ai_handoff_message: body.ai_handoff_message || null,
 
+      // Intake
+      intake_enabled: body.intake_enabled ?? false,
+      intake_fields: body.intake_fields || [],
+      intake_request_photos: body.intake_request_photos ?? false,
+      intake_photos_count: body.intake_photos_count ?? 5,
+      intake_handoff_after_photos: body.intake_handoff_after_photos ?? true,
+      intake_photo_guide_url: body.intake_photo_guide_url || null,
+
+      // Timezone
+      timezone: body.timezone || 'America/Sao_Paulo',
+
       // Follow-up
       followup_enabled: body.followup_enabled ?? true,
       followup_confirmation_hours_before: body.followup_confirmation_hours_before ?? 24,

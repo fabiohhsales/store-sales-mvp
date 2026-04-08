@@ -207,7 +207,9 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
   }
 
   // --- 3. Atualiza conversa no Supabase ---
-  await updateConversationRecord(conversation.id, output, clientContext.botConfig)
+  if (clientContext.botConfig) {
+    await updateConversationRecord(conversation.id, output, clientContext.botConfig)
+  }
 
   // --- 4. Agenda ---
   if (output.actions.agenda_check.should_check) {

@@ -13,6 +13,11 @@ export async function DELETE(
   const deskUser = await resolveDeskUser(request)
   if (!deskUser) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
+  // Rota de debug — apenas admins podem limpar intake em produção
+  if (!deskUser.isAdmin) {
+    return NextResponse.json({ error: 'Apenas admins podem executar esta operação de debug' }, { status: 403 })
+  }
+
   const admin = createAdminClient()
 
   const { data: conv } = await admin

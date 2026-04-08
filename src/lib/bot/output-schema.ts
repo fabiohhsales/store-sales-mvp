@@ -23,7 +23,7 @@ const ClassificationSchema = z.object({
 
 export const AgentOutputSchema = z.object({
   reply: z.string().nullable(),
-  intake_save: z.record(z.string()).nullable().optional().default(null),
+  intake_save: z.record(z.string(), z.string()).nullable().optional().default(null),
   status_next: StatusEnum,
   labels_next: z.array(z.string()).min(1),
   classification: ClassificationSchema,

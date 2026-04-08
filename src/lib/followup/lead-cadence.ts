@@ -181,7 +181,7 @@ async function sendLeadStep(
 
   const { data: insertedStep, error: insertError } = await supabase
     .from('followup_cadence_steps')
-    .insert(
+    .upsert(
       {
         conversation_id: conversation.id,
         cadence_type: 'lead',

@@ -22,6 +22,7 @@ export interface DeskConversation {
   last_incoming_at: string | null
   last_outgoing_at: string | null
   contacts: { id: string; name: string | null; phone_number: string | null } | null
+  assigned_operator_id: string | null
 }
 
 interface Props {

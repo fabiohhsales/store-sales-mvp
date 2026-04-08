@@ -227,7 +227,7 @@ async function checkGlobalConflicts(): Promise<SOCAlert[]> {
     .not('panel_whatsapp_config', 'is', null)
 
   if (draftWithInstance) {
-    for (const client of draftWithInstance as PanelClientWithRelations[]) {
+    for (const client of (draftWithInstance as unknown) as PanelClientWithRelations[]) {
       if (client.panel_whatsapp_config?.evolution_instance_name) {
         alerts.push({
           id: `${client.id}:draft_with_instance`,

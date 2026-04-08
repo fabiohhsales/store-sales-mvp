@@ -256,7 +256,7 @@ async function sendAtendimentoStep(
   // Reserva idempotente: UNIQUE(conversation_id, cadence_type, step_key)
   const { data: insertedStep, error: insertError } = await supabase
     .from('followup_cadence_steps')
-    .insert(
+    .upsert(
       {
         conversation_id: conversation.id,
         cadence_type: 'atendimento',

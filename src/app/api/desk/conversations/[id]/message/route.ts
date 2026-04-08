@@ -38,9 +38,11 @@ export async function POST(
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
-  const contact = conv.contacts as { phone_number: string | null; identifier: string | null } | null
-  const instanceName = (conv as Record<string, unknown>)
-    ?.panel_clients?.panel_whatsapp_config?.evolution_instance_name as string | null
+  const contact = (conv.contacts as { phone_number: string | null; identifier: string | null }[] | null)?.[0] ?? null
+  const instanceName = (
+    (conv as unknown as { panel_clients?: { panel_whatsapp_config?: { evolution_instance_name?: string | null }[] | null } | null })
+      ?.panel_clients?.panel_whatsapp_config?.[0]?.evolution_instance_name
+  ) ?? null
 
   if (!instanceName) {
     return NextResponse.json({ error: 'Instância WhatsApp não configurada' }, { status: 422 })

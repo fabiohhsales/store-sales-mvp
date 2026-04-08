@@ -253,6 +253,7 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
             Atualizar
           </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            {/* @ts-ignore — @base-ui/react DialogTrigger accepts asChild at runtime */}
             <DialogTrigger asChild>
               <Button type="button" size="sm">
                 <ShieldPlus className="mr-1 h-3.5 w-3.5" />

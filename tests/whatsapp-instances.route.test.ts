@@ -66,7 +66,7 @@ describe('POST /api/whatsapp/instances', () => {
     vi.spyOn(global, 'setTimeout').mockImplementation(((fn: TimerHandler) => {
       if (typeof fn === 'function') fn()
       return 0 as never
-    }) as typeof setTimeout)
+    }) as unknown as typeof setTimeout)
 
     mocks.createClient.mockResolvedValue({
       auth: {

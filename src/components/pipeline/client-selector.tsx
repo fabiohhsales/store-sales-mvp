@@ -38,7 +38,7 @@ export function ClientSelector({ value, onChange }: ClientSelectorProps) {
   }, [onChange, value])
 
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={value} onValueChange={(v) => { if (v !== null) onChange(v) }}>
       <SelectTrigger className="w-[260px]">
         <SelectValue placeholder="Selecione um cliente" />
       </SelectTrigger>

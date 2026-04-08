@@ -62,7 +62,7 @@ export async function POST(
   const calendar = getCalendarClientForConfig(
     google
       ? {
-          calendar_mode: google.calendar_mode as CalendarMode | null,
+          calendar_mode: (google.calendar_mode ?? 'google_shared') as CalendarMode,
           refresh_token: google.refresh_token as string | null,
         }
       : null

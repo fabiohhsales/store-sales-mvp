@@ -41,7 +41,7 @@ export function ActivityChart({ data }: { data: ActivityPoint[] }) {
             fontSize: 12,
           }}
           labelStyle={{ color: 'var(--foreground)' }}
-          formatter={(v: number) => [v, 'ações']}
+          formatter={(v) => [Number(v ?? 0), 'ações']}
           cursor={{ fill: 'var(--secondary)' }}
         />
         <Bar dataKey="count" radius={[3, 3, 0, 0]}>

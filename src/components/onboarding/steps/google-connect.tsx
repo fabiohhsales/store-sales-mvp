@@ -158,7 +158,7 @@ export function GoogleConnectStep({ clientId, onComplete, onSkip }: CalendarSetu
 
         <div className="space-y-1.5">
           <Label>Cor dos eventos</Label>
-          <Select value={colorId} onValueChange={setColorId}>
+          <Select value={colorId} onValueChange={(v) => { if (v !== null) setColorId(v) }}>
             <SelectTrigger>
               <SelectValue placeholder="Padrão do calendário" />
             </SelectTrigger>

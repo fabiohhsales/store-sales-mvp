@@ -140,6 +140,7 @@ export function EmbedTokensSection() {
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          {/* @ts-ignore — @base-ui/react DialogTrigger accepts asChild at runtime */}
           <DialogTrigger asChild>
             <Button size="sm">
               <Plus className="h-4 w-4 mr-1" />
@@ -153,7 +154,7 @@ export function EmbedTokensSection() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Cliente</Label>
-                <Select value={newClientId} onValueChange={setNewClientId}>
+                <Select value={newClientId} onValueChange={(v) => { if (v !== null) setNewClientId(v) }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione um cliente" />
                   </SelectTrigger>

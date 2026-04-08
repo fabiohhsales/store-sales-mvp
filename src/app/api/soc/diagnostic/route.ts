@@ -234,7 +234,7 @@ async function buildGlobalDiagnostic(): Promise<GlobalDiagnostic> {
     .select('id, name, panel_whatsapp_config(evolution_instance_name)')
     .eq('status', 'draft')
 
-  const draftWithInstance = ((drafts as PanelClientWithRelations[]) ?? [])
+  const draftWithInstance = ((drafts as unknown as PanelClientWithRelations[]) ?? [])
     .filter((c) => !!c.panel_whatsapp_config?.evolution_instance_name)
     .map((c) => ({
       client_id: c.id as string,

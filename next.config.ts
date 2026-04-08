@@ -22,7 +22,7 @@ const chatwootFrameAncestors = Array.from(
 
 const nextConfig: NextConfig = {
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   async headers() {
     return [
