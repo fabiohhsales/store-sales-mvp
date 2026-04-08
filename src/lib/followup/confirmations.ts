@@ -3,13 +3,11 @@ import { sendTextMessage } from '@/lib/api/evolution'
 import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
 
-const TIMEZONE = 'America/Sao_Paulo'
-
-export function isWithinBusinessHours(): boolean {
+export function isWithinBusinessHours(timezone = 'America/Sao_Paulo'): boolean {
   const now = new Date()
   const hour = parseInt(
     new Intl.DateTimeFormat('en-US', {
-      timeZone: TIMEZONE,
+      timeZone: timezone,
       hour: 'numeric',
       hour12: false,
     }).format(now)
@@ -46,6 +44,7 @@ interface ClientFollowupContext {
 
 function buildTemplateVars(config: PanelBotConfig, appointment: AppointmentRow) {
   const start = new Date(appointment.start_at)
+  const tz = config.timezone ?? 'America/Sao_Paulo'
   return {
     patient_name: appointment.contact_name ?? 'Paciente',
     patient_phone: appointment.contact_phone ?? '',
@@ -53,9 +52,9 @@ function buildTemplateVars(config: PanelBotConfig, appointment: AppointmentRow) 
     professional_title: config.professional_title ?? '',
     business_name: config.business_name ?? config.professional_name,
     service_name: config.services.find((service) => service.active)?.name ?? 'Consulta',
-    date: new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, day: '2-digit', month: '2-digit', year: 'numeric' }).format(start),
-    time: new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false }).format(start),
-    day_of_week: new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, weekday: 'long' }).format(start),
+    date: new Intl.DateTimeFormat('pt-BR', { timeZone: tz, day: '2-digit', month: '2-digit', year: 'numeric' }).format(start),
+    time: new Intl.DateTimeFormat('pt-BR', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(start),
+    day_of_week: new Intl.DateTimeFormat('pt-BR', { timeZone: tz, weekday: 'long' }).format(start),
     meet_link: appointment.meet_link ?? '',
   }
 }
@@ -266,10 +265,6 @@ export interface FollowupSummary {
 }
 
 export async function runFollowupPipeline(): Promise<FollowupSummary> {
-  if (!isWithinBusinessHours()) {
-    return { clients: 0, confirmations: 0, reminders: 0, noshows: 0, skippedOutsideHours: true }
-  }
-
   const supabase = createAdminClient()
   const { data: configs } = await supabase
     .from('panel_bot_config')
@@ -292,6 +287,10 @@ export async function runFollowupPipeline(): Promise<FollowupSummary> {
   for (const row of configs) {
     const whatsappConfig = Array.isArray(row.panel_whatsapp_config) ? row.panel_whatsapp_config[0] : row.panel_whatsapp_config
     if (!whatsappConfig) continue
+
+    // Verifica horário comercial no timezone do cliente (não global)
+    const clientTimezone = (row as PanelBotConfig).timezone ?? 'America/Sao_Paulo'
+    if (!isWithinBusinessHours(clientTimezone)) continue
 
     try {
       const result = await processClient({

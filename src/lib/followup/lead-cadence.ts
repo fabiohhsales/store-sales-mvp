@@ -232,6 +232,9 @@ async function sendLeadStep(
 }
 
 async function processClient(ctx: ClientFollowupContext): Promise<number> {
+  // Verifica horário comercial no timezone do cliente
+  if (!isWithinBusinessHours(ctx.botConfig.timezone ?? 'America/Sao_Paulo')) return 0
+
   const conversations = await queryLeadConversations(ctx.clientId)
   if (!conversations.length) {
     return 0
@@ -282,10 +285,7 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
 }
 
 export async function runLeadCadencePipeline(): Promise<LeadCadenceSummary> {
-  if (!isWithinBusinessHours()) {
-    return { clients: 0, stepsSent: 0, skippedOutsideHours: true }
-  }
-
+  // Sem check global — cada cliente é verificado no seu próprio timezone dentro de processClient()
   const supabase = createAdminClient()
 
   const { data: rows, error } = await supabase

@@ -4,6 +4,7 @@ import { resolveDeskUser } from '@/lib/desk/auth'
 import { getCalendarClientForConfig } from '@/lib/calendar/client'
 import { parseTimeWindow, getAvailableSlots, formatSlotsMessage } from '@/lib/calendar/slots'
 import { sendTextMessage } from '@/lib/api/evolution'
+import type { CalendarMode } from '@/types/database'
 
 export async function POST(
   request: NextRequest,
@@ -58,7 +59,14 @@ export async function POST(
   const identifier = contact?.identifier ?? contact?.phone_number
   if (!identifier) return NextResponse.json({ error: 'Contato sem telefone/identifier' }, { status: 422 })
 
-  const calendar = getCalendarClientForConfig(google as { calendar_mode: string | null; refresh_token: string | null } | null)
+  const calendar = getCalendarClientForConfig(
+    google
+      ? {
+          calendar_mode: google.calendar_mode as CalendarMode | null,
+          refresh_token: google.refresh_token as string | null,
+        }
+      : null
+  )
   if (!calendar) {
     return NextResponse.json({ error: 'Google Calendar não configurado ou desativado para este cliente' }, { status: 422 })
   }

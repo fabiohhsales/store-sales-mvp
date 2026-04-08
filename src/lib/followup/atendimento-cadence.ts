@@ -5,6 +5,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
 import { isWithinBusinessHours } from '@/lib/followup/confirmations'
+import { DEFAULT_STAGE_LABELS, normalizeStageSlug } from '@/lib/bot/stage-labels'
 import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
 
 const DEFAULT_STEP_TEMPLATES = {
@@ -97,21 +98,18 @@ function getTemplateForStep(config: PanelBotConfig, stepKey: AtendimentoStepKey)
   return customTemplate?.trim() ? customTemplate : DEFAULT_STEP_TEMPLATES[stepKey]
 }
 
-const ATENDIMENTO_LABELS = new Set([
-  'etapa_paciente',
-  'etapa_qualificacao',
-  'atendimento',
-  'em_atendimento',
-])
+// Labels derivados de DEFAULT_STAGE_LABELS — fonte única de verdade
+const DEFAULT_ATENDIMENTO_LABELS = new Set(
+  DEFAULT_STAGE_LABELS
+    .filter((l) => l.followup_cadence === 'atendimento')
+    .map((l) => normalizeStageSlug(l.slug))
+)
 
-const NON_ATENDIMENTO_LABELS = new Set([
-  'etapa_agendado',
-  'etapa_confirmado',
-  'agendado',
-  'confirmado',
-  'lead',
-  'novo_contato',
-])
+const DEFAULT_NON_ATENDIMENTO_LABELS = new Set(
+  DEFAULT_STAGE_LABELS
+    .filter((l) => l.followup_cadence !== null && l.followup_cadence !== 'atendimento')
+    .map((l) => normalizeStageSlug(l.slug))
+)
 
 function normalizeLabel(label: string): string {
   return label.trim().toLowerCase()
@@ -136,8 +134,8 @@ function isAtendimentoStage(conversation: AtendimentoConversation, botConfig: Pa
     return conversation.followup_cadence === 'atendimento'
   }
 
-  const hasAtendimentoLabel = labels.some((label) => ATENDIMENTO_LABELS.has(label))
-  const hasNonAtendimentoLabel = labels.some((label) => NON_ATENDIMENTO_LABELS.has(label))
+  const hasAtendimentoLabel = labels.some((label) => DEFAULT_ATENDIMENTO_LABELS.has(label))
+  const hasNonAtendimentoLabel = labels.some((label) => DEFAULT_NON_ATENDIMENTO_LABELS.has(label))
 
   if (hasAtendimentoLabel) {
     return true
@@ -310,6 +308,9 @@ async function sendAtendimentoStep(
 }
 
 async function processClient(ctx: ClientFollowupContext): Promise<number> {
+  // Verifica horário comercial no timezone do cliente
+  if (!isWithinBusinessHours(ctx.botConfig.timezone ?? 'America/Sao_Paulo')) return 0
+
   const conversations = await queryAtendimentoConversations(ctx.clientId, ctx.botConfig)
   if (!conversations.length) {
     return 0
@@ -360,10 +361,7 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
 }
 
 export async function runAtendimentoCadencePipeline(): Promise<AtendimentoCadenceSummary> {
-  if (!isWithinBusinessHours()) {
-    return { clients: 0, stepsSent: 0, skippedOutsideHours: true }
-  }
-
+  // Sem check global — cada cliente é verificado no seu próprio timezone dentro de processClient()
   const supabase = createAdminClient()
 
   const { data: rows, error } = await supabase

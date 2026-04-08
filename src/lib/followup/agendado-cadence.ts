@@ -174,6 +174,8 @@ async function sendAgendadoStep(ctx: ClientFollowupContext, appointment: Appoint
 
 async function processClient(ctx: ClientFollowupContext) {
   if (!ctx.whatsappConfig.evolution_instance_name) return 0
+  // Verifica horário comercial no timezone do cliente
+  if (!isWithinBusinessHours(ctx.botConfig.timezone ?? 'America/Sao_Paulo')) return 0
   const appointments = await queryUpcomingAppointments(ctx.clientId)
   let sentCount = 0
 
@@ -192,11 +194,7 @@ async function processClient(ctx: ClientFollowupContext) {
 }
 
 export async function runAgendadoCadencePipeline(): Promise<AgendadoCadenceSummary> {
-  const outsideHours = !isWithinBusinessHours()
-  if (outsideHours) {
-    return { clients: 0, stepsSent: 0, skippedOutsideHours: true }
-  }
-
+  // Sem check global — cada cliente é verificado no seu próprio timezone dentro de processClient()
   const supabase = createAdminClient()
   const { data: rows, error } = await supabase
     .from('panel_bot_config')
@@ -226,6 +224,6 @@ export async function runAgendadoCadencePipeline(): Promise<AgendadoCadenceSumma
   return {
     clients: rows.length,
     stepsSent: totalSent,
-    skippedOutsideHours: outsideHours,
+    skippedOutsideHours: false,
   }
 }
