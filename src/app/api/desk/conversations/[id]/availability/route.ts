@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser } from '@/lib/desk/auth'
-import { getCalendarClient } from '@/lib/calendar/client'
+import { getCalendarClientForConfig } from '@/lib/calendar/client'
 import { parseTimeWindow, getAvailableSlots, formatSlotsMessage } from '@/lib/calendar/slots'
 import { sendTextMessage } from '@/lib/api/evolution'
 
@@ -26,7 +26,8 @@ export async function POST(
       panel_clients!client_id (
         panel_google_config ( calendar_id ),
         panel_whatsapp_config ( evolution_instance_name ),
-        panel_bot_config ( professional_name, ai_language, working_hours, appointment_duration_default, appointment_buffer_minutes, min_advance_booking_hours )
+        panel_bot_config ( professional_name, ai_language, working_hours, appointment_duration_default, appointment_buffer_minutes, min_advance_booking_hours, timezone ),
+        panel_google_config ( calendar_id, calendar_mode, refresh_token )
       )
     `)
     .eq('id', id)
@@ -57,6 +58,11 @@ export async function POST(
   const identifier = contact?.identifier ?? contact?.phone_number
   if (!identifier) return NextResponse.json({ error: 'Contato sem telefone/identifier' }, { status: 422 })
 
+  const calendar = getCalendarClientForConfig(google as { calendar_mode: string | null; refresh_token: string | null } | null)
+  if (!calendar) {
+    return NextResponse.json({ error: 'Google Calendar não configurado ou desativado para este cliente' }, { status: 422 })
+  }
+
   try {
     const workingHours = (bot?.working_hours as Record<string, unknown>) ?? {}
     const duration = Number(bot?.appointment_duration_default ?? 60)
@@ -64,9 +70,9 @@ export async function POST(
     const minAdvance = Number(bot?.min_advance_booking_hours ?? 2)
     const language = (bot?.ai_language as string | null) ?? 'pt-BR'
     const professional = (bot?.professional_name as string | null) ?? 'profissional'
+    const timezone = (bot?.timezone as string | null) ?? 'America/Sao_Paulo'
 
-    const range = await parseTimeWindow(hint)
-    const calendar = getCalendarClient()
+    const range = await parseTimeWindow(hint, new Date(), timezone)
     const slots = await getAvailableSlots(
       calendar,
       calendarId,
@@ -76,7 +82,8 @@ export async function POST(
       buffer,
       6,
       language,
-      minAdvance
+      minAdvance,
+      timezone
     )
 
     const message = formatSlotsMessage(slots, professional, language)

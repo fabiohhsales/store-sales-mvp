@@ -237,6 +237,9 @@ export interface PanelBotConfig {
   calendar_send_invite_to_patient: boolean
   calendar_color_id: string | null
 
+  // Timezone
+  timezone: string | null
+
   // Chatwoot
   chatwoot_auto_resolve_hours: number | null
   chatwoot_working_hours_enabled: boolean

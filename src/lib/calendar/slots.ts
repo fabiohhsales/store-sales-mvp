@@ -1,12 +1,9 @@
 // Cálculo de horários disponíveis a partir do Google Calendar + working_hours do cliente.
-// São Paulo é UTC-3 sem horário de verão (desde 2019).
+// Suporta qualquer timezone IANA — não mais hardcoded para America/Sao_Paulo.
 
 import { createAiClient, AI_MODEL_MINI } from '@/lib/ai/client'
 import type { CalendarClient } from './client'
 import type { WorkingHours } from '@/types/database'
-
-const SP_OFFSET = '-03:00'
-const TIMEZONE = 'America/Sao_Paulo'
 
 const WEEKDAY_KEYS: Record<string, keyof WorkingHours> = {
   sunday: 'sunday',
@@ -41,9 +38,25 @@ export interface TimeSlot {
 
 // --- Helpers de timezone ---
 
-function spParts(date: Date) {
+/**
+ * Retorna o offset UTC do timezone no instante `date`, no formato "+HH:MM" ou "-HH:MM".
+ * Exemplo: "Europe/Athens" em horário de verão → "+03:00"
+ */
+function getTzOffset(timezone: string, date: Date): string {
+  const utcMs = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
+  const tzMs = new Date(date.toLocaleString('en-US', { timeZone: timezone })).getTime()
+  const diffMin = Math.round((tzMs - utcMs) / 60000)
+  const sign = diffMin >= 0 ? '+' : '-'
+  const abs = Math.abs(diffMin)
+  return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
+}
+
+/**
+ * Decompõe um instante UTC em partes locais para o timezone dado.
+ */
+function tzParts(date: Date, timezone: string) {
   const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: timezone,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
     weekday: 'long',
@@ -59,32 +72,47 @@ function spParts(date: Date) {
   }
 }
 
-function spToUTC(dateStr: string, timeStr: string): Date {
-  return new Date(`${dateStr}T${timeStr}:00${SP_OFFSET}`)
+/**
+ * Converte uma hora local (dateStr + timeStr no timezone dado) para UTC.
+ * Usa o truque de projeção: cria o instante como UTC ingênuo e corrige pelo offset real.
+ */
+function localToUTC(dateStr: string, timeStr: string, timezone: string): Date {
+  const naiveUTC = new Date(`${dateStr}T${timeStr}:00Z`)
+  const utcDisplay = new Date(naiveUTC.toLocaleString('en-US', { timeZone: 'UTC' }))
+  const tzDisplay = new Date(naiveUTC.toLocaleString('en-US', { timeZone: timezone }))
+  const offsetMs = utcDisplay.getTime() - tzDisplay.getTime()
+  return new Date(naiveUTC.getTime() + offsetMs)
 }
 
-function spDateStr(date: Date): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE }).format(date)
+/**
+ * Retorna a data local no formato YYYY-MM-DD para o timezone dado.
+ */
+function tzDateStr(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(date)
 }
 
-function toSpISO(date: Date): string {
-  const p = spParts(date)
+/**
+ * Converte um instante UTC para ISO local com offset, ex: "2026-04-07T09:00:00+03:00".
+ */
+function toTzISO(date: Date, timezone: string): string {
+  const p = tzParts(date, timezone)
+  const offset = getTzOffset(timezone, date)
   const mm = String(p.month).padStart(2, '0')
   const dd = String(p.day).padStart(2, '0')
   const hh = String(p.hour).padStart(2, '0')
   const min = String(p.minute).padStart(2, '0')
-  return `${p.year}-${mm}-${dd}T${hh}:${min}:00${SP_OFFSET}`
+  return `${p.year}-${mm}-${dd}T${hh}:${min}:00${offset}`
 }
 
-function slotLabel(start: Date, end: Date, language: string): string {
-  const p = spParts(start)
+function slotLabel(start: Date, end: Date, language: string, timezone: string): string {
+  const p = tzParts(start, timezone)
   const isEn = !language.startsWith('pt')
   const dayName = isEn ? (DAYS_EN[p.weekday] ?? p.weekday) : (DAYS_PT[p.weekday] ?? p.weekday)
   const month = isEn ? MONTHS_EN[p.month - 1] : MONTHS_PT[p.month - 1]
   const hh = String(p.hour).padStart(2, '0')
   const mm = String(p.minute).padStart(2, '0')
 
-  const ep = spParts(end)
+  const ep = tzParts(end, timezone)
   const ehh = String(ep.hour).padStart(2, '0')
   const emm = String(ep.minute).padStart(2, '0')
 
@@ -92,8 +120,8 @@ function slotLabel(start: Date, end: Date, language: string): string {
     ? `${dayName}, ${month} ${p.day} · ${hh}:${mm}–${ehh}:${emm}`
     : `${dayName}, ${p.day}/${month} · ${hh}:${mm}–${ehh}:${emm}`
 
-  const startISO = toSpISO(start)
-  const endISO = toSpISO(end)
+  const startISO = toTzISO(start, timezone)
+  const endISO = toTzISO(end, timezone)
 
   // ISO inline para o AI extrair start_iso/end_iso quando paciente seleciona o número
   return `${timeStr} [${startISO}→${endISO}]`
@@ -103,9 +131,10 @@ function slotLabel(start: Date, end: Date, language: string): string {
 
 export async function parseTimeWindow(
   hint: string | null,
-  referenceDate: Date = new Date()
+  referenceDate: Date = new Date(),
+  timezone = 'America/Sao_Paulo'
 ): Promise<{ start: Date; end: Date }> {
-  const todaySP = spDateStr(referenceDate)
+  const todayLocal = tzDateStr(referenceDate, timezone)
   const defaultEnd = new Date(referenceDate.getTime() + 7 * 24 * 60 * 60 * 1000)
 
   if (!hint) return { start: referenceDate, end: defaultEnd }
@@ -117,10 +146,9 @@ export async function parseTimeWindow(
       messages: [
         {
           role: 'user',
-          content: `Hoje é ${todaySP} (São Paulo, Brasil).
-Interprete a expressão de tempo: "${hint}"
-Responda APENAS JSON com start_date e end_date em formato YYYY-MM-DD.
-{"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}`,
+          content: `Today is ${todayLocal} (timezone: ${timezone}).
+Interpret the time expression: "${hint}"
+Reply ONLY with JSON: {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}`,
         },
       ],
       response_format: { type: 'json_object' },
@@ -130,9 +158,10 @@ Responda APENAS JSON com start_date e end_date em formato YYYY-MM-DD.
 
     const raw = JSON.parse(res.choices[0]?.message?.content ?? '{}')
     if (raw.start_date && raw.end_date) {
+      const offset = getTzOffset(timezone, referenceDate)
       return {
-        start: new Date(`${raw.start_date}T00:00:00${SP_OFFSET}`),
-        end: new Date(`${raw.end_date}T23:59:00${SP_OFFSET}`),
+        start: new Date(`${raw.start_date}T00:00:00${offset}`),
+        end: new Date(`${raw.end_date}T23:59:00${offset}`),
       }
     }
   } catch {
@@ -158,13 +187,14 @@ export async function getAvailableSlots(
   bufferMinutes: number,
   maxSlots = 6,
   language = 'pt-BR',
-  minAdvanceHours = 2
+  minAdvanceHours = 2,
+  timezone = 'America/Sao_Paulo'
 ): Promise<TimeSlot[]> {
   const freebusyRes = await calendar.freebusy.query({
     requestBody: {
       timeMin: dateRange.start.toISOString(),
       timeMax: dateRange.end.toISOString(),
-      timeZone: TIMEZONE,
+      timeZone: timezone,
       items: [{ id: calendarId }],
     },
   })
@@ -180,8 +210,8 @@ export async function getAvailableSlots(
   cursor.setUTCMinutes(0, 0, 0)
 
   while (cursor < dateRange.end && available.length < maxSlots) {
-    const dateStr = spDateStr(cursor)
-    const weekday = spParts(cursor).weekday
+    const dateStr = tzDateStr(cursor, timezone)
+    const weekday = tzParts(cursor, timezone).weekday
     const day = workingHours[WEEKDAY_KEYS[weekday] ?? weekday]
 
     if (!day?.enabled) {
@@ -189,10 +219,10 @@ export async function getAvailableSlots(
       continue
     }
 
-    const workStart = spToUTC(dateStr, day.start)
-    const workEnd = spToUTC(dateStr, day.end)
-    const breakStart = day.break_start ? spToUTC(dateStr, day.break_start) : null
-    const breakEnd = day.break_end ? spToUTC(dateStr, day.break_end) : null
+    const workStart = localToUTC(dateStr, day.start, timezone)
+    const workEnd = localToUTC(dateStr, day.end, timezone)
+    const breakStart = day.break_start ? localToUTC(dateStr, day.break_start, timezone) : null
+    const breakEnd = day.break_end ? localToUTC(dateStr, day.break_end, timezone) : null
 
     let slotStart = workStart
     const earliestSlot = new Date(Date.now() + minAdvanceHours * 60 * 60 * 1000)
@@ -212,9 +242,9 @@ export async function getAvailableSlots(
         available.push({
           startUTC: new Date(slotStart),
           endUTC: new Date(slotEnd),
-          label: slotLabel(slotStart, slotEnd, language),
-          startISO: toSpISO(slotStart),
-          endISO: toSpISO(slotEnd),
+          label: slotLabel(slotStart, slotEnd, language, timezone),
+          startISO: toTzISO(slotStart, timezone),
+          endISO: toTzISO(slotEnd, timezone),
         })
         if (available.length >= maxSlots) break
       }

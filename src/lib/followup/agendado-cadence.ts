@@ -4,8 +4,6 @@ import { isWithinBusinessHours } from '@/lib/followup/confirmations'
 import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
 
-const TIMEZONE = 'America/Sao_Paulo'
-
 const DEFAULT_STEP_TEMPLATES = {
   'agendado_D-2_12h': 'Ola {patient_name}! Sua consulta com {professional_name} esta marcada para {day_of_week}, {date} as {time}. Podemos confirmar sua presenca?',
   'agendado_-3h': 'Oi {patient_name}, lembrete: sua consulta com {professional_name} e hoje as {time}. Nos vemos em breve!',
@@ -51,13 +49,14 @@ function render(template: string, vars: Record<string, string>) {
 
 function buildTemplateVars(config: PanelBotConfig, appointment: AppointmentRow) {
   const start = new Date(appointment.start_at)
+  const tz = config.timezone ?? 'America/Sao_Paulo'
   return {
     patient_name: appointment.contact_name ?? 'Paciente',
     professional_name: config.professional_name,
     business_name: config.business_name ?? config.professional_name,
-    date: new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, day: '2-digit', month: '2-digit', year: 'numeric' }).format(start),
-    time: new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false }).format(start),
-    day_of_week: new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, weekday: 'long' }).format(start),
+    date: new Intl.DateTimeFormat('pt-BR', { timeZone: tz, day: '2-digit', month: '2-digit', year: 'numeric' }).format(start),
+    time: new Intl.DateTimeFormat('pt-BR', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(start),
+    day_of_week: new Intl.DateTimeFormat('pt-BR', { timeZone: tz, weekday: 'long' }).format(start),
     meet_link: appointment.meet_link ?? '',
   }
 }

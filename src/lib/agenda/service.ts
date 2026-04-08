@@ -12,7 +12,7 @@ import {
   normalizeAgendaSyncStatus,
 } from './constants'
 
-const TIMEZONE = 'America/Sao_Paulo'
+const DEFAULT_TIMEZONE = 'America/Sao_Paulo'
 
 export interface AgendaListParams {
   clientId: string
@@ -190,8 +190,8 @@ function buildEventPayload(input: {
     requestBody: {
       summary,
       description,
-      start: { dateTime: input.startAt, timeZone: TIMEZONE },
-      end: { dateTime: input.endAt, timeZone: TIMEZONE },
+      start: { dateTime: input.startAt, timeZone: input.botConfig?.timezone ?? DEFAULT_TIMEZONE },
+      end: { dateTime: input.endAt, timeZone: input.botConfig?.timezone ?? DEFAULT_TIMEZONE },
       colorId: input.botConfig?.calendar_color_id ?? undefined,
       conferenceData: input.botConfig?.calendar_create_meet_link
         ? {

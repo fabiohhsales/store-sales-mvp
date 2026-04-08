@@ -52,7 +52,8 @@ export async function handleAgendaCheck(
 
   try {
     const hint = output.actions.agenda_check.time_window_hint
-    const dateRange = await parseTimeWindow(hint)
+    const timezone = botConfig.timezone ?? 'America/Sao_Paulo'
+    const dateRange = await parseTimeWindow(hint, new Date(), timezone)
     const language = botConfig.ai_language ?? 'pt-BR'
 
     const slots = await getAvailableSlots(
@@ -64,7 +65,8 @@ export async function handleAgendaCheck(
       botConfig.appointment_buffer_minutes ?? 15,
       6,
       language,
-      botConfig.min_advance_booking_hours ?? 2
+      botConfig.min_advance_booking_hours ?? 2,
+      timezone
     )
 
     const message = formatSlotsMessage(slots, botConfig.professional_name, language)
@@ -79,7 +81,6 @@ export async function handleAgendaCheck(
             startISO: slot.startISO,
             endISO: slot.endISO,
           })),
-          updated_at: new Date().toISOString(),
         })
         .eq('id', conversation.id)
     }
@@ -170,14 +171,15 @@ export async function handleAgendaCreate(
 
         // Atualiza evento no Google Calendar se disponível
         const calendarForUpdate = getCalendarClientForConfig(googleConfig ?? null)
+        const tz = botConfig?.timezone ?? 'America/Sao_Paulo'
         if (existingGoogleEventId && calendarForUpdate && googleConfig?.calendar_id) {
           try {
             await calendarForUpdate.events.patch({
               calendarId: googleConfig.calendar_id,
               eventId: existingGoogleEventId,
               requestBody: {
-                start: { dateTime: agenda_create.start_iso!, timeZone: 'America/Sao_Paulo' },
-                end: { dateTime: agenda_create.end_iso!, timeZone: 'America/Sao_Paulo' },
+                start: { dateTime: agenda_create.start_iso!, timeZone: tz },
+                end: { dateTime: agenda_create.end_iso!, timeZone: tz },
                 ...(agenda_create.title ? { summary: agenda_create.title } : {}),
               },
             })
@@ -188,7 +190,7 @@ export async function handleAgendaCreate(
 
         const startDate = new Date(agenda_create.start_iso!)
         const formattedDate = startDate.toLocaleString('pt-BR', {
-          timeZone: 'America/Sao_Paulo',
+          timeZone: tz,
           weekday: 'long',
           day: 'numeric',
           month: 'long',
@@ -238,7 +240,7 @@ export async function handleAgendaCreate(
 
     const startDate = new Date(agenda_create.start_iso)
     const formattedDate = startDate.toLocaleString('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
+      timeZone: botConfig?.timezone ?? 'America/Sao_Paulo',
       weekday: 'long',
       day: 'numeric',
       month: 'long',
