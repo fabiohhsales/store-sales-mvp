@@ -140,7 +140,7 @@ export async function handleAgendaCreate(
           .or(`google_event_id.eq.${agenda_update.google_event_id},external_event_id.eq.${agenda_update.google_event_id}`)
           .maybeSingle()
         existingId = data?.id ?? null
-        existingGoogleEventId = data?.google_event_id ?? data?.external_event_id ?? null
+        existingGoogleEventId = data?.external_event_id ?? data?.google_event_id ?? null
       }
 
       if (!existingId) {
@@ -154,7 +154,7 @@ export async function handleAgendaCreate(
           .limit(1)
           .maybeSingle()
         existingId = data?.id ?? null
-        existingGoogleEventId = data?.google_event_id ?? data?.external_event_id ?? null
+        existingGoogleEventId = data?.external_event_id ?? data?.google_event_id ?? null
       }
 
       if (existingId) {

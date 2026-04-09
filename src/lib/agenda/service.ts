@@ -72,7 +72,6 @@ interface CalendarSyncResult {
   sync_error: string | null
   external_calendar_id: string | null
   external_event_id: string | null
-  google_event_id: string | null
   meet_link: string | null
   last_synced_at: string | null
 }
@@ -401,7 +400,6 @@ async function buildSyncResult(options: {
       sync_error: null,
       external_calendar_id: null,
       external_event_id: null,
-      google_event_id: null,
       meet_link: null,
       last_synced_at: null,
     }
@@ -415,7 +413,6 @@ async function buildSyncResult(options: {
       sync_error: 'Google Calendar não configurado para este cliente',
       external_calendar_id: googleConfig?.calendar_id ?? null,
       external_event_id: options.existingEventId ?? null,
-      google_event_id: options.existingEventId ?? null,
       meet_link: null,
       last_synced_at: null,
     }
@@ -441,7 +438,6 @@ async function buildSyncResult(options: {
       sync_error: null,
       external_calendar_id: googleConfig.calendar_id,
       external_event_id: synced.eventId,
-      google_event_id: synced.eventId,
       meet_link: synced.meetLink,
       last_synced_at: new Date().toISOString(),
     }
@@ -452,14 +448,13 @@ async function buildSyncResult(options: {
       sync_error: message,
       external_calendar_id: googleConfig.calendar_id ?? null,
       external_event_id: options.existingEventId ?? null,
-      google_event_id: options.existingEventId ?? null,
       meet_link: null,
       last_synced_at: null,
     }
   }
 }
 
-function mapAppointmentRow(row: Record<string, unknown>): AgendaAppointment {
+export function mapAppointmentRow(row: Record<string, unknown>): AgendaAppointment {
   const contactRaw = row.contacts as
     | { id?: string | null; name?: string | null; phone_number?: string | null }
     | Array<{ id?: string | null; name?: string | null; phone_number?: string | null }>
@@ -687,7 +682,8 @@ export async function createAgendaAppointment(input: AgendaUpsertInput) {
       modality: input.modality ?? null,
       status: normalizedStatus,
       meet_link: syncResult.meet_link,
-      google_event_id: syncResult.google_event_id,
+      // google_event_id é coluna legada — não escrevemos mais; o mapper continua
+      // lendo via fallback (external_event_id ?? google_event_id) para linhas antigas.
       source: input.source ?? 'supabase',
       sync_status: syncResult.sync_status,
       sync_error: syncResult.sync_error,
@@ -769,7 +765,8 @@ export async function updateAgendaAppointment(
       status: safeStatus,
       notes: input.notes ?? existing.notes ?? null,
       meet_link: syncResult.meet_link ?? existing.meet_link,
-      google_event_id: syncResult.google_event_id ?? existing.google_event_id,
+      // google_event_id é coluna legada — não escrevemos mais; reads continuam
+      // via mapAppointmentRow's fallback chain.
       sync_status: syncResult.sync_status,
       sync_error: syncResult.sync_error,
       external_calendar_id: syncResult.external_calendar_id ?? existing.external_calendar_id,
