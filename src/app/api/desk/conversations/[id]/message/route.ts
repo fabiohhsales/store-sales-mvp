@@ -53,15 +53,20 @@ export async function POST(
     return NextResponse.json({ error: 'Contato sem número WhatsApp' }, { status: 422 })
   }
 
-  // Auto-assume: operador que envia mensagem assume a conversa automaticamente
+  // Política de takeover humano: toda mensagem de operador renova o ai_pause
+  // por +24h. O bot só volta a responder via /action?action=return ou /resolve.
+  // Sem renovação por mensagem, o lock expirava no meio de uma conversa em
+  // andamento e o bot voltava a falar por cima do humano.
+  await admin.from('ai_pauses').upsert({
+    conversation_id: id,
+    paused_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    paused_reason: 'operator_assumed',
+    paused_by: deskUser.userId,
+    updated_at: new Date().toISOString(),
+  })
+
+  // Auto-assume: a transição de stage só acontece na primeira mensagem.
   if (conv.stage !== 'in_service') {
-    await admin.from('ai_pauses').upsert({
-      conversation_id: id,
-      paused_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      paused_reason: 'operator_assumed',
-      paused_by: deskUser.userId,
-      updated_at: new Date().toISOString(),
-    })
     await admin.from('conversations').update({
       stage: 'in_service',
       ...(conv.status === 'resolved' ? { status: 'open' } : {}),
