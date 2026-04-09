@@ -44,7 +44,17 @@ export function getCalendarClientForConfig(
 ): CalendarClient | null {
   if (!googleConfig) return null
 
-  const mode = googleConfig.calendar_mode ?? 'google_shared'
+  const mode = googleConfig.calendar_mode
+
+  // calendar_mode must be explicit. An unset mode is treated as "not
+  // configured" and returns null — no silent fallback to google_shared,
+  // which would pull an Evolution-only client into the central account.
+  if (mode == null) {
+    console.warn('[calendar] calendar_mode unset; returning null client', {
+      reason: 'calendar_mode_unset',
+    })
+    return null
+  }
 
   if (mode === 'native') return null
 
@@ -53,7 +63,11 @@ export function getCalendarClientForConfig(
     return getCalendarClientWithToken(googleConfig.refresh_token)
   }
 
-  // google_shared (padrão)
-  if (!process.env.GOOGLE_REFRESH_TOKEN) return null
-  return getCalendarClient()
+  if (mode === 'google_shared') {
+    if (!process.env.GOOGLE_REFRESH_TOKEN) return null
+    return getCalendarClient()
+  }
+
+  console.warn('[calendar] unknown calendar_mode; returning null client', { mode })
+  return null
 }
