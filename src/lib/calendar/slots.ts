@@ -42,7 +42,7 @@ export interface TimeSlot {
  * Retorna o offset UTC do timezone no instante `date`, no formato "+HH:MM" ou "-HH:MM".
  * Exemplo: "Europe/Athens" em horário de verão → "+03:00"
  */
-function getTzOffset(timezone: string, date: Date): string {
+export function getTzOffset(timezone: string, date: Date): string {
   const utcMs = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
   const tzMs = new Date(date.toLocaleString('en-US', { timeZone: timezone })).getTime()
   const diffMin = Math.round((tzMs - utcMs) / 60000)
@@ -76,7 +76,7 @@ function tzParts(date: Date, timezone: string) {
  * Converte uma hora local (dateStr + timeStr no timezone dado) para UTC.
  * Usa o truque de projeção: cria o instante como UTC ingênuo e corrige pelo offset real.
  */
-function localToUTC(dateStr: string, timeStr: string, timezone: string): Date {
+export function localToUTC(dateStr: string, timeStr: string, timezone: string): Date {
   const naiveUTC = new Date(`${dateStr}T${timeStr}:00Z`)
   const utcDisplay = new Date(naiveUTC.toLocaleString('en-US', { timeZone: 'UTC' }))
   const tzDisplay = new Date(naiveUTC.toLocaleString('en-US', { timeZone: timezone }))
@@ -87,14 +87,14 @@ function localToUTC(dateStr: string, timeStr: string, timezone: string): Date {
 /**
  * Retorna a data local no formato YYYY-MM-DD para o timezone dado.
  */
-function tzDateStr(date: Date, timezone: string): string {
+export function tzDateStr(date: Date, timezone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(date)
 }
 
 /**
  * Converte um instante UTC para ISO local com offset, ex: "2026-04-07T09:00:00+03:00".
  */
-function toTzISO(date: Date, timezone: string): string {
+export function toTzISO(date: Date, timezone: string): string {
   const p = tzParts(date, timezone)
   const offset = getTzOffset(timezone, date)
   const mm = String(p.month).padStart(2, '0')
