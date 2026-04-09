@@ -40,7 +40,13 @@ export function getCalendarClientWithToken(refreshToken: string): CalendarClient
  * Retorna null quando o modo é 'native' ou os tokens necessários estão ausentes.
  */
 export function getCalendarClientForConfig(
-  googleConfig: Pick<PanelGoogleConfig, 'calendar_mode' | 'refresh_token'> | null
+  googleConfig:
+    | (Pick<PanelGoogleConfig, 'refresh_token'> & {
+        // Truthfully nullable: legacy rows in panel_google_config may have
+        // calendar_mode = NULL even though the type defines it as non-null.
+        calendar_mode: PanelGoogleConfig['calendar_mode'] | null
+      })
+    | null
 ): CalendarClient | null {
   if (!googleConfig) return null
 

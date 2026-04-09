@@ -29,6 +29,8 @@ interface MessageRow {
   sender_type: string
   from_who: string
   created_at: string
+  // Allow our in-memory fake to do generic key lookups via [key] indexing.
+  [extra: string]: unknown
 }
 
 /**
