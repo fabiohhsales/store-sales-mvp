@@ -453,7 +453,7 @@ async function upsertEvolutionConversation(
   return created as BotConversation
 }
 
-async function saveEvolutionMessage(
+export async function saveEvolutionMessage(
   supabase: ReturnType<typeof createAdminClient>,
   msg: NormalizedEvolutionMessage,
   conversation: BotConversation,
@@ -472,7 +472,24 @@ async function saveEvolutionMessage(
       return existingMsg as BotMessage
     }
 
-    // Mensagem existe em outra conversa — migra para a conversa atual (UPDATE mantém evolution_message_id para deduplicação)
+    // Cross-tenant guard: never reassign a message across clients.
+    // evolution_message_id is not globally unique across instances, so
+    // a collision between two different tenants must NOT migrate the
+    // row — that would leak history across clients.
+    if (existingMsg.client_id && existingMsg.client_id !== clientId) {
+      console.warn(
+        `[Pipeline] Cross-tenant evolution_message_id collision — refusing to migrate`,
+        {
+          messageId: msg.messageId,
+          existingClientId: existingMsg.client_id,
+          incomingClientId: clientId,
+        }
+      )
+      return existingMsg as BotMessage
+    }
+
+    // Mensagem existe em outra conversa do MESMO cliente — migra para a conversa atual
+    // (UPDATE mantém evolution_message_id para deduplicação)
     console.log(`[Pipeline] Mensagem em outra conversa, migrando para conversa atual: ${msg.messageId}`)
     const { data: migrated, error: migrateError } = await supabase
       .from('messages')
