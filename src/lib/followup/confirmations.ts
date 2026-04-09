@@ -2,18 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
 import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
-
-export function isWithinBusinessHours(timezone = 'America/Sao_Paulo'): boolean {
-  const now = new Date()
-  const hour = parseInt(
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      hour: 'numeric',
-      hour12: false,
-    }).format(now)
-  )
-  return hour >= 8 && hour < 17
-}
+import { isWithinWorkingHours } from '@/lib/followup/business-hours'
 
 function render(template: string, vars: Record<string, string>) {
   return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? '')
@@ -288,9 +277,10 @@ export async function runFollowupPipeline(): Promise<FollowupSummary> {
     const whatsappConfig = Array.isArray(row.panel_whatsapp_config) ? row.panel_whatsapp_config[0] : row.panel_whatsapp_config
     if (!whatsappConfig) continue
 
-    // Verifica horário comercial no timezone do cliente (não global)
-    const clientTimezone = (row as PanelBotConfig).timezone ?? 'America/Sao_Paulo'
-    if (!isWithinBusinessHours(clientTimezone)) continue
+    // Verifica working_hours real do cliente (não janela fixa 8–17).
+    const botConfigRow = row as PanelBotConfig
+    const clientTimezone = botConfigRow.timezone ?? 'America/Sao_Paulo'
+    if (!isWithinWorkingHours(botConfigRow.working_hours, clientTimezone)) continue
 
     try {
       const result = await processClient({

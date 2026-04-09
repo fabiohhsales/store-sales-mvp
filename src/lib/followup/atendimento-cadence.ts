@@ -4,7 +4,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
-import { isWithinBusinessHours } from '@/lib/followup/confirmations'
+import { isWithinWorkingHours } from '@/lib/followup/business-hours'
 import { DEFAULT_STAGE_LABELS, normalizeStageSlug } from '@/lib/bot/stage-labels'
 import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
 
@@ -308,8 +308,8 @@ async function sendAtendimentoStep(
 }
 
 async function processClient(ctx: ClientFollowupContext): Promise<number> {
-  // Verifica horário comercial no timezone do cliente
-  if (!isWithinBusinessHours(ctx.botConfig.timezone ?? 'America/Sao_Paulo')) return 0
+  // Verifica working_hours real do cliente (não janela fixa 8–17).
+  if (!isWithinWorkingHours(ctx.botConfig.working_hours, ctx.botConfig.timezone ?? 'America/Sao_Paulo')) return 0
 
   const conversations = await queryAtendimentoConversations(ctx.clientId, ctx.botConfig)
   if (!conversations.length) {
