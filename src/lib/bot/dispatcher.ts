@@ -122,6 +122,13 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
   const { clientContext, contact, conversation } = result
   const { whatsappConfig } = clientContext
 
+  if (!clientContext.botConfig) {
+    console.warn(
+      '[Dispatcher] sem panel_bot_config — pulando atualização de conversa, intake completion e detecção de cadência',
+      { clientId: clientContext.clientId, conversationId: conversation.id }
+    )
+  }
+
   // --- 1. Envia resposta WhatsApp (se houver reply e não for handoff) ---
   if (output.reply && !output.handoff.needs_human) {
     const identifier = contact.identifier ?? contact.phone_number

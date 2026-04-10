@@ -152,6 +152,24 @@ describe('dispatch — ai_pause guard', () => {
     expect(pauseDeletes[0].filter).toEqual({ key: 'conversation_id', value: 'conv-1' })
   })
 
+  it('emits a single [Dispatcher] warn when clientContext.botConfig is null', async () => {
+    const { admin } = buildAdmin()
+    mocks.createAdminClient.mockReturnValue(admin)
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // makeResult() already returns botConfig: null
+    await dispatch(makeResult(), fallbackOutput as never)
+
+    const dispatcherWarns = warnSpy.mock.calls.filter(
+      (args) => typeof args[0] === 'string' && args[0].startsWith('[Dispatcher] sem panel_bot_config')
+    )
+    expect(dispatcherWarns).toHaveLength(1)
+    expect(dispatcherWarns[0][1]).toMatchObject({
+      clientId: 'client-A',
+      conversationId: 'conv-1',
+    })
+  })
+
   it('DOES call clearAiPause when notes is null (successful agent output)', async () => {
     const { admin, ops } = buildAdmin()
     mocks.createAdminClient.mockReturnValue(admin)
