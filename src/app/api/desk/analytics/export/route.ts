@@ -74,7 +74,11 @@ export async function GET(request: NextRequest) {
   const csvRows = [header.join(',')]
 
   for (const row of rows ?? []) {
-    const contact = (row.contacts as unknown as { name: string | null; phone_number: string | null } | null)
+    type ContactExportRow = { name: string | null; phone_number: string | null }
+    const rawContacts = row.contacts as ContactExportRow | ContactExportRow[] | null
+    const contact: ContactExportRow | null = Array.isArray(rawContacts)
+      ? (rawContacts[0] ?? null)
+      : rawContacts
     const resolutionMs = row.resolved_at && row.created_at
       ? new Date(row.resolved_at).getTime() - new Date(row.created_at).getTime()
       : null

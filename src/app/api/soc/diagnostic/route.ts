@@ -234,13 +234,18 @@ async function buildGlobalDiagnostic(): Promise<GlobalDiagnostic> {
     .select('id, name, panel_whatsapp_config(evolution_instance_name)')
     .eq('status', 'draft')
 
-  const draftWithInstance = ((drafts as unknown as PanelClientWithRelations[]) ?? [])
-    .filter((c) => !!c.panel_whatsapp_config?.evolution_instance_name)
+  type DraftRow = {
+    id: string
+    name: string
+    panel_whatsapp_config: { evolution_instance_name: string | null } | null
+  }
+  const draftWithInstance = ((drafts as DraftRow[] | null) ?? [])
     .map((c) => ({
-      client_id: c.id as string,
+      client_id: c.id,
       client_name: c.name,
-      instance: c.panel_whatsapp_config!.evolution_instance_name,
+      instance: c.panel_whatsapp_config?.evolution_instance_name ?? null,
     }))
+    .filter((c): c is { client_id: string; client_name: string; instance: string } => c.instance !== null)
 
   // Conversas travadas em awaiting_human > STUCK_CONVERSATION_HOURS horas
   const cutoff = new Date(Date.now() - STUCK_CONVERSATION_HOURS * 60 * 60 * 1000).toISOString()

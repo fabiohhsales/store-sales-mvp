@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser } from '@/lib/desk/auth'
 import { sendMediaMessage } from '@/lib/api/evolution'
+import { extractEvolutionInstanceName, extractFirstContact } from '@/lib/desk/conversation-row'
 
 // Mapeia mimetype → mediatype da Evolution
 function resolveMediatype(mimetype: string): 'image' | 'document' | 'audio' | 'video' {
@@ -65,11 +66,8 @@ export async function POST(
     return NextResponse.json({ error: 'Operador deve assumir a conversa antes de enviar mídia' }, { status: 422 })
   }
 
-  const contact = (conv.contacts as { phone_number: string | null; identifier: string | null }[] | null)?.[0] ?? null
-  const instanceName = (
-    (conv as unknown as { panel_clients?: { panel_whatsapp_config?: { evolution_instance_name?: string | null }[] | null } | null })
-      ?.panel_clients?.panel_whatsapp_config?.[0]?.evolution_instance_name
-  ) ?? null
+  const contact = extractFirstContact(conv)
+  const instanceName = extractEvolutionInstanceName(conv)
 
   if (!instanceName) {
     return NextResponse.json({ error: 'Instância WhatsApp não configurada' }, { status: 422 })

@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser } from '@/lib/desk/auth'
+import { extractEvolutionInstanceName, extractFirstContact } from '@/lib/desk/conversation-row'
 
 export async function GET(request: NextRequest) {
   const deskUser = await resolveDeskUser(request)
@@ -60,11 +61,8 @@ export async function GET(request: NextRequest) {
   }
 
   // Fallback: busca base64 diretamente da Evolution API
-  const contact = (conv.contacts as { identifier: string | null; phone_number: string | null }[] | null)?.[0] ?? null
-  const instanceName = (
-    (conv as unknown as { panel_clients?: { panel_whatsapp_config?: { evolution_instance_name?: string | null }[] | null } | null })
-      ?.panel_clients?.panel_whatsapp_config?.[0]?.evolution_instance_name
-  ) ?? null
+  const contact = extractFirstContact(conv)
+  const instanceName = extractEvolutionInstanceName(conv)
 
   if (!instanceName) return new NextResponse('Instância não configurada', { status: 422 })
 

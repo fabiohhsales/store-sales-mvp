@@ -61,6 +61,9 @@ function buildAdminWithRowMissingWhatsapp() {
 }
 
 let logSpy: ReturnType<typeof vi.spyOn>
+function logCalls(): unknown[][] {
+  return logSpy.mock.calls as unknown as unknown[][]
+}
 
 beforeEach(() => {
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -85,12 +88,13 @@ describe('logFollowupSkip helper', () => {
     })
 
     expect(logSpy).toHaveBeenCalledTimes(3)
-    expect(logSpy.mock.calls[0][0]).toBe('[Followup lead] skip reason=fora_do_horario')
-    expect(logSpy.mock.calls[0][1]).toEqual({ clientId: 'client-A' })
-    expect(logSpy.mock.calls[1][0]).toBe('[Followup atendimento] skip reason=sem_step_elegivel')
-    expect(logSpy.mock.calls[1][1]).toMatchObject({ clientId: 'client-B', conversationId: 'conv-9' })
-    expect(logSpy.mock.calls[2][0]).toBe('[Followup agendado] skip reason=sem_whatsapp_config')
-    expect(logSpy.mock.calls[2][1]).toMatchObject({ clientId: 'client-C', appointmentId: 'appt-7' })
+    const calls = logCalls()
+    expect(calls[0][0]).toBe('[Followup lead] skip reason=fora_do_horario')
+    expect(calls[0][1]).toEqual({ clientId: 'client-A' })
+    expect(calls[1][0]).toBe('[Followup atendimento] skip reason=sem_step_elegivel')
+    expect(calls[1][1]).toMatchObject({ clientId: 'client-B', conversationId: 'conv-9' })
+    expect(calls[2][0]).toBe('[Followup agendado] skip reason=sem_whatsapp_config')
+    expect(calls[2][1]).toMatchObject({ clientId: 'client-C', appointmentId: 'appt-7' })
   })
 })
 
@@ -101,7 +105,7 @@ describe('cadence pipelines emit sem_whatsapp_config skip when row lacks WhatsAp
     const summary = await runLeadCadencePipeline()
     expect(summary.stepsSent).toBe(0)
 
-    const skipCalls = logSpy.mock.calls.filter(
+    const skipCalls = logCalls().filter(
       (args) =>
         typeof args[0] === 'string' &&
         args[0] === '[Followup lead] skip reason=sem_whatsapp_config'
@@ -116,7 +120,7 @@ describe('cadence pipelines emit sem_whatsapp_config skip when row lacks WhatsAp
     const summary = await runAtendimentoCadencePipeline()
     expect(summary.stepsSent).toBe(0)
 
-    const skipCalls = logSpy.mock.calls.filter(
+    const skipCalls = logCalls().filter(
       (args) =>
         typeof args[0] === 'string' &&
         args[0] === '[Followup atendimento] skip reason=sem_whatsapp_config'
@@ -130,7 +134,7 @@ describe('cadence pipelines emit sem_whatsapp_config skip when row lacks WhatsAp
     const summary = await runAgendadoCadencePipeline()
     expect(summary.stepsSent).toBe(0)
 
-    const skipCalls = logSpy.mock.calls.filter(
+    const skipCalls = logCalls().filter(
       (args) =>
         typeof args[0] === 'string' &&
         args[0] === '[Followup agendado] skip reason=sem_whatsapp_config'
