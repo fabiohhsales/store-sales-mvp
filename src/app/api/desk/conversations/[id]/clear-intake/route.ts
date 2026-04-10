@@ -1,5 +1,6 @@
 // DELETE /api/desk/conversations/[id]/clear-intake
-// Zera custom_data e intake_completed_at do contato da conversa — usado para testes.
+// Zera custom_data e intake_completed_at do contato — admin-only debug tool.
+// Audit log em [desk/clear-intake] inclui o user que executou.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -27,9 +28,6 @@ export async function DELETE(
     .maybeSingle()
 
   if (!conv) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
-  if (!deskUser.isAdmin && conv.client_id !== deskUser.clientId) {
-    return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
-  }
 
   await admin.from('contacts').update({
     custom_data: {},
