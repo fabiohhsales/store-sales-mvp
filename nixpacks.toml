@@ -2,7 +2,7 @@
 cmds = ["npm ci --prefer-offline --no-audit --progress=false"]
 
 [phases.build]
-cmds = ["NODE_OPTIONS=--max-old-space-size=2048 npm run build"]
+cmds = ["NODE_OPTIONS=--max-old-space-size=4096 npm run build"]
 
 [start]
 cmd = "npm run start"
