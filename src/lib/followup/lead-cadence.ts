@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
-import { isWithinWorkingHours } from '@/lib/followup/business-hours'
+import { isWithinWorkingHours, logFollowupSkip } from '@/lib/followup/business-hours'
 import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
 
 const DEFAULT_STEP_TEMPLATES = {
@@ -233,10 +233,14 @@ async function sendLeadStep(
 
 async function processClient(ctx: ClientFollowupContext): Promise<number> {
   // Verifica working_hours real do cliente (não janela fixa 8–17).
-  if (!isWithinWorkingHours(ctx.botConfig.working_hours, ctx.botConfig.timezone ?? 'America/Sao_Paulo')) return 0
+  if (!isWithinWorkingHours(ctx.botConfig.working_hours, ctx.botConfig.timezone ?? 'America/Sao_Paulo')) {
+    logFollowupSkip('lead', 'fora_do_horario', { clientId: ctx.clientId })
+    return 0
+  }
 
   const conversations = await queryLeadConversations(ctx.clientId)
   if (!conversations.length) {
+    logFollowupSkip('lead', 'sem_conversas', { clientId: ctx.clientId })
     return 0
   }
 
@@ -249,6 +253,7 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
   )
 
   if (!candidates.length) {
+    logFollowupSkip('lead', 'sem_candidatos_pos_filtro', { clientId: ctx.clientId })
     return 0
   }
 
@@ -262,16 +267,28 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
 
   for (const conversation of candidates) {
     if (!conversation.last_outgoing_at || !conversation.contact_id) {
+      logFollowupSkip('lead', 'sem_contato_ou_last_outgoing', {
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+      })
       continue
     }
 
     const stepKey = resolveLeadStepKey(conversation.last_outgoing_at)
     if (!stepKey) {
+      logFollowupSkip('lead', 'sem_step_elegivel', {
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+      })
       continue
     }
 
     const contact = contactsMap.get(conversation.contact_id)
     if (!contact) {
+      logFollowupSkip('lead', 'contato_nao_encontrado', {
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+      })
       continue
     }
 
@@ -310,6 +327,7 @@ export async function runLeadCadencePipeline(): Promise<LeadCadenceSummary> {
       : row.panel_whatsapp_config
 
     if (!whatsappConfig) {
+      logFollowupSkip('lead', 'sem_whatsapp_config', { clientId: row.client_id as string })
       continue
     }
 

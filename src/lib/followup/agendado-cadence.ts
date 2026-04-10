@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
-import { isWithinWorkingHours } from '@/lib/followup/business-hours'
+import { isWithinWorkingHours, logFollowupSkip } from '@/lib/followup/business-hours'
 import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
 
@@ -173,15 +173,27 @@ async function sendAgendadoStep(ctx: ClientFollowupContext, appointment: Appoint
 }
 
 async function processClient(ctx: ClientFollowupContext) {
-  if (!ctx.whatsappConfig.evolution_instance_name) return 0
+  if (!ctx.whatsappConfig.evolution_instance_name) {
+    logFollowupSkip('agendado', 'sem_whatsapp_config', { clientId: ctx.clientId })
+    return 0
+  }
   // Verifica working_hours real do cliente (não janela fixa 8–17).
-  if (!isWithinWorkingHours(ctx.botConfig.working_hours, ctx.botConfig.timezone ?? 'America/Sao_Paulo')) return 0
+  if (!isWithinWorkingHours(ctx.botConfig.working_hours, ctx.botConfig.timezone ?? 'America/Sao_Paulo')) {
+    logFollowupSkip('agendado', 'fora_do_horario', { clientId: ctx.clientId })
+    return 0
+  }
   const appointments = await queryUpcomingAppointments(ctx.clientId)
   let sentCount = 0
 
   for (const appointment of appointments) {
     const stepKey = resolveAgendadoStepKey(appointment.start_at)
-    if (!stepKey) continue
+    if (!stepKey) {
+      logFollowupSkip('agendado', 'sem_step_elegivel', {
+        clientId: ctx.clientId,
+        appointmentId: appointment.id,
+      })
+      continue
+    }
     try {
       const sent = await sendAgendadoStep(ctx, appointment, stepKey)
       if (sent) sentCount++
@@ -208,7 +220,10 @@ export async function runAgendadoCadencePipeline(): Promise<AgendadoCadenceSumma
   let totalSent = 0
   for (const row of rows) {
     const whatsappConfig = Array.isArray(row.panel_whatsapp_config) ? row.panel_whatsapp_config[0] : row.panel_whatsapp_config
-    if (!whatsappConfig) continue
+    if (!whatsappConfig) {
+      logFollowupSkip('agendado', 'sem_whatsapp_config', { clientId: row.client_id as string })
+      continue
+    }
 
     try {
       totalSent += await processClient({

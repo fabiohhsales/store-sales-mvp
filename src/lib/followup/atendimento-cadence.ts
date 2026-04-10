@@ -4,7 +4,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage } from '@/lib/api/evolution'
-import { isWithinWorkingHours } from '@/lib/followup/business-hours'
+import { isWithinWorkingHours, logFollowupSkip } from '@/lib/followup/business-hours'
 import { DEFAULT_STAGE_LABELS, normalizeStageSlug } from '@/lib/bot/stage-labels'
 import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
 
@@ -309,10 +309,14 @@ async function sendAtendimentoStep(
 
 async function processClient(ctx: ClientFollowupContext): Promise<number> {
   // Verifica working_hours real do cliente (não janela fixa 8–17).
-  if (!isWithinWorkingHours(ctx.botConfig.working_hours, ctx.botConfig.timezone ?? 'America/Sao_Paulo')) return 0
+  if (!isWithinWorkingHours(ctx.botConfig.working_hours, ctx.botConfig.timezone ?? 'America/Sao_Paulo')) {
+    logFollowupSkip('atendimento', 'fora_do_horario', { clientId: ctx.clientId })
+    return 0
+  }
 
   const conversations = await queryAtendimentoConversations(ctx.clientId, ctx.botConfig)
   if (!conversations.length) {
+    logFollowupSkip('atendimento', 'sem_conversas', { clientId: ctx.clientId })
     return 0
   }
 
@@ -325,6 +329,7 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
   )
 
   if (!candidates.length) {
+    logFollowupSkip('atendimento', 'sem_candidatos_pos_filtro', { clientId: ctx.clientId })
     return 0
   }
 
@@ -338,16 +343,28 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
 
   for (const conversation of candidates) {
     if (!conversation.last_incoming_at || !conversation.contact_id) {
+      logFollowupSkip('atendimento', 'sem_contato_ou_last_incoming', {
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+      })
       continue
     }
 
     const stepKey = resolveAtendimentoStepKey(conversation.last_incoming_at)
     if (!stepKey) {
+      logFollowupSkip('atendimento', 'sem_step_elegivel', {
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+      })
       continue
     }
 
     const contact = contactsMap.get(conversation.contact_id)
     if (!contact) {
+      logFollowupSkip('atendimento', 'contato_nao_encontrado', {
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+      })
       continue
     }
 
@@ -386,6 +403,7 @@ export async function runAtendimentoCadencePipeline(): Promise<AtendimentoCadenc
       : row.panel_whatsapp_config
 
     if (!whatsappConfig) {
+      logFollowupSkip('atendimento', 'sem_whatsapp_config', { clientId: row.client_id as string })
       continue
     }
 

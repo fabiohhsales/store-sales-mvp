@@ -88,3 +88,25 @@ export function isWithinWorkingHours(
 
   return true
 }
+
+/**
+ * Structured skip log used by all 3 follow-up cadences. Single-line console.log
+ * keeps it cheap and grep-friendly. The reason union prevents typos.
+ */
+export type FollowupSkipReason =
+  | 'fora_do_horario'
+  | 'sem_conversas'
+  | 'sem_candidatos_pos_filtro'
+  | 'sem_contato_ou_last_outgoing'
+  | 'sem_contato_ou_last_incoming'
+  | 'sem_step_elegivel'
+  | 'contato_nao_encontrado'
+  | 'sem_whatsapp_config'
+
+export function logFollowupSkip(
+  cadence: 'lead' | 'atendimento' | 'agendado',
+  reason: FollowupSkipReason,
+  ctx: { clientId: string; conversationId?: string; appointmentId?: string }
+): void {
+  console.log(`[Followup ${cadence}] skip reason=${reason}`, ctx)
+}
