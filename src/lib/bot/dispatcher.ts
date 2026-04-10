@@ -221,7 +221,12 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
   }
 
   // --- 5. Libera trava de IA para próximas mensagens ---
-  await clearAiPause(conversation.id)
+  // Skip when the agent detected a human-operator pause and short-circuited without
+  // producing a reply — clearing here would silently destroy the operator's lock
+  // and re-open the bot gate, defeating the P1.1 fix in the desk message route.
+  if (output.debug?.notes !== 'ai_paused') {
+    await clearAiPause(conversation.id)
+  }
 }
 
 // Salva a mensagem de resposta da IA na tabela messages
