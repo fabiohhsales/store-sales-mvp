@@ -22,7 +22,10 @@ const chatwootFrameAncestors = Array.from(
 
 const nextConfig: NextConfig = {
   typescript: {
-    ignoreBuildErrors: true,
+    // Docker OOM: se `next build` estourar memória no CI, adicionar
+    // NODE_OPTIONS=--max-old-space-size=4096 no step de build, ou mover o
+    // typecheck para um step separado com `tsc --noEmit` (passa localmente).
+    ignoreBuildErrors: false,
   },
   async headers() {
     return [

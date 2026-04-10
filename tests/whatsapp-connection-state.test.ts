@@ -20,6 +20,23 @@ function createAdminClientMock() {
     from(table: string) {
       if (table === 'panel_whatsapp_config') {
         return {
+          // Conflict-check path: .select(...).eq('connected_phone', ...).neq(...).maybeSingle()
+          select(_columns?: string) {
+            return {
+              eq(_col: string, _val: string) {
+                return {
+                  neq(_col2: string, _val2: string) {
+                    return {
+                      async maybeSingle() {
+                        return { data: null, error: null }
+                      },
+                    }
+                  },
+                }
+              },
+            }
+          },
+          // Main update path: .update(updates).eq('evolution_instance_name', ...).select('client_id').maybeSingle()
           update(updates: Record<string, unknown>) {
             return {
               eq(column: string, value: string) {
@@ -43,6 +60,22 @@ function createAdminClientMock() {
         }
       }
 
+      if (table === 'panel_bot_config') {
+        return {
+          select(_columns?: string) {
+            return {
+              eq(_col: string, _val: string) {
+                return {
+                  async maybeSingle() {
+                    return { data: { client_id: 'client-1' }, error: null }
+                  },
+                }
+              },
+            }
+          },
+        }
+      }
+
       if (table === 'panel_clients') {
         return {
           update(updates: Record<string, unknown>) {
@@ -53,7 +86,7 @@ function createAdminClientMock() {
                 return {
                   in(statusColumn: string, allowed: string[]) {
                     expect(statusColumn).toBe('status')
-                    expect(allowed).toEqual(['pending_whatsapp', 'disconnected'])
+                    expect(allowed).toEqual(['pending_whatsapp', 'pending_google', 'disconnected', 'configuring'])
                     return Promise.resolve({ error: null, data: { updates } })
                   },
                 }

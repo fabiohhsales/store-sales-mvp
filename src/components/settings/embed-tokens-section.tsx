@@ -140,12 +140,9 @@ export function EmbedTokensSection() {
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          {/* @ts-ignore — @base-ui/react DialogTrigger accepts asChild at runtime */}
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              Gerar Token
-            </Button>
+          <DialogTrigger render={<Button size="sm" />}>
+            <Plus className="h-4 w-4 mr-1" />
+            Gerar Token
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>

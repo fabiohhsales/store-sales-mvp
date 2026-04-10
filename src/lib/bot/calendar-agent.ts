@@ -131,7 +131,7 @@ export async function handleAgendaCreate(
     // Reagendamento: encontra appointment existente e atualiza em vez de criar novo
     if (agenda_update.should_update) {
       let existingId: string | null = null
-      let existingGoogleEventId: string | null = null
+      let existingExternalEventId: string | null = null
 
       if (agenda_update.google_event_id) {
         const { data } = await supabase
@@ -140,7 +140,7 @@ export async function handleAgendaCreate(
           .or(`google_event_id.eq.${agenda_update.google_event_id},external_event_id.eq.${agenda_update.google_event_id}`)
           .maybeSingle()
         existingId = data?.id ?? null
-        existingGoogleEventId = data?.external_event_id ?? data?.google_event_id ?? null
+        existingExternalEventId = data?.external_event_id ?? data?.google_event_id ?? null
       }
 
       if (!existingId) {
@@ -154,7 +154,7 @@ export async function handleAgendaCreate(
           .limit(1)
           .maybeSingle()
         existingId = data?.id ?? null
-        existingGoogleEventId = data?.external_event_id ?? data?.google_event_id ?? null
+        existingExternalEventId = data?.external_event_id ?? data?.google_event_id ?? null
       }
 
       if (existingId) {
@@ -172,11 +172,11 @@ export async function handleAgendaCreate(
         // Atualiza evento no Google Calendar se disponível
         const calendarForUpdate = getCalendarClientForConfig(googleConfig ?? null)
         const tz = botConfig?.timezone ?? 'America/Sao_Paulo'
-        if (existingGoogleEventId && calendarForUpdate && googleConfig?.calendar_id) {
+        if (existingExternalEventId && calendarForUpdate && googleConfig?.calendar_id) {
           try {
             await calendarForUpdate.events.patch({
               calendarId: googleConfig.calendar_id,
-              eventId: existingGoogleEventId,
+              eventId: existingExternalEventId,
               requestBody: {
                 start: { dateTime: agenda_create.start_iso!, timeZone: tz },
                 end: { dateTime: agenda_create.end_iso!, timeZone: tz },

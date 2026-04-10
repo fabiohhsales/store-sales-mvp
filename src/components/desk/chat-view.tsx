@@ -729,12 +729,9 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
 
           {!isResolved && (
             <Dialog>
-              {/* @ts-ignore — @base-ui/react DialogTrigger accepts asChild at runtime */}
-              <DialogTrigger asChild>
-                <Button size="sm" variant="outline" disabled={actioning} className="h-8 text-xs">
-                  <CheckCheck size={12} className="mr-1" />
-                  Finalizar
-                </Button>
+              <DialogTrigger render={<Button size="sm" variant="outline" disabled={actioning} className="h-8 text-xs" />}>
+                <CheckCheck size={12} className="mr-1" />
+                Finalizar
               </DialogTrigger>
               <DialogContent showCloseButton={false}>
                 <DialogHeader>
@@ -744,10 +741,8 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
                   </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
-                  {/* @ts-ignore — @base-ui/react DialogClose accepts asChild at runtime */}
-                  <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
-                  {/* @ts-ignore — @base-ui/react DialogClose accepts asChild at runtime */}
-                  <DialogClose asChild><Button onClick={() => handleAction('resolve')}>Finalizar</Button></DialogClose>
+                  <DialogClose render={<Button variant="outline" />}>Cancelar</DialogClose>
+                  <DialogClose render={<Button onClick={() => handleAction('resolve')} />}>Finalizar</DialogClose>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
