@@ -238,11 +238,19 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
 
   const load = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
-    const res = await fetch(`/api/desk/conversations/${conversationId}?client_id=${clientId}`)
-    if (res.ok) {
-      const data = await res.json()
-      setConversation(data.conversation)
-      setMessages(data.messages)
+    try {
+      const res = await fetch(`/api/desk/conversations/${conversationId}?client_id=${clientId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setConversation(data.conversation)
+        setMessages(data.messages ?? [])
+      } else {
+        console.error(`[ChatView] Erro ao carregar conversa ${conversationId}: HTTP ${res.status}`)
+        if (showLoading) toast.error('Erro ao carregar mensagens')
+      }
+    } catch (err) {
+      console.error(`[ChatView] Falha de rede ao carregar conversa ${conversationId}:`, err)
+      if (showLoading) toast.error('Falha de conexão ao carregar mensagens')
     }
     if (showLoading) setLoading(false)
   }, [conversationId, clientId])
@@ -668,7 +676,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
           {/* Atribuição de operador — B6 */}
           {operators.length > 0 && (
             <Select
-              value={assignedOperatorId ?? 'none'}
+              value={assignedOperatorId && operators.some((op) => op.id === assignedOperatorId) ? assignedOperatorId : 'none'}
               onValueChange={(val) => handleAssign(val === 'none' ? null : val)}
               disabled={assignLoading}
             >
@@ -822,6 +830,12 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
 
               {/* Mensagens */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {messages.length === 0 && !loading && (
+                  <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                    <MessageSquare size={32} className="text-muted-foreground/30 mb-2" />
+                    <p className="text-sm text-muted-foreground">Nenhuma mensagem nesta conversa</p>
+                  </div>
+                )}
                 {messages.map((msg) => (
                   <MessageBubble key={msg.id} message={msg} conversationId={conversationId} />
                 ))}

@@ -85,6 +85,20 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
       <div className="space-y-2">
         {/* Nome e telefone */}
         <div className="flex items-start gap-2">
+          <button
+            type="button"
+            aria-label="Arrastar card"
+            onClick={(event) => event.stopPropagation()}
+            className={`
+              mt-0.5 inline-flex h-8 w-5 shrink-0 items-center justify-center rounded
+              text-muted-foreground/50 transition-colors
+              ${isOverlay ? 'cursor-default' : 'cursor-grab hover:bg-muted hover:text-foreground active:cursor-grabbing'}
+            `}
+            {...(!isOverlay ? listeners : {})}
+            {...(!isOverlay ? attributes : {})}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
           <div className="min-w-0 flex-1">
             <p className="font-medium text-sm leading-tight truncate">
               {conversation.contact_name || 'Sem nome'}
@@ -95,20 +109,6 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
               </p>
             )}
           </div>
-          <button
-            type="button"
-            aria-label="Arrastar card"
-            onClick={(event) => event.stopPropagation()}
-            className={`
-              mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md
-              text-muted-foreground transition-colors
-              ${isOverlay ? 'cursor-default' : 'cursor-grab hover:bg-muted hover:text-foreground active:cursor-grabbing'}
-            `}
-            {...(!isOverlay ? listeners : {})}
-            {...(!isOverlay ? attributes : {})}
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
         </div>
 
         {/* Última atividade + temperatura + followup */}
