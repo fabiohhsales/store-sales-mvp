@@ -1,8 +1,9 @@
 // Salva configurações de calendário do cliente: email para convites, calendar_id e calendar_mode.
-// Não usa OAuth — a conta Google é central da Sales Tec (google_shared).
+// Usa admin client para contornar RLS. Auth via session cookie.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const VALID_MODES = ['google_shared', 'google_oauth', 'native'] as const
 
@@ -11,9 +12,15 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
-  const { id } = await params
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  }
 
-  const { data, error } = await supabase
+  const { id } = await params
+  const admin = createAdminClient()
+
+  const { data, error } = await admin
     .from('panel_google_config')
     .select('calendar_mode, calendar_id, google_email')
     .eq('client_id', id)
@@ -29,7 +36,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  }
+
   const { id } = await params
+  const admin = createAdminClient()
 
   const body = await request.json()
   const { google_email, calendar_id, calendar_mode } = body
@@ -48,21 +61,24 @@ export async function POST(
   }
 
   // Check if record already exists
-  const { data: existing } = await supabase
+  const { data: existing } = await admin
     .from('panel_google_config')
     .select('id')
     .eq('client_id', id)
     .maybeSingle()
 
   if (existing) {
-    const { error } = await supabase
+    const { error } = await admin
       .from('panel_google_config')
       .update(updatePayload)
       .eq('client_id', id)
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) {
+      console.error('[calendar-config] update error', { clientId: id, error: error.message })
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
   } else {
-    const { error } = await supabase
+    const { error } = await admin
       .from('panel_google_config')
       .insert({
         id: crypto.randomUUID(),
@@ -70,7 +86,10 @@ export async function POST(
         ...updatePayload,
       })
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) {
+      console.error('[calendar-config] insert error', { clientId: id, error: error.message })
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
   }
 
   return NextResponse.json({ ok: true })
