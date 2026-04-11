@@ -101,9 +101,9 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
           </button>
           <div className="min-w-0 flex-1">
             <p className="font-medium text-sm leading-tight truncate">
-              {conversation.contact_name || 'Sem nome'}
+              {conversation.contact_name || conversation.contact_phone || conversation.contact_identifier || 'Sem nome'}
             </p>
-            {conversation.contact_phone && (
+            {conversation.contact_phone && conversation.contact_name && (
               <p className="text-xs text-muted-foreground truncate">
                 {conversation.contact_phone}
               </p>

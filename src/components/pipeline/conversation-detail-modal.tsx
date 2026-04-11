@@ -198,15 +198,15 @@ export function ConversationDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <User className="h-5 w-5" />
-            {activeConversation.contact_name || 'Sem nome'}
+            {activeConversation.contact_name || activeConversation.contact_phone || activeConversation.contact_identifier || 'Sem nome'}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="grid gap-6 md:grid-cols-[1fr_280px]">
           <div className="space-y-4">
             {/* Contato */}
             <div className="space-y-1 text-sm">

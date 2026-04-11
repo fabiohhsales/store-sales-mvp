@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
       followup_cadence,
       appointment_status,
       summary,
-      contacts!inner(name, phone_number, identifier)
+      contacts(name, phone_number, identifier)
     `
 
     let query = admin
