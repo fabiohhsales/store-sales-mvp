@@ -504,11 +504,14 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
       })
-      if (!res.ok) throw new Error('Falha ao enviar')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error || 'Falha ao enviar')
+      }
       const saved = await res.json()
       setMessages((prev) => prev.map((m) => m.id === tempId ? saved : m))
-    } catch {
-      toast.error('Falha ao enviar mensagem')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao enviar mensagem')
       setMessages((prev) => prev.filter((m) => m.id !== tempId))
       setInput(content)
     } finally {

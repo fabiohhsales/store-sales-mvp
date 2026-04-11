@@ -11,23 +11,31 @@ export type ConversationContactRow = {
   identifier: string | null
 }
 
+type WhatsAppConfigRow = { evolution_instance_name: string | null }
+
+// PostgREST returns arrays for one-to-many and single objects for
+// many-to-one FK joins. Guard against both shapes.
 export type ConversationJoinedRow = {
-  contacts?: ConversationContactRow[] | null
+  contacts?: ConversationContactRow | ConversationContactRow[] | null
   panel_clients?: {
-    panel_whatsapp_config?: { evolution_instance_name: string | null }[] | null
-  } | null
+    panel_whatsapp_config?: WhatsAppConfigRow | WhatsAppConfigRow[] | null
+  } | {
+    panel_whatsapp_config?: WhatsAppConfigRow | WhatsAppConfigRow[] | null
+  }[] | null
 }
 
 export function extractEvolutionInstanceName(
   row: ConversationJoinedRow | unknown
 ): string | null {
   const r = row as ConversationJoinedRow
-  return r?.panel_clients?.panel_whatsapp_config?.[0]?.evolution_instance_name ?? null
+  const pc = Array.isArray(r?.panel_clients) ? r.panel_clients[0] : r?.panel_clients
+  const wc = Array.isArray(pc?.panel_whatsapp_config) ? pc.panel_whatsapp_config[0] : pc?.panel_whatsapp_config
+  return wc?.evolution_instance_name ?? null
 }
 
 export function extractFirstContact(
   row: ConversationJoinedRow | unknown
 ): ConversationContactRow | null {
   const r = row as ConversationJoinedRow
-  return r?.contacts?.[0] ?? null
+  return Array.isArray(r?.contacts) ? r.contacts[0] ?? null : r?.contacts ?? null
 }
