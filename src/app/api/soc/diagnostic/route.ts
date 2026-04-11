@@ -251,12 +251,12 @@ async function buildGlobalDiagnostic(): Promise<GlobalDiagnostic> {
   const cutoff = new Date(Date.now() - STUCK_CONVERSATION_HOURS * 60 * 60 * 1000).toISOString()
   const { data: stuck } = await supabase
     .from('conversations')
-    .select('id, client_id, stage, stage_changed_at, last_incoming_at')
+    .select('id, client_id, stage, last_incoming_at')
     .eq('stage', 'awaiting_human')
-    .lt('stage_changed_at', cutoff)
+    .lt('last_incoming_at', cutoff)
 
   const stuckConversations = (stuck ?? []).map((row) => {
-    const since = row.stage_changed_at ?? row.last_incoming_at ?? new Date().toISOString()
+    const since = row.last_incoming_at ?? new Date().toISOString()
     const hoursStuck = Math.floor((Date.now() - new Date(since).getTime()) / 3_600_000)
     return {
       conversation_id: row.id,

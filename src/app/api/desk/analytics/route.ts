@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
     .select('id', { count: 'exact', head: true })
     .eq('client_id', deskUser.clientId)
     .eq('stage', 'awaiting_human')
-    .or(`stage_changed_at.lt.${oneHourAgo},and(stage_changed_at.is.null,last_incoming_at.lt.${oneHourAgo})`)
+    .lt('last_incoming_at', oneHourAgo)
 
   return NextResponse.json({
     period,

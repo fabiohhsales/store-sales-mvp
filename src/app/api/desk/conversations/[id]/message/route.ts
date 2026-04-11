@@ -68,7 +68,6 @@ export async function POST(
     await admin.from('conversations').update({
       stage: 'in_service',
       ...(conv.status === 'resolved' ? { status: 'open' } : {}),
-      stage_changed_at: new Date().toISOString(),
     }).eq('id', id)
   }
 
