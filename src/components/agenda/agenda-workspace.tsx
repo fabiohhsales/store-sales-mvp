@@ -60,6 +60,7 @@ interface AppointmentFormState {
   id?: string
   contact_name: string
   contact_phone: string
+  invitee_email: string
   title: string
   modality: string
   status: string
@@ -102,6 +103,7 @@ function emptyForm(now = new Date()): AppointmentFormState {
   return {
     contact_name: '',
     contact_phone: '',
+    invitee_email: '',
     title: '',
     modality: 'presencial',
     status: 'scheduled',
@@ -253,6 +255,7 @@ export function AgendaWorkspace({
       id: appointment.id,
       contact_name: appointment.contact_name ?? '',
       contact_phone: appointment.contact_phone ?? '',
+      invitee_email: '',
       title: appointment.title ?? '',
       modality: appointment.modality ?? 'presencial',
       status: appointment.status ?? 'scheduled',
@@ -277,6 +280,7 @@ export function AgendaWorkspace({
         ...(token ? { token } : { client_id: clientId }),
         contact_name: form.contact_name,
         contact_phone: form.contact_phone,
+        invitee_email: form.invitee_email || undefined,
         title: form.title,
         modality: form.modality,
         status: form.status,
@@ -647,6 +651,15 @@ export function AgendaWorkspace({
             <div className="space-y-2">
               <label className="text-sm font-medium">Telefone</label>
               <Input value={form.contact_phone} onChange={(event) => setForm((prev) => ({ ...prev, contact_phone: event.target.value }))} />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <label className="text-sm font-medium">Email do convidado</label>
+              <Input
+                type="email"
+                placeholder="email@exemplo.com — recebe convite por email"
+                value={form.invitee_email}
+                onChange={(event) => setForm((prev) => ({ ...prev, invitee_email: event.target.value }))}
+              />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Serviço</label>

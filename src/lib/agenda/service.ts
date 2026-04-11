@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getCalendarClientForConfig } from '@/lib/calendar/client'
+import { sendCalendarInvite } from '@/lib/email/service'
 import type { CalendarClient } from '@/lib/calendar/client'
 import type { PanelBotConfig, PanelGoogleConfig } from '@/types/database'
 import type { AgendaAppointment } from '@/types/pipeline'
@@ -48,6 +49,7 @@ export interface AgendaUpsertInput {
   contactId?: string | null
   contactName?: string | null
   contactPhone?: string | null
+  inviteeEmail?: string | null
   title?: string | null
   modality?: string | null
   status?: AgendaStatus | null
@@ -741,8 +743,41 @@ export async function createAgendaAppointment(input: AgendaUpsertInput) {
 
   if (error) throw error
 
+  const mapped = mapAppointmentRow(data as Record<string, unknown>)
+
+  // Send SMTP calendar invite if invitee email provided or professional email configured
+  const recipientEmails: string[] = []
+  if (input.inviteeEmail?.includes('@')) {
+    recipientEmails.push(input.inviteeEmail)
+  }
+  if (context.googleConfig?.google_email?.includes('@')) {
+    recipientEmails.push(context.googleConfig.google_email)
+  }
+
+  if (recipientEmails.length > 0) {
+    const serviceName = input.title?.trim() || 'Consulta'
+    const patientName = context.contactName?.trim() || 'Paciente'
+    const professionalName = context.botConfig?.professional_name ?? 'Profissional'
+
+    const inviteResult = await sendCalendarInvite({
+      appointmentId: mapped.id,
+      summary: `${serviceName} - ${patientName}`,
+      description: `Paciente: ${patientName}\nTelefone: ${context.contactPhone ?? ''}\nServico: ${serviceName}\nAgendado via Sales Tec`,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      timezone: context.botConfig?.timezone ?? 'America/Sao_Paulo',
+      organizerEmail: process.env.SMTP_FROM ?? process.env.SMTP_USER ?? 'noreply@chatsales.com.br',
+      organizerName: professionalName,
+      recipientEmails,
+    })
+
+    if (!inviteResult.success) {
+      console.warn('[agenda/service] SMTP invite failed:', inviteResult.error)
+    }
+  }
+
   await updateConversationAppointmentStatus(context.conversationId, normalizedStatus)
-  return mapAppointmentRow(data as Record<string, unknown>)
+  return mapped
 }
 
 export async function updateAgendaAppointment(

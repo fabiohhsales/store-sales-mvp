@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
       contactId: body?.contact_id ?? null,
       contactName: body?.contact_name ?? null,
       contactPhone: body?.contact_phone ?? null,
+      inviteeEmail: body?.invitee_email ?? null,
       title: body?.title ?? null,
       modality: body?.modality ?? null,
       status: status ?? 'scheduled',

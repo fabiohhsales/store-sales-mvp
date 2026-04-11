@@ -21,7 +21,11 @@ interface ConversationRow {
     name: string | null
     phone_number: string | null
     identifier: string | null
-  }> | null
+  }> | {
+    name: string | null
+    phone_number: string | null
+    identifier: string | null
+  } | null
 }
 
 interface AppointmentRow {
@@ -108,7 +112,9 @@ export async function GET(request: NextRequest) {
 
     const pipelineConversations: PipelineBoardConversation[] = typedConversations.map((conversation) => {
       const labels = conversation.labels ?? []
-      const contact = conversation.contacts?.[0] ?? null
+      const contact = Array.isArray(conversation.contacts)
+        ? conversation.contacts[0] ?? null
+        : conversation.contacts ?? null
 
       // Posição no funil é determinada apenas por labels[].
       // conversations.stage permanece reservado ao estado operacional do Desk.

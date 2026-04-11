@@ -198,30 +198,30 @@ export function ConversationDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl w-[95vw] max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <User className="h-5 w-5" />
             {activeConversation.contact_name || activeConversation.contact_phone || activeConversation.contact_identifier || 'Sem nome'}
           </DialogTitle>
+          {/* Contato inline no header */}
+          <div className="flex items-center gap-3 text-sm text-muted-foreground pt-1">
+            {activeConversation.contact_phone && (
+              <span className="flex items-center gap-1">
+                <Phone className="h-3.5 w-3.5" />
+                {activeConversation.contact_phone}
+              </span>
+            )}
+            {activeConversation.contact_identifier && (
+              <span className="text-xs">
+                ID: {activeConversation.contact_identifier}
+              </span>
+            )}
+          </div>
         </DialogHeader>
 
-        <div className="grid gap-6 md:grid-cols-[1fr_280px]">
+        <div className={`grid gap-6 ${activeConversation.appointment ? 'md:grid-cols-[1fr_260px]' : ''}`}>
           <div className="space-y-4">
-            {/* Contato */}
-            <div className="space-y-1 text-sm">
-              {activeConversation.contact_phone && (
-                <p className="flex items-center gap-2 text-muted-foreground">
-                  <Phone className="h-3.5 w-3.5" />
-                  {activeConversation.contact_phone}
-                </p>
-              )}
-              {activeConversation.contact_identifier && (
-                <p className="text-xs text-muted-foreground">
-                  ID: {activeConversation.contact_identifier}
-                </p>
-              )}
-            </div>
 
             {/* Status + Stage */}
             <div className="flex items-center gap-2 flex-wrap">
@@ -297,7 +297,7 @@ export function ConversationDetailModal({
               ) : messages.length === 0 ? (
                 <p className="text-xs text-muted-foreground">Nenhuma mensagem</p>
               ) : (
-                <div className="space-y-2 max-h-72 overflow-y-auto">
+                <div className="space-y-2 max-h-[45vh] overflow-y-auto">
                   {messages.map((msg) => (
                     <div
                       key={msg.id}
