@@ -38,10 +38,15 @@ export async function GET(
     .from('messages')
     .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url')
     .eq('conversation_id', id)
+    .eq('client_id', conversation.client_id)
     .order('created_at', { ascending: true })
     .limit(100)
 
-  if (msgError) console.error(`[desk/conversations/${id}] Erro ao buscar mensagens: ${msgError.message}`)
+  if (msgError) {
+    console.error(`[desk/conversations/${id}] Erro ao buscar mensagens: ${msgError.message}`)
+    return NextResponse.json({ error: msgError.message, conversation }, { status: 500 })
+  }
+
   console.log(`[desk/conversations/${id}] ${messages?.length ?? 0} mensagem(ns) retornada(s)`)
 
   return NextResponse.json({ conversation, messages: messages ?? [] })

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { MessageSquare, Calendar, CheckCircle, ExternalLink, Loader2, Thermometer, Send } from 'lucide-react'
 import Link from 'next/link'
+import { CalendarSettings } from './calendar-settings'
 
 interface FunnelLabel {
   slug: string
@@ -260,6 +261,9 @@ export function OperatorDashboard({ clientId, clientName }: OperatorDashboardPro
           </div>
         </div>
       )}
+
+      {/* Configurações do calendário */}
+      <CalendarSettings clientId={clientId} />
 
       {/* Quick links */}
       <div className="grid gap-4 sm:grid-cols-2">

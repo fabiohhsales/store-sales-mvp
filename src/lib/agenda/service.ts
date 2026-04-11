@@ -157,6 +157,9 @@ function buildEventPayload(input: {
   contactName: string | null
   contactPhone: string | null
   botConfig: PanelBotConfig | null
+  googleEmail?: string | null
+  sendInviteToPatient?: boolean
+  patientEmail?: string | null
 }) {
   const serviceName =
     input.title?.trim() ||
@@ -185,6 +188,14 @@ function buildEventPayload(input: {
     .filter(Boolean)
     .join('\n\n')
 
+  const attendees: Array<{ email: string }> = []
+  if (input.googleEmail) {
+    attendees.push({ email: input.googleEmail })
+  }
+  if (input.sendInviteToPatient && input.patientEmail) {
+    attendees.push({ email: input.patientEmail })
+  }
+
   return {
     requestBody: {
       summary,
@@ -192,6 +203,7 @@ function buildEventPayload(input: {
       start: { dateTime: input.startAt, timeZone: input.botConfig?.timezone ?? DEFAULT_TIMEZONE },
       end: { dateTime: input.endAt, timeZone: input.botConfig?.timezone ?? DEFAULT_TIMEZONE },
       colorId: input.botConfig?.calendar_color_id ?? undefined,
+      attendees: attendees.length > 0 ? attendees : undefined,
       conferenceData: input.botConfig?.calendar_create_meet_link
         ? {
             createRequest: {
@@ -201,6 +213,7 @@ function buildEventPayload(input: {
         : undefined,
     },
     conferenceDataVersion: input.botConfig?.calendar_create_meet_link ? 1 : 0,
+    hasAttendees: attendees.length > 0,
   }
 }
 
@@ -344,6 +357,9 @@ async function syncAppointmentEvent(options: {
   contactName: string | null
   contactPhone: string | null
   botConfig: PanelBotConfig | null
+  googleEmail?: string | null
+  sendInviteToPatient?: boolean
+  patientEmail?: string | null
 }) {
   const payload = buildEventPayload(options)
 
@@ -353,6 +369,7 @@ async function syncAppointmentEvent(options: {
       eventId: options.existingEventId,
       requestBody: payload.requestBody,
       conferenceDataVersion: payload.conferenceDataVersion,
+      sendUpdates: payload.hasAttendees ? 'all' : 'none',
     })
 
     return {
@@ -368,7 +385,7 @@ async function syncAppointmentEvent(options: {
     calendarId: options.calendarId,
     requestBody: payload.requestBody,
     conferenceDataVersion: payload.conferenceDataVersion,
-    sendUpdates: 'none',
+    sendUpdates: payload.hasAttendees ? 'all' : 'none',
   })
 
   return {
@@ -431,6 +448,8 @@ async function buildSyncResult(options: {
       contactName: options.contactName,
       contactPhone: options.contactPhone,
       botConfig,
+      googleEmail: googleConfig.google_email ?? null,
+      sendInviteToPatient: botConfig?.calendar_send_invite_to_patient ?? false,
     })
 
     return {

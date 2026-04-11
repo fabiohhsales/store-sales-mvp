@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch } from 'lucide-react'
+import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -198,6 +198,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
   const [messages, setMessages] = useState<Message[]>([])
   const [profile, setProfile] = useState<ContactProfileData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [messageError, setMessageError] = useState<string | null>(null)
   const [profileLoading, setProfileLoading] = useState(true)
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
@@ -244,12 +245,17 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
         const data = await res.json()
         setConversation(data.conversation)
         setMessages(data.messages ?? [])
+        setMessageError(null)
       } else {
-        console.error(`[ChatView] Erro ao carregar conversa ${conversationId}: HTTP ${res.status}`)
+        const body = await res.json().catch(() => ({}))
+        const errMsg = body.error || `HTTP ${res.status}`
+        console.error(`[ChatView] Erro ao carregar conversa ${conversationId}: ${errMsg}`)
+        setMessageError(errMsg)
         if (showLoading) toast.error('Erro ao carregar mensagens')
       }
     } catch (err) {
       console.error(`[ChatView] Falha de rede ao carregar conversa ${conversationId}:`, err)
+      setMessageError('Falha de conexão')
       if (showLoading) toast.error('Falha de conexão ao carregar mensagens')
     }
     if (showLoading) setLoading(false)
@@ -830,7 +836,18 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
 
               {/* Mensagens */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {messages.length === 0 && !loading && (
+                {messageError && !loading && (
+                  <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                    <AlertTriangle size={32} className="text-destructive/60 mb-2" />
+                    <p className="text-sm text-destructive font-medium mb-1">Erro ao carregar mensagens</p>
+                    <p className="text-xs text-muted-foreground mb-3">{messageError}</p>
+                    <Button variant="outline" size="sm" onClick={() => load(true)} className="gap-1.5">
+                      <RefreshCw size={14} />
+                      Tentar novamente
+                    </Button>
+                  </div>
+                )}
+                {!messageError && messages.length === 0 && !loading && (
                   <div className="flex flex-col items-center justify-center h-full text-center py-12">
                     <MessageSquare size={32} className="text-muted-foreground/30 mb-2" />
                     <p className="text-sm text-muted-foreground">Nenhuma mensagem nesta conversa</p>

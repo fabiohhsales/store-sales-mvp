@@ -86,6 +86,8 @@ export default async function ClientDetailPage({
           <GoogleReconnect
             clientId={id}
             currentEmail={client.panel_google_config?.google_email}
+            currentCalendarMode={client.panel_google_config?.calendar_mode}
+            currentCalendarId={client.panel_google_config?.calendar_id}
           />
 
           <Suspense fallback={<Skeleton className="h-32" />}>
