@@ -15,96 +15,114 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: mocks.createAdminClient,
 }))
 
-function createAdminClientMock() {
-  return {
-    from(table: string) {
-      if (table === 'panel_whatsapp_config') {
-        return {
-          // Conflict-check path: .select(...).eq('connected_phone', ...).neq(...).maybeSingle()
-          select(_columns?: string) {
-            return {
-              eq(_col: string, _val: string) {
-                return {
-                  neq(_col2: string, _val2: string) {
-                    return {
-                      async maybeSingle() {
-                        return { data: null, error: null }
-                      },
-                    }
-                  },
-                }
-              },
-            }
-          },
-          // Main update path: .update(updates).eq('evolution_instance_name', ...).select('client_id').maybeSingle()
-          update(updates: Record<string, unknown>) {
-            return {
-              eq(column: string, value: string) {
-                expect(column).toBe('evolution_instance_name')
-                expect(value).toBe('clinic-instance')
-                return {
-                  select() {
-                    return {
-                      async maybeSingle() {
-                        return {
-                          data: { client_id: 'client-1', updates },
-                          error: null,
-                        }
-                      },
-                    }
-                  },
-                }
-              },
-            }
-          },
-        }
-      }
+interface AdminOpts {
+  /** If set, the conflict-check query returns another instance using the same phone */
+  conflictPhone?: string | null
+  /** Whether panel_bot_config exists for client-1 (default true → nextStatus = 'active') */
+  hasBotConfig?: boolean
+}
 
-      if (table === 'panel_bot_config') {
-        return {
-          select(_columns?: string) {
-            return {
-              eq(_col: string, _val: string) {
-                return {
-                  async maybeSingle() {
-                    return { data: { client_id: 'client-1' }, error: null }
-                  },
-                }
-              },
-            }
-          },
-        }
-      }
+interface CapturedUpdate {
+  table: string
+  payload: Record<string, unknown>
+  filter: { key: string; value: unknown }
+}
 
-      if (table === 'panel_clients') {
-        return {
-          update(updates: Record<string, unknown>) {
-            return {
-              eq(column: string, value: string) {
-                expect(column).toBe('id')
-                expect(value).toBe('client-1')
-                return {
-                  in(statusColumn: string, allowed: string[]) {
-                    expect(statusColumn).toBe('status')
-                    expect(allowed).toEqual(['pending_whatsapp', 'pending_google', 'disconnected', 'configuring'])
-                    return Promise.resolve({ error: null, data: { updates } })
-                  },
-                }
-              },
-            }
-          },
-        }
-      }
+function buildAdmin(opts: AdminOpts = {}) {
+  const updates: CapturedUpdate[] = []
 
-      throw new Error(`Unexpected table: ${table}`)
-    },
+  function table(name: string) {
+    if (name === 'panel_whatsapp_config') {
+      return {
+        // Read-only conflict check: .select().eq().neq().maybeSingle()
+        select(_cols: string) {
+          return {
+            eq(_col: string, _val: unknown) {
+              return {
+                neq(_col2: string, _val2: unknown) {
+                  return {
+                    async maybeSingle() {
+                      return {
+                        data: opts.conflictPhone
+                          ? { client_id: 'other-client', evolution_instance_name: 'other-instance' }
+                          : null,
+                        error: null,
+                      }
+                    },
+                  }
+                },
+              }
+            },
+          }
+        },
+        // Write: .update().eq().select('client_id').maybeSingle()
+        update(payload: Record<string, unknown>) {
+          return {
+            eq(col: string, val: unknown) {
+              updates.push({ table: name, payload, filter: { key: col, value: val } })
+              return {
+                select(_cols: string) {
+                  return {
+                    async maybeSingle() {
+                      return { data: { client_id: 'client-1', ...payload }, error: null }
+                    },
+                  }
+                },
+              }
+            },
+          }
+        },
+      }
+    }
+
+    if (name === 'panel_bot_config') {
+      return {
+        select(_cols: string) {
+          return {
+            eq(_col: string, _val: unknown) {
+              return {
+                async maybeSingle() {
+                  return {
+                    data: opts.hasBotConfig !== false ? { client_id: 'client-1' } : null,
+                    error: null,
+                  }
+                },
+              }
+            },
+          }
+        },
+      }
+    }
+
+    if (name === 'panel_clients') {
+      return {
+        update(payload: Record<string, unknown>) {
+          return {
+            eq(col: string, val: unknown) {
+              return {
+                in(_col: string, _allowed: string[]) {
+                  updates.push({ table: name, payload, filter: { key: col, value: val } })
+                  return Promise.resolve({ error: null })
+                },
+              }
+            },
+          }
+        },
+      }
+    }
+
+    throw new Error(`Unexpected table: ${name}`)
   }
+
+  return { admin: { from: (name: string) => table(name) }, updates }
 }
 
 describe('whatsapp connection state service', () => {
   beforeEach(() => {
+    vi.resetModules()
     vi.clearAllMocks()
-    mocks.createAdminClient.mockImplementation(() => createAdminClientMock())
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.createAdminClient.mockImplementation(() => buildAdmin().admin)
   })
 
   it('reconcilia estado open e persiste connected_phone', async () => {
@@ -182,5 +200,55 @@ describe('whatsapp connection state service', () => {
 
     expect(snapshot.state).toBe('open')
     expect(snapshot.connectedPhone).toBe('552139555278')
+  })
+
+  it('ao detectar conflito de numero, salva connected_phone como null', async () => {
+    const { admin, updates } = buildAdmin({ conflictPhone: '5511999999999' })
+    mocks.createAdminClient.mockReturnValue(admin)
+
+    mocks.getConnectionState.mockResolvedValue({
+      instance: { instanceName: 'clinic-instance', state: 'open' },
+    })
+    mocks.fetchInstances.mockResolvedValue([
+      {
+        instance: {
+          instanceName: 'clinic-instance',
+          owner: '55 11 99999-9999',
+          status: 'open',
+        },
+      },
+    ])
+
+    const { reconcileConnectionState } = await import('@/lib/whatsapp/connection-state')
+    await reconcileConnectionState('clinic-instance')
+
+    const whatsappUpdate = updates.find((u) => u.table === 'panel_whatsapp_config')
+    expect(whatsappUpdate?.payload.connected_phone).toBeNull()
+    // panel_clients must NOT be touched — function returns early on conflict
+    expect(updates.find((u) => u.table === 'panel_clients')).toBeUndefined()
+  })
+
+  it('state=open sem panel_bot_config, panel_clients atualizado para pending_google', async () => {
+    const { admin, updates } = buildAdmin({ hasBotConfig: false })
+    mocks.createAdminClient.mockReturnValue(admin)
+
+    mocks.getConnectionState.mockResolvedValue({
+      instance: { instanceName: 'clinic-instance', state: 'open' },
+    })
+    mocks.fetchInstances.mockResolvedValue([
+      {
+        instance: {
+          instanceName: 'clinic-instance',
+          owner: '55 11 99999-9999',
+          status: 'open',
+        },
+      },
+    ])
+
+    const { reconcileConnectionState } = await import('@/lib/whatsapp/connection-state')
+    await reconcileConnectionState('clinic-instance')
+
+    const clientUpdate = updates.find((u) => u.table === 'panel_clients')
+    expect(clientUpdate?.payload.status).toBe('pending_google')
   })
 })
