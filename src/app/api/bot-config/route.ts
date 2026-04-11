@@ -177,6 +177,9 @@ export async function POST(request: Request) {
       calendar_send_invite_to_patient: body.calendar_send_invite_to_patient ?? false,
       calendar_color_id: body.calendar_color_id || null,
 
+      // Agenda
+      agenda_recipient_email: body.agenda_recipient_email || null,
+
       // Chatwoot
       chatwoot_auto_resolve_hours: body.chatwoot_auto_resolve_hours ?? 24,
       chatwoot_working_hours_enabled: body.chatwoot_working_hours_enabled ?? true,

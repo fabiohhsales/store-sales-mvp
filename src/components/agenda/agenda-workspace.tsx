@@ -429,7 +429,7 @@ export function AgendaWorkspace({
         <div className={cn('grid', days.length === 1 ? 'grid-cols-[72px_1fr]' : 'grid-cols-[72px_repeat(7,1fr)]')}>
           <div className="border-r">
             {hours.map((hour) => (
-              <div key={hour} className="h-20 border-b p-2 text-xs text-muted-foreground">
+              <div key={hour} className="h-14 border-b p-2 text-xs text-muted-foreground">
                 {String(hour).padStart(2, '0')}:00
               </div>
             ))}
@@ -439,15 +439,15 @@ export function AgendaWorkspace({
             return (
               <div key={day} className="relative border-r last:border-r-0">
                 {hours.map((hour) => (
-                  <div key={hour} className="h-20 border-b" />
+                  <div key={hour} className="h-14 border-b" />
                 ))}
                 {dayItems.map((appointment) => {
                   const start = new Date(appointment.start_at)
                   const end = new Date(appointment.end_at)
                   const startHour = start.getHours() + start.getMinutes() / 60
                   const endHour = end.getHours() + end.getMinutes() / 60
-                  const top = (startHour - 7) * 80
-                  const height = Math.max((endHour - startHour) * 80, 32)
+                  const top = (startHour - 7) * 56
+                  const height = Math.max((endHour - startHour) * 56, 28)
 
                   return (
                     <button

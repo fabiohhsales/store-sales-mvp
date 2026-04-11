@@ -342,6 +342,7 @@ async function updateConversationRecord(
     followup_cadence: followupCadence ?? undefined,
     last_outgoing_at: output.reply ? new Date().toISOString() : undefined,
     last_outgoing_by: output.reply ? 'ai' : undefined,
+    last_intent: output.classification.intent ?? undefined,
   }
 
   // Remove undefined fields

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
 import { isAuthError } from '@/lib/auth/request-context'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
-import { cancelAgendaAppointment, updateAgendaAppointment } from '@/lib/agenda/service'
+import { updateAppointment, cancelAppointment } from '@/lib/agenda/commands'
 
 export async function PATCH(
   request: NextRequest,
@@ -15,16 +15,20 @@ export async function PATCH(
     const body = await request.json()
     const auth = await authenticateRequest(body?.token ?? null, body?.client_id ?? null)
 
-    const appointment = await updateAgendaAppointment(id, auth.client_id, {
-      title: body?.title ?? undefined,
-      modality: body?.modality ?? undefined,
-      status: body?.status ? normalizeAgendaStatus(body.status) ?? undefined : undefined,
-      notes: body?.notes ?? undefined,
-      startAt: body?.start_at ?? undefined,
-      endAt: body?.end_at ?? undefined,
-      contactName: body?.contact_name ?? undefined,
-      contactPhone: body?.contact_phone ?? undefined,
-      syncToGoogle: body?.sync_to_google,
+    const appointment = await updateAppointment({
+      id,
+      clientId: auth.client_id,
+      changes: {
+        title: body?.title ?? undefined,
+        modality: body?.modality ?? undefined,
+        status: body?.status ? normalizeAgendaStatus(body.status) ?? undefined : undefined,
+        notes: body?.notes ?? undefined,
+        startAt: body?.start_at ?? undefined,
+        endAt: body?.end_at ?? undefined,
+        contactName: body?.contact_name ?? undefined,
+        contactPhone: body?.contact_phone ?? undefined,
+        syncToGoogle: body?.sync_to_google,
+      },
     })
 
     return NextResponse.json(appointment, {
@@ -56,7 +60,7 @@ export async function DELETE(
     const token = request.nextUrl.searchParams.get('token') ?? body?.token ?? null
     const clientId = request.nextUrl.searchParams.get('client_id') ?? body?.client_id ?? null
     const auth = await authenticateRequest(token, clientId)
-    const appointment = await cancelAgendaAppointment(id, auth.client_id)
+    const appointment = await cancelAppointment(id, auth.client_id)
 
     return NextResponse.json(appointment, {
       headers: {

@@ -17,7 +17,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { Calendar, Pencil, Check, X, Loader2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Calendar, Pencil, Check, X, Loader2, ExternalLink } from 'lucide-react'
 
 type CalendarMode = 'google_shared' | 'google_oauth' | 'native'
 
@@ -163,6 +164,33 @@ export function GoogleReconnect({ clientId, currentEmail, currentCalendarMode, c
                   <span className="text-xs text-muted-foreground">Calendário</span>
                   <span className="text-sm font-mono text-xs">{calendarId || 'primary'}</span>
                 </div>
+
+                {/* Status de autorização + botão OAuth */}
+                {calendarMode === 'google_oauth' && (
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-muted-foreground">Autorização</span>
+                    {email ? (
+                      <Badge variant="secondary" className="text-xs bg-green-50 text-green-700 border-green-200">
+                        Conectado
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                        Não autorizado
+                      </Badge>
+                    )}
+                  </div>
+                )}
+                {calendarMode === 'google_oauth' && !email && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full gap-1.5 mt-1"
+                    onClick={() => { window.location.href = `/api/auth/google/${clientId}` }}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Autorizar Google Calendar
+                  </Button>
+                )}
               </>
             )}
           </div>

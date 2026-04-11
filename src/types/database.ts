@@ -237,6 +237,9 @@ export interface PanelBotConfig {
   calendar_send_invite_to_patient: boolean
   calendar_color_id: string | null
 
+  /** Email operacional do profissional para convites de agenda (independente do Google). */
+  agenda_recipient_email: string | null
+
   // Timezone
   timezone: string | null
 

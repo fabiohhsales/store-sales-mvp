@@ -6,6 +6,13 @@ const SMTP_USER = process.env.SMTP_USER ?? ''
 const SMTP_PASS = process.env.SMTP_PASS ?? ''
 const SMTP_FROM = process.env.SMTP_FROM ?? SMTP_USER
 
+if (SMTP_FROM && SMTP_USER && SMTP_FROM !== SMTP_USER) {
+  console.warn(
+    `[email/service] SMTP_FROM (${SMTP_FROM}) difere de SMTP_USER (${SMTP_USER}). ` +
+    'Verifique se SMTP_FROM é um alias válido no seu provedor SMTP (ex: Hostinger) para evitar rejeição de envio.'
+  )
+}
+
 function getTransport() {
   if (!SMTP_USER || !SMTP_PASS) {
     return null

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
 import { isAuthError } from '@/lib/auth/request-context'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
-import { createAgendaAppointment, listAgendaAppointments } from '@/lib/agenda/service'
+import { listAgendaAppointments } from '@/lib/agenda/service'
+import { createAppointment } from '@/lib/agenda/commands'
 
 function parsePositiveInt(value: string | null, fallback: number) {
   const parsed = Number(value)
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const appointment = await createAgendaAppointment({
+    const appointment = await createAppointment({
       clientId: auth.client_id,
       conversationId: body?.conversation_id ?? null,
       contactId: body?.contact_id ?? null,
