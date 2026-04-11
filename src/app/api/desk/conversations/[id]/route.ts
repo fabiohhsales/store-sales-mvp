@@ -37,7 +37,7 @@ export async function GET(
   // Inclui mensagens com client_id correto OU NULL (legado pré-migration 010)
   const { data: messages, error: msgError } = await admin
     .from('messages')
-    .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url')
+    .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id')
     .eq('conversation_id', id)
     .or(`client_id.eq.${conversation.client_id},client_id.is.null`)
     .order('created_at', { ascending: true })
