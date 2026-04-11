@@ -114,8 +114,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message, errorId: requestId }, { status: error.status })
     }
 
-    const message = error instanceof Error ? error.message : 'Erro interno'
-    console.error('[agenda/route] POST error', { requestId, message })
+    const isSupabaseError = error !== null && typeof error === 'object' && 'message' in error
+    const message = error instanceof Error
+      ? error.message
+      : isSupabaseError
+        ? (error as { message: string }).message
+        : String(error)
+
+    console.error('[agenda/route] POST error', {
+      requestId,
+      message,
+      errorType: error instanceof Error ? 'Error' : typeof error,
+      errorRaw: JSON.stringify(error),
+    })
     return NextResponse.json({ error: message, errorId: requestId }, { status: 500 })
   }
 }

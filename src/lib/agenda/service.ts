@@ -741,7 +741,9 @@ export async function createAgendaAppointment(input: AgendaUpsertInput) {
     `)
     .single()
 
-  if (error) throw error
+  if (error) {
+    throw new Error(`Falha ao criar agendamento: ${(error as { message?: string }).message ?? JSON.stringify(error)}`)
+  }
 
   const mapped = mapAppointmentRow(data as Record<string, unknown>)
 
