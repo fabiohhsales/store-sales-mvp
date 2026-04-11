@@ -34,11 +34,12 @@ export async function GET(
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
+  // Inclui mensagens com client_id correto OU NULL (legado pré-migration 010)
   const { data: messages, error: msgError } = await admin
     .from('messages')
     .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url')
     .eq('conversation_id', id)
-    .eq('client_id', conversation.client_id)
+    .or(`client_id.eq.${conversation.client_id},client_id.is.null`)
     .order('created_at', { ascending: true })
     .limit(100)
 
