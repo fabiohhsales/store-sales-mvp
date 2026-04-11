@@ -160,12 +160,15 @@ export async function handleAgendaCreate(
     }
 
     // Criação: usa createAppointment command (com validação de slot)
+    const inviteeEmail = (contact.custom_data?.email as string | undefined) ?? null
+
     const appointment = await createAppointment({
       clientId: clientContext.clientId,
       conversationId: conversation.id,
       contactId: contact.id,
       contactName: contact.name ?? 'Paciente',
       contactPhone: contact.phone_number,
+      inviteeEmail,
       title: agenda_create.title ?? null,
       modality: 'presencial',
       status: 'scheduled',
