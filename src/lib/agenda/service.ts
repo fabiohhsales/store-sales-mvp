@@ -464,9 +464,13 @@ async function buildSyncResult(options: {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Falha ao sincronizar com Google Calendar'
+    const isAuthError = error instanceof Error && /invalid_grant|token.*revoked|token.*expired/i.test(error.message)
+    if (isAuthError) {
+      console.error('[agenda/service] Google Calendar AUTH_FAILURE — refresh token expirado ou revogado. Reautorizar em /api/auth/google/{clientId}')
+    }
     return {
       sync_status: 'error',
-      sync_error: message,
+      sync_error: isAuthError ? 'Token Google expirado — reautorize o calendário' : message,
       external_calendar_id: googleConfig.calendar_id ?? null,
       external_event_id: options.existingEventId ?? null,
       meet_link: null,

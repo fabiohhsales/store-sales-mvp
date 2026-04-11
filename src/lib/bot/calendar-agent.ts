@@ -87,12 +87,16 @@ export async function handleAgendaCheck(
 
     await sendAndSave(whatsappConfig, contact, conversation, message)
   } catch (error) {
-    console.error('[CalendarAgent] Erro em handleAgendaCheck:', error)
+    const isAuthError = error instanceof Error && /invalid_grant|token.*revoked|token.*expired/i.test(error.message)
+    console.error('[CalendarAgent] Erro em handleAgendaCheck:', isAuthError ? `AUTH_FAILURE — ${error.message}` : error)
+
     await sendAndSave(
       whatsappConfig,
       contact,
       conversation,
-      'Não consegui verificar a agenda no momento. Por favor, tente novamente em alguns instantes.'
+      isAuthError
+        ? 'O agendamento online está temporariamente indisponível. Por favor, entre em contato diretamente para marcar seu horário.'
+        : 'Não consegui verificar a agenda no momento. Por favor, tente novamente em alguns instantes.'
     )
   }
 }
@@ -266,12 +270,16 @@ export async function handleAgendaCreate(
       })
       .eq('id', conversation.id)
   } catch (error) {
-    console.error('[CalendarAgent] Erro em handleAgendaCreate:', error)
+    const isAuthError = error instanceof Error && /invalid_grant|token.*revoked|token.*expired/i.test(error.message)
+    console.error('[CalendarAgent] Erro em handleAgendaCreate:', isAuthError ? `AUTH_FAILURE — ${error.message}` : error)
+
     await sendAndSave(
       whatsappConfig,
       contact,
       conversation,
-      'Ocorreu um erro ao confirmar o agendamento. Nossa equipe entrará em contato para finalizar.'
+      isAuthError
+        ? 'O agendamento online está temporariamente indisponível. Por favor, entre em contato diretamente para marcar seu horário.'
+        : 'Ocorreu um erro ao confirmar o agendamento. Nossa equipe entrará em contato para finalizar.'
     )
   }
 }
