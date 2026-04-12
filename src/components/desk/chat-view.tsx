@@ -1431,7 +1431,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
               conversations={profile?.conversations ?? []}
               currentConversationId={conversationId}
             />
-            <ConversationTimelineCard events={context?.recentEvents ?? []} operators={operators.map(o => ({ id: o.id, name: o.display_name || o.email }))} />
+            <ConversationTimelineCard events={context?.recentEvents ?? []} operators={operators.map(o => ({ id: o.id, name: (o.display_name ?? '').trim() || o.email }))} />
           </div>
         </aside>
       </div>
@@ -1479,7 +1479,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
               conversations={profile?.conversations ?? []}
               currentConversationId={conversationId}
             />
-            <ConversationTimelineCard events={context?.recentEvents ?? []} operators={operators.map(o => ({ id: o.id, name: o.display_name || o.email }))} />
+            <ConversationTimelineCard events={context?.recentEvents ?? []} operators={operators.map(o => ({ id: o.id, name: (o.display_name ?? '').trim() || o.email }))} />
           </div>
         </DialogContent>
       </Dialog>

@@ -33,8 +33,12 @@ export async function GET(request: NextRequest) {
   const waitMinutes: number[] = []
   for (const c of rows) {
     if (c.handoff_transferred_at && c.handoff_assumed_at) {
-      const diff = (new Date(c.handoff_assumed_at).getTime() - new Date(c.handoff_transferred_at).getTime()) / 60000
-      if (diff >= 0) waitMinutes.push(Math.round(diff))
+      const t0 = new Date(c.handoff_transferred_at).getTime()
+      const t1 = new Date(c.handoff_assumed_at).getTime()
+      if (!Number.isNaN(t0) && !Number.isNaN(t1)) {
+        const diff = (t1 - t0) / 60000
+        if (diff >= 0) waitMinutes.push(Math.round(diff))
+      }
     }
   }
 
@@ -42,8 +46,12 @@ export async function GET(request: NextRequest) {
   const serviceMinutes: number[] = []
   for (const c of rows) {
     if (c.handoff_assumed_at && c.resolved_at) {
-      const diff = (new Date(c.resolved_at).getTime() - new Date(c.handoff_assumed_at).getTime()) / 60000
-      if (diff >= 0) serviceMinutes.push(Math.round(diff))
+      const t0 = new Date(c.handoff_assumed_at).getTime()
+      const t1 = new Date(c.resolved_at).getTime()
+      if (!Number.isNaN(t0) && !Number.isNaN(t1)) {
+        const diff = (t1 - t0) / 60000
+        if (diff >= 0) serviceMinutes.push(Math.round(diff))
+      }
     }
   }
 
@@ -75,7 +83,10 @@ function computeStats(values: number[]) {
   if (values.length === 0) return { count: 0, avg: null, median: null, p95: null, max: null }
   const sorted = [...values].sort((a, b) => a - b)
   const avg = Math.round(sorted.reduce((s, v) => s + v, 0) / sorted.length)
-  const median = sorted[Math.floor(sorted.length / 2)]
+  const mid = Math.floor(sorted.length / 2)
+  const median = sorted.length % 2 === 1
+    ? sorted[mid]
+    : Math.round((sorted[mid - 1] + sorted[mid]) / 2)
   const p95 = sorted[Math.floor(sorted.length * 0.95)]
   const max = sorted[sorted.length - 1]
   return { count: sorted.length, avg, median, p95, max }
