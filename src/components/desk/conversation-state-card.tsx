@@ -18,6 +18,8 @@ interface Props {
   customDataKeyCount: number
   lastIncomingAt: string | null
   lastOutgoingAt: string | null
+  journeyStage?: string | null
+  handoffReason?: string | null
 }
 
 export function ConversationStateCard({
@@ -27,6 +29,8 @@ export function ConversationStateCard({
   customDataKeyCount,
   lastIncomingAt,
   lastOutgoingAt,
+  journeyStage,
+  handoffReason,
 }: Props) {
   // Live timer for "time in stage"
   const [, setTick] = useState(0)
@@ -48,8 +52,21 @@ export function ConversationStateCard({
         <Badge variant={conductionBadgeVariant(conduction)} className="text-xs px-2 py-0.5">
           {conductionLabel(conduction)}
         </Badge>
-        <span className="text-xs text-muted-foreground">{STAGE_LABELS[stage] ?? stage}</span>
+        <div className="flex items-center gap-1.5">
+          {journeyStage && (
+            <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400">
+              {journeyStage}
+            </Badge>
+          )}
+          <span className="text-xs text-muted-foreground">{STAGE_LABELS[stage] ?? stage}</span>
+        </div>
       </div>
+
+      {handoffReason && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-2 py-1 leading-snug">
+          Motivo do handoff: {handoffReason}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div>

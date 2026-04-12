@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser } from '@/lib/desk/auth'
+import { emitConversationEvent } from '@/lib/desk/emit-conversation-event'
 
 export async function POST(
   request: NextRequest,
@@ -45,7 +46,10 @@ export async function POST(
     })
 
     const { data, error } = await admin.from('conversations')
-      .update({ stage: 'in_service' })
+      .update({
+        stage: 'in_service',
+        last_system_action: 'operator_assumed',
+      })
       .eq('id', id)
       .select('stage')
       .single()
@@ -54,13 +58,21 @@ export async function POST(
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
     newStage = data.stage
+
+    emitConversationEvent(id, conv.client_id, 'handoff_assumed', 'operator', {
+      previous_stage: conv.stage,
+    }, deskUser.userId)
   }
 
   if (action === 'return') {
     await admin.from('ai_pauses').delete().eq('conversation_id', id)
 
     const { data, error } = await admin.from('conversations')
-      .update({ stage: 'bot_triage' })
+      .update({
+        stage: 'bot_triage',
+        handoff_returned_to_bot_at: new Date().toISOString(),
+        last_system_action: 'returned_to_bot',
+      })
       .eq('id', id)
       .select('stage')
       .single()
@@ -69,13 +81,22 @@ export async function POST(
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
     newStage = data.stage
+
+    emitConversationEvent(id, conv.client_id, 'returned_to_bot', 'operator', {
+      previous_stage: conv.stage,
+    }, deskUser.userId)
   }
 
   if (action === 'resolve') {
     await admin.from('ai_pauses').delete().eq('conversation_id', id)
 
     const { data, error } = await admin.from('conversations')
-      .update({ stage: 'resolved', status: 'resolved', resolved_at: new Date().toISOString() })
+      .update({
+        stage: 'resolved',
+        status: 'resolved',
+        resolved_at: new Date().toISOString(),
+        last_system_action: 'conversation_resolved',
+      })
       .eq('id', id)
       .select('stage')
       .single()
@@ -84,6 +105,10 @@ export async function POST(
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
     newStage = data.stage
+
+    emitConversationEvent(id, conv.client_id, 'conversation_resolved', 'operator', {
+      previous_stage: conv.stage,
+    }, deskUser.userId)
   }
 
   console.log(`[desk/action] conv=${id} action=${action} stage=${newStage}`)

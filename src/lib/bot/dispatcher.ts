@@ -7,6 +7,7 @@ import { sendTextMessage, sendMediaByUrl } from '@/lib/api/evolution'
 import { handleAgendaCheck, handleAgendaCreate } from './calendar-agent'
 import { clearAiPause } from './agent'
 import { normalizeStageSlug } from './stage-labels'
+import { emitConversationEvent } from '@/lib/desk/emit-conversation-event'
 import type { AgentOutput } from './output-schema'
 import type { PipelineResult } from './pipeline'
 import type { PanelBotConfig, IntakeFieldConfig } from '@/types/database'
@@ -148,7 +149,7 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
 
   // --- 2. Handoff: move conversa para fila de espera humana ---
   if (output.handoff.needs_human && conversation.stage === 'bot_triage') {
-    await handleHandoff(conversation.id, output.reply, clientContext.clientId, result)
+    await handleHandoff(conversation.id, output.reply, clientContext.clientId, result, output)
   }
 
   // --- 2.5. Salva dados do intake se bot coletou um campo ---
@@ -206,7 +207,7 @@ export async function dispatch(result: PipelineResult, output: AgentOutput): Pro
 
       if (newCount >= (intakeConfig.intake_photos_count ?? 5)) {
         console.log(`[Dispatcher] ${newCount} fotos recebidas — handoff automático conv=${conversation.id}`)
-        await handleHandoff(conversation.id, null, clientContext.clientId, result)
+        await handleHandoff(conversation.id, null, clientContext.clientId, result, output, 'intake_photos_complete')
         await clearAiPause(conversation.id)
         return
       }
@@ -263,7 +264,9 @@ async function handleHandoff(
   conversationId: string,
   handoffMessage: string | null,
   clientId: string,
-  result: PipelineResult
+  result: PipelineResult,
+  output: AgentOutput,
+  reasonOverride?: string
 ): Promise<void> {
   const supabase = createAdminClient()
   const { clientContext, contact } = result
@@ -287,15 +290,31 @@ async function handleHandoff(
   // Gera resumo da triagem para o operador
   const summary = await generateTriageSummary(result.messageHistory)
 
+  const handoffReason = reasonOverride ?? output.handoff.reason ?? null
+  const journeyStage = output.classification?.stage
+    ? normalizeStageSlug(output.classification.stage)
+    : null
+
   await supabase.from('conversations').update({
     stage: 'awaiting_human',
     summary,
+    handoff_reason_code: handoffReason,
+    handoff_reason_label: handoffReason,
+    handoff_transferred_at: new Date().toISOString(),
+    journey_stage: journeyStage,
   }).eq('id', conversationId)
 
   // Persiste a mensagem de handoff no histórico
   await saveAiMessage(conversationId, clientId, messageToSend)
 
-  console.log(`[Dispatcher] Handoff: conv=${conversationId} → awaiting_human`)
+  // Emite evento de handoff (fire-and-forget)
+  emitConversationEvent(conversationId, clientId, 'handoff_triggered', 'bot', {
+    reason: handoffReason,
+    intent: output.classification?.intent ?? null,
+    journey_stage: journeyStage,
+  })
+
+  console.log(`[Dispatcher] Handoff: conv=${conversationId} → awaiting_human (reason=${handoffReason})`)
 }
 
 // Gera resumo da triagem via IA para exibir ao operador humano
@@ -343,6 +362,9 @@ async function updateConversationRecord(
     last_outgoing_at: output.reply ? new Date().toISOString() : undefined,
     last_outgoing_by: output.reply ? 'ai' : undefined,
     last_intent: output.classification.intent ?? undefined,
+    journey_stage: output.classification?.stage
+      ? normalizeStageSlug(output.classification.stage)
+      : undefined,
   }
 
   // Remove undefined fields

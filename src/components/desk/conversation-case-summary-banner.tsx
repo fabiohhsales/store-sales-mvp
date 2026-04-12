@@ -1,14 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { Info, ChevronDown, ChevronUp, CalendarDays, ClipboardList, MessageSquare, Clock } from 'lucide-react'
+import { Info, ChevronDown, ChevronUp, CalendarDays, ClipboardList, MessageSquare, Clock, AlertTriangle } from 'lucide-react'
 import { relativeTime } from '@/lib/desk/conduction'
+import type { ContextAlert } from '@/types/conversation-context'
 
 interface Props {
   summary: string | null
   customData: Record<string, string> | null
   appointmentStatus: string | null
   lastIncomingAt: string | null
+  handoffReason?: string | null
+  alerts?: ContextAlert[]
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -24,6 +27,8 @@ export function ConversationCaseSummaryBanner({
   customData,
   appointmentStatus,
   lastIncomingAt,
+  handoffReason,
+  alerts,
 }: Props) {
   const [expanded, setExpanded] = useState(false)
 
@@ -106,6 +111,35 @@ export function ConversationCaseSummaryBanner({
         <div className="flex items-start gap-2 rounded-md bg-primary/5 p-2 mt-2">
           <Info size={13} className="text-primary mt-0.5 flex-shrink-0" />
           <span className="leading-relaxed text-foreground/80">{summary}</span>
+        </div>
+      )}
+
+      {/* Handoff reason */}
+      {handoffReason && (
+        <div className="flex items-start gap-2 rounded-md bg-amber-500/10 p-2 mt-2">
+          <AlertTriangle size={12} className="text-amber-500 mt-0.5 flex-shrink-0" />
+          <span className="text-amber-700 dark:text-amber-400 leading-snug">
+            Motivo do handoff: {handoffReason}
+          </span>
+        </div>
+      )}
+
+      {/* Context alerts */}
+      {alerts && alerts.length > 0 && (
+        <div className="flex flex-col gap-1 mt-2">
+          {alerts.map((alert) => (
+            <div
+              key={alert.code}
+              className={`flex items-start gap-1.5 rounded px-2 py-1 text-[11px] leading-snug ${
+                alert.severity === 'error' ? 'bg-red-500/10 text-red-600 dark:text-red-400' :
+                alert.severity === 'warning' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+              }`}
+            >
+              <AlertTriangle size={10} className="mt-0.5 flex-shrink-0" />
+              {alert.message}
+            </div>
+          ))}
         </div>
       )}
     </div>

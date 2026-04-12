@@ -21,6 +21,8 @@ export async function GET(
       id, stage, status, labels, summary,
       assigned_operator_id, last_incoming_at, last_outgoing_at, stage_changed_at,
       client_id,
+      journey_stage, handoff_reason_code, handoff_reason_label,
+      handoff_transferred_at, handoff_returned_to_bot_at, last_system_action,
       contacts ( id, name, phone_number, identifier, custom_data )
     `)
     .eq('id', id)

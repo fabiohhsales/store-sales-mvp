@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
   const baseSelect = `
     id, stage, status, labels, summary, assigned_operator_id,
     last_incoming_at, last_outgoing_at, last_outgoing_by, stage_changed_at,
+    journey_stage, handoff_reason_code,
     contacts ( id, name, phone_number )
   `
 

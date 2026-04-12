@@ -23,6 +23,7 @@ import { ConversationStateCard } from './conversation-state-card'
 import { ConversationAppointmentCard } from './conversation-appointment-card'
 import { ConversationIntakeCard } from './conversation-intake-card'
 import { ConversationHistoryCard } from './conversation-history-card'
+import type { ConversationContext } from '@/types/conversation-context'
 
 interface Message {
   id: string
@@ -398,6 +399,9 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
   const [cannedPopoverOpen, setCannedPopoverOpen] = useState(false)
   const [cannedHighlight, setCannedHighlight] = useState(0)
 
+  // Contexto consolidado (Fase 2)
+  const [context, setContext] = useState<ConversationContext | null>(null)
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const notesBottomRef = useRef<HTMLDivElement>(null)
@@ -493,6 +497,18 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     }
   }, [clientId])
 
+  const loadContext = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/desk/conversations/${conversationId}/context`)
+      if (res.ok) {
+        const data = await res.json()
+        setContext(data)
+      }
+    } catch {
+      // silencioso — contexto não bloqueia o chat
+    }
+  }, [conversationId])
+
   useEffect(() => {
     void load(true)
     void loadProfile(true)
@@ -500,7 +516,8 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     void loadNotes(true)
     void loadCannedResponses()
     void loadPersonalCannedResponses()
-  }, [load, loadProfile, loadAssign, loadNotes, loadCannedResponses, loadPersonalCannedResponses])
+    void loadContext()
+  }, [load, loadProfile, loadAssign, loadNotes, loadCannedResponses, loadPersonalCannedResponses, loadContext])
 
   // Polling de fallback
   useEffect(() => {
@@ -1046,6 +1063,8 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                 customData={normalizeCustomData(conversation.contacts?.custom_data)}
                 appointmentStatus={profile?.appointments?.[0]?.status ?? null}
                 lastIncomingAt={conversation.last_incoming_at}
+                handoffReason={context?.handoff.reasonLabel ?? null}
+                alerts={context?.summary.alerts ?? []}
               />
 
               {/* Mensagens */}
@@ -1371,6 +1390,8 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
               customDataKeyCount={Object.keys(normalizeCustomData(profile?.contact.custom_data)).length}
               lastIncomingAt={conversation.last_incoming_at}
               lastOutgoingAt={conversation.last_outgoing_at}
+              journeyStage={context?.header.journeyStage ?? null}
+              handoffReason={context?.handoff.reasonLabel ?? null}
             />
             <ConversationAppointmentCard appointments={profile?.appointments ?? []} />
             {/* Contact basic data — nome editável + telefone + identifier */}
@@ -1425,6 +1446,8 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
               customDataKeyCount={Object.keys(normalizeCustomData(profile?.contact.custom_data)).length}
               lastIncomingAt={conversation.last_incoming_at}
               lastOutgoingAt={conversation.last_outgoing_at}
+              journeyStage={context?.header.journeyStage ?? null}
+              handoffReason={context?.handoff.reasonLabel ?? null}
             />
             <ConversationAppointmentCard appointments={profile?.appointments ?? []} />
             <div className="rounded-xl border bg-background p-4 space-y-2">

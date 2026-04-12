@@ -22,6 +22,8 @@ export interface DeskConversation {
   last_incoming_at: string | null
   last_outgoing_at: string | null
   stage_changed_at: string | null
+  journey_stage: string | null
+  handoff_reason_code: string | null
   contacts: { id: string; name: string | null; phone_number: string | null } | null
   assigned_operator_id: string | null
 }
