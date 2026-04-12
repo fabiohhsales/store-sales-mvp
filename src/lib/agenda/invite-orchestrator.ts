@@ -33,6 +33,7 @@ export interface InviteResult {
   googleError: string | null
   externalEventId: string | null
   meetLink: string | null
+  eventUrl: string | null
 }
 
 /**
@@ -59,6 +60,7 @@ export async function orchestrateInvite(ctx: InviteContext): Promise<InviteResul
     googleError: null,
     externalEventId: ctx.appointment.external_event_id ?? null,
     meetLink: ctx.appointment.meet_link ?? null,
+    eventUrl: ctx.appointment.event_url ?? null,
   }
 
   // --- Carregar configs do cliente ---
@@ -141,6 +143,7 @@ export async function orchestrateInvite(ctx: InviteContext): Promise<InviteResul
         result.googleSynced = true
         result.externalEventId = syncResult.eventId
         result.meetLink = syncResult.meetLink
+        result.eventUrl = syncResult.htmlLink
 
         // Atualiza appointment com resultado do sync
         await admin
@@ -151,6 +154,7 @@ export async function orchestrateInvite(ctx: InviteContext): Promise<InviteResul
             external_event_id: syncResult.eventId,
             external_calendar_id: calendarId,
             meet_link: syncResult.meetLink,
+            event_url: syncResult.htmlLink,
             last_synced_at: new Date().toISOString(),
           })
           .eq('id', ctx.appointment.id)
@@ -190,7 +194,7 @@ async function syncToGoogleCalendar(options: {
   contactPhone: string | null
   sendInviteToPatient: boolean
   patientEmail: string | null
-}): Promise<{ eventId: string | null; meetLink: string | null }> {
+}): Promise<{ eventId: string | null; meetLink: string | null; htmlLink: string | null }> {
   const { appointment, calendar, calendarId, botConfig } = options
   const tz = botConfig?.timezone ?? 'America/Sao_Paulo'
 
@@ -249,6 +253,7 @@ async function syncToGoogleCalendar(options: {
       eventId: response.data.id ?? existingEventId,
       meetLink: response.data.hangoutLink ??
         response.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video')?.uri ?? null,
+      htmlLink: response.data.htmlLink ?? null,
     }
   }
 
@@ -263,6 +268,7 @@ async function syncToGoogleCalendar(options: {
     eventId: response.data.id ?? null,
     meetLink: response.data.hangoutLink ??
       response.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video')?.uri ?? null,
+    htmlLink: response.data.htmlLink ?? null,
   }
 }
 

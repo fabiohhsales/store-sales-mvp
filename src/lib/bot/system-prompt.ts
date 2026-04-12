@@ -78,42 +78,53 @@ function buildIntakeSection(
   if (fields.length === 0) return ''
 
   const collected = contactCustomData ?? {}
-  const requiredDone = fields.filter((f) => f.required).every((f) => collected[f.key])
+  const hardFields = fields.filter((f) => !f.soft)
+  const softFields = fields.filter((f) => f.soft)
+  const requiredDone = hardFields.filter((f) => f.required).every((f) => collected[f.key])
 
-  // All required fields collected
+  // All required (hard) fields collected
   if (requiredDone && intakeCompletedAt) {
-    if (!config.intake_request_photos) return ''
+    // Build soft-field reminder if there are uncollected soft fields
+    const pendingSoft = softFields.filter((f) => !collected[f.key])
+    const softReminder = pendingSoft.length > 0
+      ? `\nSOFT DATA COLLECTION:
+The following fields are nice-to-have. Naturally weave them into conversation when appropriate — do NOT block the flow.
+${pendingSoft.map((f) => `- ${f.key}: ${f.label}`).join('\n')}
+If the patient provides a value, include: "intake_save": { "${pendingSoft[0].key}": "value" }\n`
+      : ''
+
+    if (!config.intake_request_photos) return softReminder
     const photoCount = parseInt(String(collected._photo_count ?? '0'), 10)
-    if (photoCount >= config.intake_photos_count) return ''
+    if (photoCount >= config.intake_photos_count) return softReminder
     const remaining = config.intake_photos_count - photoCount
     return `\nINTAKE COMPLETE — PHOTO PHASE:
 Patient data already collected. Ask the patient to send ${remaining} photo(s) of their scalp (front, top, left side, right side, back).
 Once all photos are received, the conversation will be automatically transferred to the medical team.
-For intake fields, return "intake_save": null\n`
+For intake fields, return "intake_save": null\n${softReminder}`
   }
 
-  // Build the intake prompt
-  const collectedLines = fields
+  // Build the intake prompt — hard fields are highest priority
+  const collectedLines = hardFields
     .filter((f) => collected[f.key])
     .map((f) => `- ${f.key}: "${collected[f.key]}" ✓`)
     .join('\n')
 
-  const nextField = fields.find((f) => !collected[f.key])
-  const pendingFields = fields.filter((f) => !collected[f.key])
+  const nextField = hardFields.find((f) => !collected[f.key])
+  const pendingHard = hardFields.filter((f) => !collected[f.key])
 
-  return `\nPATIENT INTAKE (HIGHEST PRIORITY):
+  let section = `\nPATIENT INTAKE (HIGHEST PRIORITY):
 Collect the fields below ONE AT A TIME before any other action.
 NEVER skip required fields. NEVER ask two fields at the same time.
 
 Fields to collect:
-${fields.map((f) => `- ${f.key}: ${f.label}${f.required ? ' (required)' : ' (optional)'}`).join('\n')}
+${hardFields.map((f) => `- ${f.key}: ${f.label}${f.required ? ' (required)' : ' (optional)'}`).join('\n')}
 
 Already collected:
 ${collectedLines || '- (none yet)'}
 
 Next field to ask: ${nextField ? `"${nextField.label}"` : 'ALL COLLECTED'}
 
-Pending fields: ${pendingFields.map((f) => f.key).join(', ') || 'none'}
+Pending fields: ${pendingHard.map((f) => f.key).join(', ') || 'none'}
 
 When the patient provides a value, include in the output JSON:
 "intake_save": { "${nextField?.key ?? 'field'}": "value_provided_by_patient" }
@@ -122,6 +133,17 @@ If a field is optional and the patient wants to skip it, accept and mark as "_sk
 "intake_save": { "${nextField?.key ?? 'field'}": "_skipped" }
 
 While intake is incomplete, use intent="triagem" and do NOT offer scheduling.\n`
+
+  // Append soft fields info
+  if (softFields.length > 0) {
+    const pendingSoft = softFields.filter((f) => !collected[f.key])
+    if (pendingSoft.length > 0) {
+      section += `\nSOFT DATA (collect naturally when opportunity arises, do NOT block flow):
+${pendingSoft.map((f) => `- ${f.key}: ${f.label}`).join('\n')}\n`
+    }
+  }
+
+  return section
 }
 
 export function buildSystemPrompt(
@@ -207,6 +229,16 @@ COMMUNICATION TONE:
 ${tone}
 Maximum 1–4 lines per response. No markdown. Be direct and human.
 
+CONVERSATION BEST PRACTICES:
+- Always acknowledge what the patient said before moving to your point.
+- Use short, natural sentences — write as a real person would on WhatsApp.
+- Show empathy: "Entendo!", "Claro!", "Boa pergunta!"
+- Never repeat the same information twice in the same conversation.
+- If the patient sent multiple messages, address all their points in a single cohesive reply.
+- Avoid robotic patterns like numbered lists or formal headers.
+- Use the patient's first name occasionally to personalize.
+- When asking for information, explain briefly why you need it.
+
 AVAILABLE SERVICES:
 ${servicesList}
 
@@ -221,6 +253,7 @@ CONVERSATION STATE (use to decide next action):
 - appointment_status_current: ${appointmentStatus}
 - last_incoming_at: ${lastIncomingAt}
 - last_outgoing_at: ${lastOutgoingAt}
+- email_collected: ${contactData?.custom_data?.email ? 'yes' : 'no'}
 
 STAGE AND LABEL RULES:
 - labels_next may have multiple labels, but must contain exactly 1 stage label (slug starting with "etapa_").
@@ -242,6 +275,13 @@ When the patient wants to schedule, reschedule or cancel:
 When the patient confirms a specific time slot:
 - Set actions.agenda_create.should_create = true with start_iso and end_iso in ISO-8601
 - Set reply = null
+
+EMAIL FOR CONFIRMATION:
+When scheduling and the patient's email is not yet known (email_collected = no), naturally ask:
+"Para enviar a confirma\u00e7\u00e3o do agendamento, pode me informar seu e-mail?"
+If the patient provides an email, save it: "intake_save": { "email": "provided_value" }
+If the patient declines or ignores, proceed without it — email is NOT mandatory.
+Never ask for email more than once per conversation.
 
 HANDOFF TO HUMAN:
 Set handoff.needs_human = true and status_next = "open" when:

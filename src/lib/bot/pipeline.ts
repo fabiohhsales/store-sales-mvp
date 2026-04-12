@@ -279,6 +279,11 @@ async function getMessageHistory(
   return ((data ?? []) as BotMessage[]).reverse()
 }
 
+/** Public wrapper for refreshing message history after debounce. */
+export async function refreshMessageHistory(conversationId: string, limit = 20): Promise<BotMessage[]> {
+  return getMessageHistory(createAdminClient(), conversationId, limit)
+}
+
 // =============================================================================
 // Pipeline Evolution — sem dependência do Chatwoot
 // =============================================================================

@@ -187,12 +187,13 @@ export async function handleAgendaCreate(
       minute: '2-digit',
     })
 
-    let confirmMsg = `Consulta agendada com sucesso!\n${formattedDate}\n`
-    if (appointment.meet_link) confirmMsg += `Link: ${appointment.meet_link}\n`
+    let confirmMsg = `✅ Tudo certo! Sua consulta foi agendada:\n📅 ${formattedDate}\n`
+    if (appointment.meet_link) confirmMsg += `🔗 Link da videochamada: ${appointment.meet_link}\n`
+    if (appointment.event_url) confirmMsg += `📋 Ver no calendário: ${appointment.event_url}\n`
     if (appointment.sync_status === 'error') {
-      confirmMsg += '\nObservação: o agendamento foi salvo, mas houve falha na sincronização externa.'
+      confirmMsg += '\n⚠️ O agendamento foi salvo, mas houve uma falha ao sincronizar com o calendário. Nossa equipe já foi notificada.'
     }
-    confirmMsg += '\nSe precisar remarcar ou cancelar, é só me avisar!'
+    confirmMsg += '\nSe precisar remarcar ou cancelar, é só me avisar! 😊'
 
     await sendAndSave(whatsappConfig, contact, conversation, confirmMsg)
 

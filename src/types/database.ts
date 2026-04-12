@@ -149,6 +149,8 @@ export interface IntakeFieldConfig {
   key: string
   label: string
   required: boolean
+  /** Soft fields: bot tries to collect naturally during conversation but does not block flow. */
+  soft?: boolean
 }
 
 // --- Panel Bot Config ---

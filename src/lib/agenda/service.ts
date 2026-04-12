@@ -75,6 +75,7 @@ interface CalendarSyncResult {
   external_calendar_id: string | null
   external_event_id: string | null
   meet_link: string | null
+  event_url: string | null
   last_synced_at: string | null
 }
 
@@ -380,6 +381,7 @@ async function syncAppointmentEvent(options: {
         response.data.hangoutLink ??
         response.data.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === 'video')?.uri ??
         null,
+      htmlLink: response.data.htmlLink ?? null,
     }
   }
 
@@ -396,6 +398,7 @@ async function syncAppointmentEvent(options: {
       response.data.hangoutLink ??
       response.data.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === 'video')?.uri ??
       null,
+    htmlLink: response.data.htmlLink ?? null,
   }
 }
 
@@ -420,6 +423,7 @@ async function buildSyncResult(options: {
       external_calendar_id: null,
       external_event_id: null,
       meet_link: null,
+      event_url: null,
       last_synced_at: null,
     }
   }
@@ -433,6 +437,7 @@ async function buildSyncResult(options: {
       external_calendar_id: googleConfig?.calendar_id ?? null,
       external_event_id: options.existingEventId ?? null,
       meet_link: null,
+      event_url: null,
       last_synced_at: null,
     }
   }
@@ -460,6 +465,7 @@ async function buildSyncResult(options: {
       external_calendar_id: googleConfig.calendar_id,
       external_event_id: synced.eventId,
       meet_link: synced.meetLink,
+      event_url: synced.htmlLink,
       last_synced_at: new Date().toISOString(),
     }
   } catch (error) {
@@ -474,6 +480,7 @@ async function buildSyncResult(options: {
       external_calendar_id: googleConfig.calendar_id ?? null,
       external_event_id: options.existingEventId ?? null,
       meet_link: null,
+      event_url: null,
       last_synced_at: null,
     }
   }
@@ -498,6 +505,7 @@ export function mapAppointmentRow(row: Record<string, unknown>): AgendaAppointme
     modality: (row.modality as string | null) ?? null,
     status: normalizeAgendaStatus((row.status as string | null) ?? null),
     meet_link: (row.meet_link as string | null) ?? null,
+    event_url: (row.event_url as string | null) ?? null,
     google_event_id:
       (row.google_event_id as string | null) ??
       (row.external_event_id as string | null) ??
@@ -567,6 +575,7 @@ export async function listAgendaAppointments(params: AgendaListParams): Promise<
       modality,
       status,
       meet_link,
+      event_url,
       google_event_id,
       confirmation_sent_at,
       confirmation_response,
@@ -652,6 +661,7 @@ export async function getAgendaAppointmentById(id: string, clientId: string) {
       modality,
       status,
       meet_link,
+      event_url,
       google_event_id,
       confirmation_sent_at,
       confirmation_response,
@@ -707,6 +717,7 @@ export async function createAgendaAppointment(input: AgendaUpsertInput) {
       modality: input.modality ?? null,
       status: normalizedStatus,
       meet_link: syncResult.meet_link,
+      event_url: syncResult.event_url,
       // google_event_id é coluna legada — não escrevemos mais; o mapper continua
       // lendo via fallback (external_event_id ?? google_event_id) para linhas antigas.
       source: input.source ?? 'supabase',
@@ -729,6 +740,7 @@ export async function createAgendaAppointment(input: AgendaUpsertInput) {
       modality,
       status,
       meet_link,
+      event_url,
       google_event_id,
       confirmation_sent_at,
       confirmation_response,
@@ -825,6 +837,7 @@ export async function updateAgendaAppointment(
       status: safeStatus,
       notes: input.notes ?? existing.notes ?? null,
       meet_link: syncResult.meet_link ?? existing.meet_link,
+      event_url: syncResult.event_url ?? existing.event_url,
       // google_event_id é coluna legada — não escrevemos mais; reads continuam
       // via mapAppointmentRow's fallback chain.
       sync_status: syncResult.sync_status,
@@ -845,6 +858,7 @@ export async function updateAgendaAppointment(
       modality,
       status,
       meet_link,
+      event_url,
       google_event_id,
       confirmation_sent_at,
       confirmation_response,
@@ -912,6 +926,7 @@ export async function cancelAgendaAppointment(id: string, clientId: string) {
       modality,
       status,
       meet_link,
+      event_url,
       google_event_id,
       confirmation_sent_at,
       confirmation_response,
@@ -958,6 +973,7 @@ export async function updateAgendaAppointmentStatus(id: string, clientId: string
       modality,
       status,
       meet_link,
+      event_url,
       google_event_id,
       confirmation_sent_at,
       confirmation_response,

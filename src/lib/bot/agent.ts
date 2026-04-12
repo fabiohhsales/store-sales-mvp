@@ -13,7 +13,7 @@ import type { PipelineResult } from './pipeline'
 import type { BotMessage } from '@/types/bot'
 import type { PanelBotConfig } from '@/types/database'
 
-const AI_PAUSE_MINUTES = 10
+const AI_PAUSE_MINUTES = 0.5 // Safety net only — debounce handles message batching
 
 // --- AI Pause ---
 

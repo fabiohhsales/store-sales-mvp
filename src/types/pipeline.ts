@@ -50,6 +50,7 @@ export interface AgendaAppointment {
   modality: string | null
   status: string | null
   meet_link: string | null
+  event_url: string | null
   google_event_id: string
   confirmation_sent_at: string | null
   confirmation_response: string | null
