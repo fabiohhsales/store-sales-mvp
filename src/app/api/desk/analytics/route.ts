@@ -3,7 +3,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolveDeskUser } from '@/lib/desk/auth'
+import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
+import { RATE_LIMITS } from '@/lib/desk/rate-limit'
 
 function periodStart(period: string): Date {
   const now = new Date()
@@ -18,6 +19,9 @@ function periodStart(period: string): Date {
 }
 
 export async function GET(request: NextRequest) {
+  const blocked = applyRateLimit(request, RATE_LIMITS.analytics)
+  if (blocked) return blocked
+
   const deskUser = await resolveDeskUser(request)
   if (!deskUser) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
   if (!deskUser.clientId) return NextResponse.json({ error: 'client_id obrigatório' }, { status: 400 })

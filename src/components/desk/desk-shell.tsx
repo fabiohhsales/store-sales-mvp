@@ -10,6 +10,7 @@ import { MyCannedResponsesPanel } from './my-canned-responses-panel'
 import { LogOut, MessageSquare, Bell, BarChart3, Zap } from 'lucide-react'
 import { logout } from '@/lib/actions/auth'
 import { toast } from 'sonner'
+import { shouldToastSla } from '@/lib/desk/alerts'
 
 type DeskTab = 'conversations' | 'analytics'
 
@@ -150,16 +151,19 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
     }
   }, [])
 
-  // Periodic SLA alert check — toast when conversations cross the 1h threshold
+  // Periodic SLA alert check — toast when conversations cross the threshold
   const alertedIds = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const checkAlerts = () => {
-      const now = Date.now()
       for (const conv of conversations) {
-        if (conv.stage !== 'awaiting_human' || !conv.last_incoming_at) continue
-        const waitMs = now - new Date(conv.last_incoming_at).getTime()
-        if (waitMs > 60 * 60_000 && !alertedIds.current.has(conv.id)) {
+        const shouldAlert = shouldToastSla({
+          stage: conv.stage,
+          lastIncomingAt: conv.last_incoming_at,
+          lastOutgoingAt: conv.last_outgoing_at,
+          assignedOperatorId: conv.assigned_operator_id,
+        })
+        if (shouldAlert && !alertedIds.current.has(conv.id)) {
           alertedIds.current.add(conv.id)
           const name = conv.contacts?.name ?? conv.contacts?.phone_number ?? 'Paciente'
           toast.warning(`SLA em risco — ${name}`, {

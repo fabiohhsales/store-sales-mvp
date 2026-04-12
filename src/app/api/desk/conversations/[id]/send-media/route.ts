@@ -5,7 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolveDeskUser } from '@/lib/desk/auth'
+import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
+import { RATE_LIMITS } from '@/lib/desk/rate-limit'
 import { sendMediaMessage } from '@/lib/api/evolution'
 import { extractEvolutionInstanceName, extractFirstContact } from '@/lib/desk/conversation-row'
 
@@ -24,6 +25,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const blocked = applyRateLimit(request, RATE_LIMITS.send)
+  if (blocked) return blocked
+
   const { id } = await params
   const deskUser = await resolveDeskUser(request)
   if (!deskUser) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })

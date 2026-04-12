@@ -34,7 +34,7 @@ export async function clearAiPause(conversationId: string): Promise<void> {
   await supabase.from('ai_pauses').delete().eq('conversation_id', conversationId)
 }
 
-async function setAiPause(conversationId: string): Promise<void> {
+async function setAiPause(conversationId: string, clientId?: string | null): Promise<void> {
   const supabase = createAdminClient()
   const pausedUntil = new Date(Date.now() + AI_PAUSE_MINUTES * 60 * 1000).toISOString()
 
@@ -45,6 +45,7 @@ async function setAiPause(conversationId: string): Promise<void> {
       paused_by: 'bot',
       paused_reason: 'processing',
       updated_at: new Date().toISOString(),
+      ...(clientId ? { client_id: clientId } : {}),
     },
     { onConflict: 'conversation_id' }
   )
@@ -107,7 +108,7 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
   }
 
   // Seta a trava antes de processar (evita execução dupla)
-  await setAiPause(conversation.id)
+  await setAiPause(conversation.id, conversation.client_id)
 
   const runtimeBotConfig = resolveRuntimeBotConfig(result)
   const stageCurrent = (conversation.labels ?? []).find((label) => label.startsWith('etapa_')) ?? null

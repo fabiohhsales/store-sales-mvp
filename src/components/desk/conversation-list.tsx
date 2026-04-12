@@ -6,6 +6,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { deriveConductionMode, conductionLabel, conductionBadgeVariant, handoffReasonLabel } from '@/lib/desk/conduction'
+import { getWaitingBadge as getWaitingBadgeUnified, deriveAlerts } from '@/lib/desk/alerts'
+import type { SlaThresholds } from '@/lib/desk/sla-config'
 import type { DeskConversation } from './desk-shell'
 
 const STAGES = [
@@ -47,74 +49,24 @@ function relativeTime(date: string | null): string {
   }
 }
 
-function getWaitingBadge(date: string | null): { label: string; className: string } {
-  if (!date) {
-    return {
-      label: 'Espera',
-      className: 'border-border bg-muted/40 text-muted-foreground',
-    }
-  }
-
-  const timestamp = new Date(date).getTime()
-  if (Number.isNaN(timestamp)) {
-    return {
-      label: 'Espera',
-      className: 'border-border bg-muted/40 text-muted-foreground',
-    }
-  }
-
-  const mins = Math.max(0, Math.floor((Date.now() - timestamp) / 60000))
-  const hours = Math.floor(mins / 60)
-  const days = Math.floor(hours / 24)
-  const wait = mins < 1
-    ? 'agora'
-    : mins < 60
-      ? `${mins}min`
-      : hours < 24
-        ? `${hours}h`
-        : `${days}d`
-
-  if (mins < 15) {
-    return {
-      label: `Espera ${wait}`,
-      className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-    }
-  }
-
-  if (mins < 60) {
-    return {
-      label: `Espera ${wait}`,
-      className: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-    }
-  }
-
-  return {
-    label: `Espera ${wait}`,
-    className: 'border-destructive/30 bg-destructive/10 text-destructive',
-  }
-}
-
 type ListAlert = { icon: 'warning' | 'danger'; tip: string }
 
-function deriveListAlerts(conv: DeskConversation): ListAlert | null {
-  const now = Date.now()
-
-  if (conv.stage === 'awaiting_human') {
-    const waitMs = conv.last_incoming_at
-      ? now - new Date(conv.last_incoming_at).getTime()
-      : 0
-    if (waitMs > 60 * 60_000) return { icon: 'danger', tip: 'SLA em risco — espera >1h' }
-    if (!conv.assigned_operator_id && waitMs > 30 * 60_000)
-      return { icon: 'warning', tip: 'Sem operador atribuído há >30min' }
+function deriveListAlert(conv: DeskConversation, thresholds?: SlaThresholds): ListAlert | null {
+  const alerts = deriveAlerts(
+    {
+      stage: conv.stage,
+      lastIncomingAt: conv.last_incoming_at,
+      lastOutgoingAt: conv.last_outgoing_at,
+      assignedOperatorId: conv.assigned_operator_id,
+    },
+    thresholds
+  )
+  if (alerts.length === 0) return null
+  const first = alerts[0]
+  return {
+    icon: first.severity === 'danger' ? 'danger' : 'warning',
+    tip: first.message,
   }
-
-  if (conv.stage === 'in_service' && conv.last_outgoing_at) {
-    const silenceMs = now - new Date(conv.last_outgoing_at).getTime()
-    if (silenceMs > 2 * 60 * 60_000)
-      return { icon: 'warning', tip: 'Sem resposta do operador há >2h' }
-  }
-
-  return null
 }
 
 export function ConversationList({ conversations, selectedId, stageFilter, loading, stageCounts, currentUserId, onSelect, onStageChange }: Props) {
@@ -230,9 +182,9 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
               const isSelected = conv.id === selectedId
               const name = conv.contacts?.name ?? conv.contacts?.phone_number ?? 'Desconhecido'
               const isAwaitingHuman = conv.stage === 'awaiting_human'
-              const waitingBadge = isAwaitingHuman ? getWaitingBadge(conv.last_incoming_at) : null
+              const waitingBadge = isAwaitingHuman ? getWaitingBadgeUnified(conv.last_incoming_at) : null
               const isAssignedToMe = !!(currentUserId && conv.assigned_operator_id === currentUserId)
-              const alert = deriveListAlerts(conv)
+              const alert = deriveListAlert(conv)
 
               return (
                 <button

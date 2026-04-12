@@ -129,7 +129,7 @@ function formatDuration(seconds: number): string {
 }
 
 // --- Sub-renderer: Audio Player WhatsApp-style ---
-function AudioPlayer({ src, transcript }: { src: string; transcript?: string | null }) {
+function AudioPlayer({ src, transcript, onError }: { src: string; transcript?: string | null; onError?: () => void }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -165,6 +165,7 @@ function AudioPlayer({ src, transcript }: { src: string; transcript?: string | n
             setProgress(el.duration ? (el.currentTime / el.duration) * 100 : 0)
           }}
           onEnded={() => { setPlaying(false); setProgress(0) }}
+          onError={() => onError?.()}
         />
         <button onClick={togglePlay} className="flex-shrink-0 h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center hover:bg-primary/30 transition-colors">
           {playing ? <Pause size={14} className="text-primary" /> : <Play size={14} className="text-primary ml-0.5" />}
@@ -207,13 +208,22 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
   const isOperator = message.sender_type === 'operator'
   const isFollowup = message.from_who === 'followup'
 
-  const mediaSrc = mediaProxyUrl(message, conversationId)
+  const baseMediaSrc = mediaProxyUrl(message, conversationId)
+  // Add cache-bust suffix to retry expired signed URLs
+  const [mediaBust, setMediaBust] = useState(0)
+  const mediaSrc = baseMediaSrc ? (mediaBust ? `${baseMediaSrc}&_t=${mediaBust}` : baseMediaSrc) : null
+  const [mediaFailed, setMediaFailed] = useState(false)
+
+  const retryMedia = useCallback(() => {
+    setMediaFailed(false)
+    setMediaBust(Date.now())
+  }, [])
   const hasCaption = message.content && message.content !== '[Imagem]' && message.content !== '[Áudio]' && !message.content.startsWith('[Documento')
 
   // --- Render do conteúdo da bolha por tipo ---
   function renderContent() {
     if (message.content_type === 'image') {
-      if (mediaSrc) {
+      if (mediaSrc && !mediaFailed) {
         return (
           <div className="flex flex-col gap-1.5">
             <Image
@@ -224,6 +234,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
               unoptimized
               className="max-w-[220px] h-auto rounded-lg cursor-pointer"
               onClick={() => onImageClick?.(mediaSrc, message.content || 'Imagem')}
+              onError={() => setMediaFailed(true)}
             />
             {hasCaption && <span className="whitespace-pre-wrap text-sm">{message.content}</span>}
             <a href={mediaSrc} download className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-fit">
@@ -232,12 +243,26 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
           </div>
         )
       }
+      if (mediaFailed && baseMediaSrc) {
+        return (
+          <button onClick={retryMedia} className="flex items-center gap-1.5 italic text-muted-foreground hover:text-foreground transition-colors text-sm">
+            <RefreshCw size={12} /> Recarregar imagem
+          </button>
+        )
+      }
       return <span className="italic text-muted-foreground">[Imagem indisponível]</span>
     }
 
     if (message.content_type === 'audio') {
-      if (mediaSrc) {
-        return <AudioPlayer src={mediaSrc} transcript={message.media_transcript} />
+      if (mediaSrc && !mediaFailed) {
+        return <AudioPlayer src={mediaSrc} transcript={message.media_transcript} onError={() => setMediaFailed(true)} />
+      }
+      if (mediaFailed && baseMediaSrc) {
+        return (
+          <button onClick={retryMedia} className="flex items-center gap-1.5 italic text-muted-foreground hover:text-foreground transition-colors text-sm">
+            <RefreshCw size={12} /> Recarregar áudio
+          </button>
+        )
       }
       return <span className="italic text-muted-foreground">[Áudio indisponível]</span>
     }
@@ -272,7 +297,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
     }
 
     if (message.content_type === 'video') {
-      if (mediaSrc) {
+      if (mediaSrc && !mediaFailed) {
         return (
           <div className="flex flex-col gap-1.5">
             {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -282,9 +307,17 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
               preload="metadata"
               className="max-w-[280px] rounded-lg"
               style={{ maxHeight: 200 }}
+              onError={() => setMediaFailed(true)}
             />
             {hasCaption && <span className="whitespace-pre-wrap text-sm">{message.content}</span>}
           </div>
+        )
+      }
+      if (mediaFailed && baseMediaSrc) {
+        return (
+          <button onClick={retryMedia} className="flex items-center gap-1.5 italic text-muted-foreground hover:text-foreground transition-colors text-sm">
+            <RefreshCw size={12} /> Recarregar vídeo
+          </button>
         )
       }
       return <span className="italic text-muted-foreground">[Vídeo indisponível]</span>
@@ -377,6 +410,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
 
   // Upload de mídia (B8)
   const [uploadLoading, setUploadLoading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Lightbox de imagem
@@ -403,18 +437,28 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
   // Contexto consolidado (Fase 2)
   const [context, setContext] = useState<ConversationContext | null>(null)
 
+  // Paginação de mensagens
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const oldestMessageIdRef = useRef<string | null>(null)
+  const isInitialLoadRef = useRef(true)
+
   const bottomRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const notesBottomRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
+    isInitialLoadRef.current = true
     try {
       const res = await fetch(`/api/desk/conversations/${conversationId}?client_id=${clientId}`)
       if (res.ok) {
         const data = await res.json()
         setConversation(data.conversation)
         setMessages(data.messages ?? [])
+        setHasMore(data.hasMore ?? false)
+        oldestMessageIdRef.current = data.oldestMessageId ?? null
         setMessageError(null)
       } else {
         const body = await res.json().catch(() => ({}))
@@ -430,6 +474,40 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     }
     if (showLoading) setLoading(false)
   }, [conversationId, clientId])
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!hasMore || loadingOlder || !oldestMessageIdRef.current) return
+    setLoadingOlder(true)
+    const container = messagesContainerRef.current
+    const prevScrollHeight = container?.scrollHeight ?? 0
+
+    try {
+      const res = await fetch(
+        `/api/desk/conversations/${conversationId}?client_id=${clientId}&before=${oldestMessageIdRef.current}&limit=50`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        const older: Message[] = data.messages ?? []
+        if (older.length > 0) {
+          setMessages((prev) => [...older, ...prev])
+          oldestMessageIdRef.current = data.oldestMessageId ?? null
+          setHasMore(data.hasMore ?? false)
+          // Preserve scroll position after prepend
+          requestAnimationFrame(() => {
+            if (container) {
+              container.scrollTop = container.scrollHeight - prevScrollHeight
+            }
+          })
+        } else {
+          setHasMore(false)
+        }
+      }
+    } catch (err) {
+      console.error('[ChatView] Erro ao carregar mensagens anteriores:', err)
+    } finally {
+      setLoadingOlder(false)
+    }
+  }, [conversationId, clientId, hasMore, loadingOlder])
 
   const loadProfile = useCallback(async (showLoading = false) => {
     if (showLoading) setProfileLoading(true)
@@ -526,9 +604,21 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     return () => clearInterval(interval)
   }, [load])
 
-  // Scroll para o final — mensagens
+  // Scroll para o final — apenas no load inicial e novas mensagens (não ao carregar antigas)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (isInitialLoadRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      isInitialLoadRef.current = false
+      return
+    }
+    // Auto-scroll only if user is near the bottom (within 200px)
+    const container = messagesContainerRef.current
+    if (container) {
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200
+      if (isNearBottom) {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }
+    }
   }, [messages])
 
   // Scroll para o final — notas
@@ -813,14 +903,39 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     })
   }
 
-  async function sendMediaPayload(base64: string, mimetype: string, fileName?: string) {
-    const res = await fetch(`/api/desk/conversations/${conversationId}/send-media`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base64, mimetype, file_name: fileName }),
+  function sendMediaPayload(base64: string, mimetype: string, fileName?: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `/api/desk/conversations/${conversationId}/send-media`)
+      xhr.setRequestHeader('Content-Type', 'application/json')
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress(Math.round((e.loaded / e.total) * 100))
+        }
+      }
+
+      xhr.onload = () => {
+        setUploadProgress(0)
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve()
+        } else {
+          try {
+            const data = JSON.parse(xhr.responseText)
+            reject(new Error(data.error || `Erro ${xhr.status}`))
+          } catch {
+            reject(new Error(`Erro ${xhr.status}`))
+          }
+        }
+      }
+
+      xhr.onerror = () => {
+        setUploadProgress(0)
+        reject(new Error('Falha de conexão ao enviar mídia'))
+      }
+
+      xhr.send(JSON.stringify({ base64, mimetype, file_name: fileName }))
     })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error((data as { error?: string }).error || 'Erro ao enviar mídia')
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1070,7 +1185,32 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
               />
 
               {/* Mensagens */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div
+                ref={messagesContainerRef}
+                className="flex-1 overflow-y-auto p-4 space-y-3"
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  if (el.scrollTop < 80 && hasMore && !loadingOlder) {
+                    loadOlderMessages()
+                  }
+                }}
+              >
+                {loadingOlder && (
+                  <div className="flex items-center justify-center py-2">
+                    <Loader2 size={16} className="animate-spin text-muted-foreground mr-2" />
+                    <span className="text-xs text-muted-foreground">Carregando mensagens anteriores...</span>
+                  </div>
+                )}
+                {hasMore && !loadingOlder && (
+                  <div className="flex items-center justify-center py-1">
+                    <button
+                      onClick={loadOlderMessages}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Carregar mensagens anteriores
+                    </button>
+                  </div>
+                )}
                 {messageError && !loading && (
                   <div className="flex flex-col items-center justify-center h-full text-center py-12">
                     <AlertTriangle size={32} className="text-destructive/60 mb-2" />
@@ -1093,6 +1233,22 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                 ))}
                 <div ref={bottomRef} />
               </div>
+
+              {/* Upload progress bar */}
+              {uploadLoading && uploadProgress > 0 && (
+                <div className="border-t border-border px-3 py-1.5 bg-card/50">
+                  <div className="flex items-center gap-2">
+                    <Loader2 size={12} className="animate-spin text-primary" />
+                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all duration-200"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">{uploadProgress}%</span>
+                  </div>
+                </div>
+              )}
 
               {/* Input de mensagem */}
               <div className="border-t border-border p-3 bg-card/50 flex-shrink-0">

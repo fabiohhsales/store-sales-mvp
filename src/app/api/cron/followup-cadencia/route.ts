@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runLeadCadencePipeline } from '@/lib/followup/lead-cadence'
 import { runAtendimentoCadencePipeline } from '@/lib/followup/atendimento-cadence'
+import { reconcileOrphanedSteps } from '@/lib/followup/shared'
 
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET
@@ -12,6 +13,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Reconcile orphaned steps before running new cadences
+    const reconciled = await reconcileOrphanedSteps().catch((err) => {
+      console.error('[Cron] Erro na reconciliação de steps:', err)
+      return 0
+    })
+
     const [leadSummary, atendimentoSummary] = await Promise.all([
       runLeadCadencePipeline(),
       runAtendimentoCadencePipeline(),
@@ -19,6 +26,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      reconciled,
       leadClients: leadSummary.clients,
       leadStepsSent: leadSummary.stepsSent,
       atendimentoClients: atendimentoSummary.clients,

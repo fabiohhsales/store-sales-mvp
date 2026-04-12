@@ -3,12 +3,15 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolveDeskUser } from '@/lib/desk/auth'
+import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const blocked = applyRateLimit(request)
+  if (blocked) return blocked
+
   const { id } = await params
   const deskUser = await resolveDeskUser(request)
   if (!deskUser) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
@@ -39,27 +42,58 @@ export async function GET(
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
+  // Cursor-based pagination: ?before=<message_id>&limit=50
+  const beforeId = request.nextUrl.searchParams.get('before')
+  const limit = Math.min(Math.max(Number(request.nextUrl.searchParams.get('limit') ?? '50'), 1), 100)
+
   // Inclui mensagens com client_id null para não esconder históricos antigos/bugados.
   // A segurança já está garantida pelo filtro de conversation_id + validação de acesso acima.
+  const msgSelect = 'id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url, media_mime_type, media_filename, media_size_bytes, media_duration_seconds, media_transcript, whatsapp_status'
+
   let msgQuery = admin
     .from('messages')
-    .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url, media_mime_type, media_filename, media_size_bytes, media_duration_seconds, media_transcript, whatsapp_status')
+    .select(msgSelect)
     .eq('conversation_id', id)
 
   if (conversation.client_id) {
     msgQuery = msgQuery.or(`client_id.eq.${conversation.client_id},client_id.is.null`)
   }
 
-  const { data: messages, error: msgError } = await msgQuery
-    .order('created_at', { ascending: true })
-    .limit(150)
+  if (beforeId) {
+    // Fetch the cursor message's timestamp
+    const { data: cursorMsg } = await admin
+      .from('messages')
+      .select('created_at')
+      .eq('id', beforeId)
+      .maybeSingle()
+
+    if (cursorMsg) {
+      msgQuery = msgQuery.lt('created_at', cursorMsg.created_at)
+    }
+  }
+
+  // Fetch limit+1 to determine hasMore, ordered DESC (newest first in query)
+  const { data: rawMessages, error: msgError } = await msgQuery
+    .order('created_at', { ascending: false })
+    .limit(limit + 1)
 
   if (msgError) {
     console.error(`[desk/conversations/${id}] Erro ao buscar mensagens: ${msgError.message}`)
     return NextResponse.json({ error: 'Erro ao buscar mensagens', conversation }, { status: 500 })
   }
 
-  console.log(`[desk/conversations/${id}] ${messages?.length ?? 0} mensagem(ns) retornada(s)`)
+  const fetched = rawMessages ?? []
+  const hasMore = fetched.length > limit
+  const sliced = hasMore ? fetched.slice(0, limit) : fetched
+  // Reverse to chronological order (oldest first)
+  const messages = sliced.reverse()
 
-  return NextResponse.json({ conversation, messages: messages ?? [] })
+  console.log(`[desk/conversations/${id}] ${messages.length} mensagem(ns) retornada(s), hasMore=${hasMore}`)
+
+  return NextResponse.json({
+    conversation,
+    messages,
+    hasMore,
+    oldestMessageId: messages.length > 0 ? messages[0].id : null,
+  })
 }

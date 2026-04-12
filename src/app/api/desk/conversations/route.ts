@@ -3,9 +3,12 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolveDeskUser } from '@/lib/desk/auth'
+import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
 
 export async function GET(request: NextRequest) {
+  const blocked = applyRateLimit(request)
+  if (blocked) return blocked
+
   const deskUser = await resolveDeskUser(request)
   if (!deskUser) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
   if (!deskUser.clientId) return NextResponse.json({ error: 'client_id obrigatório' }, { status: 400 })

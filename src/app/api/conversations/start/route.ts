@@ -104,6 +104,7 @@ export async function POST(request: NextRequest) {
       paused_reason: 'operator_started_conversation',
       paused_by: deskUser.userId,
       updated_at: now,
+      client_id: deskUser.clientId,
     })
 
   // Envia mensagem via Evolution API

@@ -3,7 +3,8 @@
 // Admins: client_id vem de ?client_id= na query string.
 
 import { isAuthError, resolveRequestContext } from '@/lib/auth/request-context'
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { checkRateLimit, RATE_LIMITS } from './rate-limit'
 
 export interface DeskUser {
   userId: string
@@ -37,4 +38,36 @@ export async function resolveDeskUser(request: NextRequest): Promise<DeskUser | 
     console.error('[desk/auth] Erro ao resolver usuário:', error)
     return null
   }
+}
+
+/**
+ * Verifica rate limit por IP. Retorna NextResponse 429 se excedido, null se OK.
+ * Uso: `const blocked = applyRateLimit(request); if (blocked) return blocked;`
+ */
+export function applyRateLimit(
+  request: NextRequest,
+  limit: number = RATE_LIMITS.default
+): NextResponse | null {
+  const ip =
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    request.headers.get('x-real-ip') ??
+    'unknown'
+
+  const result = checkRateLimit(ip, limit)
+
+  if (!result.allowed) {
+    return NextResponse.json(
+      { error: 'Muitas requisições. Tente novamente em instantes.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': '60',
+          'X-RateLimit-Limit': String(result.limit),
+          'X-RateLimit-Remaining': '0',
+        },
+      }
+    )
+  }
+
+  return null
 }

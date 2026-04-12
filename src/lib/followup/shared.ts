@@ -288,3 +288,79 @@ export function isWhatsAppConnected(whatsappConfig: PanelWhatsAppConfig): boolea
     whatsappConfig.connection_status === 'open'
   )
 }
+
+// ---------------------------------------------------------------------------
+// Reconciliation: fix orphaned steps where Evolution sent but messages INSERT failed
+// ---------------------------------------------------------------------------
+
+export async function reconcileOrphanedSteps(): Promise<number> {
+  const supabase = createAdminClient()
+
+  // Find steps that have evolution_message_id but no matching row in messages
+  const { data: orphans, error } = await supabase
+    .from('followup_cadence_steps')
+    .select('id, conversation_id, cadence_type, step_key, message_sent, sent_at, evolution_message_id')
+    .not('evolution_message_id', 'is', null)
+    .limit(100)
+
+  if (error || !orphans || orphans.length === 0) return 0
+
+  let reconciled = 0
+
+  for (const step of orphans) {
+    // Check if a matching message already exists
+    const { data: existing } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('evolution_message_id', step.evolution_message_id!)
+      .maybeSingle()
+
+    if (existing) continue // Message exists, not orphaned
+
+    // Also check by conversation_id + from_who + approximate time (within 5 seconds)
+    const sentAt = new Date(step.sent_at).getTime()
+    const { data: nearMatch } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', step.conversation_id)
+      .eq('from_who', 'followup')
+      .gte('created_at', new Date(sentAt - 5000).toISOString())
+      .lte('created_at', new Date(sentAt + 5000).toISOString())
+      .maybeSingle()
+
+    if (nearMatch) continue // Close enough match exists
+
+    // Resolve client_id from conversation
+    const { data: conv } = await supabase
+      .from('conversations')
+      .select('client_id')
+      .eq('id', step.conversation_id)
+      .maybeSingle()
+
+    // Re-insert the missing message
+    const { error: insertError } = await supabase.from('messages').insert({
+      id: crypto.randomUUID(),
+      conversation_id: step.conversation_id,
+      client_id: conv?.client_id ?? null,
+      content: step.message_sent,
+      content_type: 'text',
+      sender_type: 'agent_bot',
+      from_who: 'followup',
+      evolution_message_id: step.evolution_message_id,
+      created_at: step.sent_at,
+    })
+
+    if (!insertError) {
+      reconciled++
+      console.log(`[followup/reconcile] Repaired orphaned step ${step.id} (conv=${step.conversation_id}, step=${step.step_key})`)
+    } else {
+      console.error(`[followup/reconcile] Failed to repair step ${step.id}:`, insertError.message)
+    }
+  }
+
+  if (reconciled > 0) {
+    console.log(`[followup/reconcile] Reconciled ${reconciled} orphaned steps`)
+  }
+
+  return reconciled
+}

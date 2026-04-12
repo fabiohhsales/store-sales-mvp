@@ -87,21 +87,8 @@ export function formatDateTime(date: string | null): string {
 
 // ── SLA color ────────────────────────────────────────────────────────────────
 
-/**
- * Returns a color tier for SLA indication based on time since stage change.
- * <15min → green, <60min → amber, >=60min → red.
- */
-export function slaColor(stageChangedAt: string | null): 'green' | 'amber' | 'red' {
-  if (!stageChangedAt) return 'green'
-  try {
-    const mins = Math.floor((Date.now() - new Date(stageChangedAt).getTime()) / 60000)
-    if (mins < 15) return 'green'
-    if (mins < 60) return 'amber'
-    return 'red'
-  } catch {
-    return 'green'
-  }
-}
+// Re-export from alerts.ts — single source of truth for SLA thresholds
+export { slaColor } from './alerts'
 
 // ── Handoff reason labels (PT-BR) ───────────────────────────────────────────
 
