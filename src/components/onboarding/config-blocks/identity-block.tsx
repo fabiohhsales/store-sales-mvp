@@ -113,7 +113,7 @@ export function IdentityBlock({ draft, onChange }: Props) {
             <Label>Segmento</Label>
             <Select
               value={business.segment}
-              onValueChange={(v) => setBusiness({ segment: v as BusinessSegment })}
+              onValueChange={(v) => setBusiness({ segment: (v ?? '') as BusinessSegment | '' })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione..." />
@@ -129,7 +129,7 @@ export function IdentityBlock({ draft, onChange }: Props) {
             <Label>Idioma do atendimento</Label>
             <Select
               value={business.language}
-              onValueChange={(v) => setBusiness({ language: v })}
+              onValueChange={(v) => setBusiness({ language: v ?? 'pt-BR' })}
             >
               <SelectTrigger>
                 <SelectValue />
