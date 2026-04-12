@@ -5,6 +5,7 @@ import { Bot, Clock, UserCheck, CheckCheck, MessageSquare, Search } from 'lucide
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { deriveConductionMode, conductionLabel, conductionBadgeVariant } from '@/lib/desk/conduction'
 import type { DeskConversation } from './desk-shell'
 
 const STAGES = [
@@ -226,9 +227,12 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                       </p>
                     )}
 
-                    {stageFilter === 'all' && !isAwaitingHuman && conv.stage === 'in_service' && (
-                      <Badge variant="default" className="mt-1.5 h-4 text-[10px] px-1.5">
-                        Em atendimento
+                    {stageFilter === 'all' && !isAwaitingHuman && (
+                      <Badge
+                        variant={conductionBadgeVariant(deriveConductionMode(conv.stage))}
+                        className="mt-1.5 h-4 text-[10px] px-1.5"
+                      >
+                        {conductionLabel(deriveConductionMode(conv.stage))}
                       </Badge>
                     )}
                     {isAwaitingHuman && waitingBadge && (

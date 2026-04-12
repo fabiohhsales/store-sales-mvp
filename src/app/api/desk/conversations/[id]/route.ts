@@ -19,7 +19,7 @@ export async function GET(
     .from('conversations')
     .select(`
       id, stage, status, labels, summary,
-      assigned_operator_id, last_incoming_at, last_outgoing_at,
+      assigned_operator_id, last_incoming_at, last_outgoing_at, stage_changed_at,
       client_id,
       contacts ( id, name, phone_number, identifier, custom_data )
     `)

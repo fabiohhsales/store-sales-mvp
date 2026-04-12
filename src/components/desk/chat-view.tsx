@@ -4,29 +4,25 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Check, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X, Images, Clock } from 'lucide-react'
+import { Send, Check, CheckCheck, Loader2, Trash2, UserCheck, Bot, StickyNote, MessageSquare, Paperclip, Zap, FileText, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X, Images, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { ContactProfilePanel, type ContactProfileData } from './contact-profile-panel'
+import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
-  DialogClose,
 } from '@/components/ui/dialog'
+import { type ContactProfileData } from './contact-profile-panel'
+import { ConversationHeaderState } from './conversation-header-state'
+import { ConversationCaseSummaryBanner } from './conversation-case-summary-banner'
+import { ConversationStateCard } from './conversation-state-card'
+import { ConversationAppointmentCard } from './conversation-appointment-card'
+import { ConversationIntakeCard } from './conversation-intake-card'
+import { ConversationHistoryCard } from './conversation-history-card'
 
 interface Message {
   id: string
@@ -52,6 +48,9 @@ interface ConversationDetail {
   status: string
   summary: string | null
   labels: string[]
+  stage_changed_at: string | null
+  last_incoming_at: string | null
+  last_outgoing_at: string | null
   contacts: { id: string; name: string | null; phone_number: string | null; identifier: string | null; custom_data?: Record<string, string> | null } | null
 }
 
@@ -79,6 +78,7 @@ interface CannedResponse {
 interface Props {
   conversationId: string
   clientId: string
+  currentUserId: string | null
   onConversationUpdate: () => void
 }
 
@@ -91,13 +91,6 @@ function normalizeCustomData(customData: Record<string, unknown> | null | undefi
       .filter(([key]) => !key.startsWith('_'))
       .map(([key, value]) => [key, value == null || value === '_skipped' ? '' : String(value)])
   )
-}
-
-const STAGE_LABELS = {
-  bot_triage: 'Bot respondendo',
-  awaiting_human: 'Bot pausado — aguardando você',
-  in_service: 'Você está atendendo — bot pausado',
-  resolved: 'Finalizado',
 }
 
 function relativeTime(date: string): string {
@@ -350,7 +343,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
   )
 }
 
-export function ChatView({ conversationId, clientId, onConversationUpdate }: Props) {
+export function ChatView({ conversationId, clientId, currentUserId, onConversationUpdate }: Props) {
   const [conversation, setConversation] = useState<ConversationDetail | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [profile, setProfile] = useState<ContactProfileData | null>(null)
@@ -360,6 +353,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [intakeEditing, setIntakeEditing] = useState(false)
   const [input, setInput] = useState('')
   const [contactNameDraft, setContactNameDraft] = useState('')
   const [customDataDraft, setCustomDataDraft] = useState<Record<string, string>>({})
@@ -975,103 +969,25 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Barra de ações */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-border bg-card/30 flex-shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Badge
-            variant={
-              stage === 'awaiting_human' ? 'destructive' :
-              stage === 'in_service' ? 'default' : 'secondary'
-            }
-            className="text-xs"
-          >
-            {STAGE_LABELS[stage]}
-          </Badge>
-
-          {/* Atribuição de operador — B6 */}
-          {operators.length > 0 && (
-            <Select
-              value={assignedOperatorId && operators.some((op) => op.id === assignedOperatorId) ? assignedOperatorId : 'none'}
-              onValueChange={(val) => handleAssign(val === 'none' ? null : val)}
-              disabled={assignLoading}
-            >
-              <SelectTrigger className="h-7 w-44 text-xs border-dashed">
-                <SelectValue placeholder="Sem responsável" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none" className="text-xs text-muted-foreground">
-                  Sem responsável
-                </SelectItem>
-                {operators.map((op) => (
-                  <SelectItem key={op.id} value={op.id} className="text-xs">
-                    {op.display_name ?? op.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-
-          {conversation.labels.length > 0 && (
-            <span className="text-xs text-muted-foreground">{conversation.labels.join(', ')}</span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 text-xs lg:hidden"
-            onClick={() => setProfileDialogOpen(true)}
-          >
-            <UserRound size={12} className="mr-1" />
-            Contato
-          </Button>
-
-          {canAssume && (
-            <Button size="sm" onClick={() => handleAction('assume')} disabled={actioning} className="h-8 text-xs">
-              {actioning ? <Loader2 size={12} className="mr-1 animate-spin" /> : <UserCheck size={12} className="mr-1" />}
-              Assumir conversa
-            </Button>
-          )}
-
-          {canReturn && (
-            <Button size="sm" variant="outline" onClick={() => handleAction('return')} disabled={actioning}
-              className="h-8 text-xs border-orange-500/40 text-orange-500 hover:bg-orange-500/10">
-              {actioning ? <Loader2 size={12} className="mr-1 animate-spin" /> : <Bot size={12} className="mr-1" />}
-              Devolver ao bot
-            </Button>
-          )}
-
-          {canSend && (
-            <Button size="sm" variant="outline" onClick={handleAvailabilitySearch} disabled={checkingAvailability}
-              className="h-8 text-xs">
-              {checkingAvailability ? <Loader2 size={12} className="mr-1 animate-spin" /> : <CalendarSearch size={12} className="mr-1" />}
-              Disponibilidades
-            </Button>
-          )}
-
-          {!isResolved && (
-            <Dialog>
-              <DialogTrigger render={<Button size="sm" variant="outline" disabled={actioning} className="h-8 text-xs" />}>
-                <CheckCheck size={12} className="mr-1" />
-                Finalizar
-              </DialogTrigger>
-              <DialogContent showCloseButton={false}>
-                <DialogHeader>
-                  <DialogTitle>Finalizar conversa?</DialogTitle>
-                  <DialogDescription>
-                    A conversa será marcada como resolvida e o bot não responderá mais.
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                  <DialogClose render={<Button variant="outline" />}>Cancelar</DialogClose>
-                  <DialogClose render={<Button onClick={() => handleAction('resolve')} />}>Finalizar</DialogClose>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          )}
-        </div>
-      </div>
+      {/* Header contextual — substitui a barra de ações antiga */}
+      <ConversationHeaderState
+        contactName={conversation.contacts?.name ?? null}
+        contactPhone={conversation.contacts?.phone_number ?? null}
+        conversationId={conversationId}
+        stage={stage}
+        stageChangedAt={conversation.stage_changed_at}
+        assignedOperatorId={assignedOperatorId}
+        currentUserId={currentUserId}
+        operators={operators}
+        assignLoading={assignLoading}
+        actioning={actioning}
+        checkingAvailability={checkingAvailability}
+        labels={conversation.labels}
+        onAction={handleAction}
+        onAssign={handleAssign}
+        onAvailabilitySearch={handleAvailabilitySearch}
+        onOpenProfile={() => setProfileDialogOpen(true)}
+      />
 
       {/* Toggle Mensagens / Notas / Mídia */}
       <div className="flex border-b border-border bg-card/20 flex-shrink-0">
@@ -1124,40 +1040,13 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {activeView === 'messages' ? (
             <>
-              {/* Resumo de triagem */}
-              {conversation.summary && (
-                <div className="flex items-start gap-2 px-4 py-2.5 bg-primary/5 border-b border-border text-xs text-muted-foreground">
-                  <Info size={13} className="text-primary mt-0.5 flex-shrink-0" />
-                  <span className="leading-relaxed">{conversation.summary}</span>
-                </div>
-              )}
-
-              {/* Intake */}
-              {conversation.contacts?.custom_data && Object.keys(conversation.contacts.custom_data).filter(k => !k.startsWith('_')).length > 0 && (
-                <div className="flex flex-col gap-1 px-4 py-2.5 bg-secondary/30 border-b border-border text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-foreground/70">Dados do paciente</span>
-                    <button
-                      onClick={handleClearIntake}
-                      className="flex items-center gap-1 text-muted-foreground hover:text-destructive transition-colors"
-                      title="Limpar intake (para testes)"
-                    >
-                      <Trash2 size={11} />
-                      <span>Limpar</span>
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1">
-                    {Object.entries(conversation.contacts.custom_data)
-                      .filter(([k]) => !k.startsWith('_'))
-                      .map(([key, value]) => (
-                        <div key={key} className="flex flex-col">
-                          <span className="text-muted-foreground capitalize">{key.replace(/_/g, ' ')}</span>
-                          <span className="text-foreground font-medium truncate">{String(value) === '_skipped' ? '—' : String(value)}</span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
+              {/* Summary + intake banner */}
+              <ConversationCaseSummaryBanner
+                summary={conversation.summary}
+                customData={normalizeCustomData(conversation.contacts?.custom_data)}
+                appointmentStatus={profile?.appointments?.[0]?.status ?? null}
+                lastIncomingAt={conversation.last_incoming_at}
+              />
 
               {/* Mensagens */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -1472,39 +1361,97 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
           )}
         </div>
 
-        {/* Sidebar — perfil do contato */}
-        <aside className="hidden w-80 flex-shrink-0 border-l border-border bg-card/20 lg:block">
-          <ContactProfilePanel
-            conversationId={conversationId}
-            loading={profileLoading}
-            saving={profileSaving}
-            error={profileError}
-            profile={profile}
-            nameDraft={contactNameDraft}
-            customDataDraft={customDataDraft}
-            onNameDraftChange={setContactNameDraft}
-            onCustomDataDraftChange={handleCustomDataDraftChange}
-            onSave={handleSaveProfile}
-          />
+        {/* Sidebar — cards contextuais */}
+        <aside className="hidden w-80 flex-shrink-0 border-l border-border bg-card/20 lg:block overflow-y-auto">
+          <div className="p-4 space-y-4">
+            <ConversationStateCard
+              stage={stage}
+              stageChangedAt={conversation.stage_changed_at}
+              intakeCompletedAt={profile?.contact.intake_completed_at ?? null}
+              customDataKeyCount={Object.keys(normalizeCustomData(profile?.contact.custom_data)).length}
+              lastIncomingAt={conversation.last_incoming_at}
+              lastOutgoingAt={conversation.last_outgoing_at}
+            />
+            <ConversationAppointmentCard appointments={profile?.appointments ?? []} />
+            {/* Contact basic data — nome editável + telefone + identifier */}
+            <div className="rounded-xl border bg-background p-4 space-y-2">
+              <Input
+                value={contactNameDraft}
+                onChange={(e) => setContactNameDraft(e.target.value)}
+                placeholder="Nome do contato"
+                className="text-sm font-medium h-8"
+              />
+              <p className="text-xs text-muted-foreground">{profile?.contact.phone_number}</p>
+              {profile?.contact.identifier && profile.contact.identifier !== profile.contact.phone_number && (
+                <p className="text-xs text-muted-foreground">{profile.contact.identifier}</p>
+              )}
+              {contactNameDraft !== (profile?.contact.name ?? '') && (
+                <Button size="sm" variant="outline" onClick={handleSaveProfile} disabled={profileSaving} className="h-7 text-xs w-full">
+                  {profileSaving ? <Loader2 size={12} className="mr-1 animate-spin" /> : null}
+                  Salvar nome
+                </Button>
+              )}
+            </div>
+            <ConversationIntakeCard
+              customData={normalizeCustomData(profile?.contact.custom_data)}
+              intakeCompletedAt={profile?.contact.intake_completed_at ?? null}
+              editing={intakeEditing}
+              saving={profileSaving}
+              customDataDraft={customDataDraft}
+              onToggleEdit={() => setIntakeEditing(!intakeEditing)}
+              onCustomDataDraftChange={handleCustomDataDraftChange}
+              onSave={handleSaveProfile}
+              onClearIntake={handleClearIntake}
+            />
+            <ConversationHistoryCard
+              conversations={profile?.conversations ?? []}
+              currentConversationId={conversationId}
+            />
+          </div>
         </aside>
       </div>
 
-      {/* Dialog de perfil — mobile */}
+      {/* Dialog de perfil — mobile (composição de cards) */}
       <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
         <DialogContent className="max-w-lg p-0 sm:max-w-lg">
-          <ContactProfilePanel
-            conversationId={conversationId}
-            loading={profileLoading}
-            saving={profileSaving}
-            error={profileError}
-            profile={profile}
-            nameDraft={contactNameDraft}
-            customDataDraft={customDataDraft}
-            onNameDraftChange={setContactNameDraft}
-            onCustomDataDraftChange={handleCustomDataDraftChange}
-            onSave={handleSaveProfile}
-            className="max-h-[75vh]"
-          />
+          <DialogHeader className="px-4 pt-4">
+            <DialogTitle className="text-sm">Perfil do contato</DialogTitle>
+          </DialogHeader>
+          <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
+            <ConversationStateCard
+              stage={stage}
+              stageChangedAt={conversation.stage_changed_at}
+              intakeCompletedAt={profile?.contact.intake_completed_at ?? null}
+              customDataKeyCount={Object.keys(normalizeCustomData(profile?.contact.custom_data)).length}
+              lastIncomingAt={conversation.last_incoming_at}
+              lastOutgoingAt={conversation.last_outgoing_at}
+            />
+            <ConversationAppointmentCard appointments={profile?.appointments ?? []} />
+            <div className="rounded-xl border bg-background p-4 space-y-2">
+              <Input
+                value={contactNameDraft}
+                onChange={(e) => setContactNameDraft(e.target.value)}
+                placeholder="Nome do contato"
+                className="text-sm font-medium h-8"
+              />
+              <p className="text-xs text-muted-foreground">{profile?.contact.phone_number}</p>
+            </div>
+            <ConversationIntakeCard
+              customData={normalizeCustomData(profile?.contact.custom_data)}
+              intakeCompletedAt={profile?.contact.intake_completed_at ?? null}
+              editing={intakeEditing}
+              saving={profileSaving}
+              customDataDraft={customDataDraft}
+              onToggleEdit={() => setIntakeEditing(!intakeEditing)}
+              onCustomDataDraftChange={handleCustomDataDraftChange}
+              onSave={handleSaveProfile}
+              onClearIntake={handleClearIntake}
+            />
+            <ConversationHistoryCard
+              conversations={profile?.conversations ?? []}
+              currentConversationId={conversationId}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 
