@@ -1,39 +1,14 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendTextMessage } from '@/lib/api/evolution'
 import { isWithinWorkingHours, logFollowupSkip } from '@/lib/followup/business-hours'
-import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
-
-const DEFAULT_STEP_TEMPLATES = {
-  lead_D1: 'Ola {patient_name}, tudo bem? Posso te ajudar a concluir seu agendamento com {professional_name}?',
-  lead_D2: 'Oi {patient_name}, sigo por aqui para ajudar no agendamento com {professional_name}. Quer que eu te sugira horarios?',
-  lead_D3: 'Ola {patient_name}, passando para te lembrar que consigo te ajudar a marcar sua consulta quando preferir.',
-  lead_D5: 'Oi {patient_name}, ainda quer seguir com o atendimento? Posso te enviar opcoes de horario.',
-  lead_D7: 'Ola {patient_name}, este e meu ultimo lembrete. Se quiser, retomo seu agendamento agora mesmo.',
-} as const
-
-type LeadStepKey = keyof typeof DEFAULT_STEP_TEMPLATES
-
-type LeadStepConfig = {
-  stepKey: LeadStepKey
-  minHours: number
-  maxHours: number
-  templateField: keyof Pick<
-    PanelBotConfig,
-    | 'lead_followup_msg_d1'
-    | 'lead_followup_msg_d2'
-    | 'lead_followup_msg_d3'
-    | 'lead_followup_msg_d5'
-    | 'lead_followup_msg_d7'
-  >
-}
-
-const LEAD_STEPS: LeadStepConfig[] = [
-  { stepKey: 'lead_D1', minHours: 12, maxHours: 36, templateField: 'lead_followup_msg_d1' },
-  { stepKey: 'lead_D2', minHours: 36, maxHours: 60, templateField: 'lead_followup_msg_d2' },
-  { stepKey: 'lead_D3', minHours: 60, maxHours: 84, templateField: 'lead_followup_msg_d3' },
-  { stepKey: 'lead_D5', minHours: 108, maxHours: 132, templateField: 'lead_followup_msg_d5' },
-  { stepKey: 'lead_D7', minHours: 156, maxHours: 180, templateField: 'lead_followup_msg_d7' },
-]
+import {
+  resolveLeadSteps,
+  renderTemplate,
+  sendFollowupMessage,
+  logFollowupEvent,
+  FollowupCircuitBreaker,
+  isWhatsAppConnected,
+} from '@/lib/followup/shared'
+import type { PanelBotConfig, PanelWhatsAppConfig, FollowupStepConfig } from '@/types/database'
 
 interface LeadConversation {
   id: string
@@ -61,33 +36,10 @@ export interface LeadCadenceSummary {
   skippedOutsideHours: boolean
 }
 
-function render(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? '')
-}
-
-function resolveLeadStepKey(lastOutgoingAt: string): LeadStepKey | null {
-  const now = Date.now()
-  const elapsedHours = (now - new Date(lastOutgoingAt).getTime()) / (1000 * 60 * 60)
-
-  const match = LEAD_STEPS.find(
-    (step) => elapsedHours >= step.minHours && elapsedHours < step.maxHours
-  )
-
-  return match?.stepKey ?? null
-}
-
-function getTemplateForStep(config: PanelBotConfig, stepKey: LeadStepKey): string {
-  const fieldByStep: Record<LeadStepKey, LeadStepConfig['templateField']> = {
-    lead_D1: 'lead_followup_msg_d1',
-    lead_D2: 'lead_followup_msg_d2',
-    lead_D3: 'lead_followup_msg_d3',
-    lead_D5: 'lead_followup_msg_d5',
-    lead_D7: 'lead_followup_msg_d7',
-  }
-
-  const field = fieldByStep[stepKey]
-  const customTemplate = config[field]
-  return customTemplate?.trim() ? customTemplate : DEFAULT_STEP_TEMPLATES[stepKey]
+function resolveLeadStepKey(lastOutgoingAt: string, steps: FollowupStepConfig[]): { stepKey: string; template: string } | null {
+  const elapsedHours = (Date.now() - new Date(lastOutgoingAt).getTime()) / (1000 * 60 * 60)
+  const match = steps.find((step) => elapsedHours >= step.min_hours && elapsedHours < step.max_hours)
+  return match ? { stepKey: match.step_key, template: match.template } : null
 }
 
 async function queryLeadConversations(clientId: string): Promise<LeadConversation[]> {
@@ -97,30 +49,22 @@ async function queryLeadConversations(clientId: string): Promise<LeadConversatio
     .from('conversations')
     .select('id, contact_id, last_incoming_at, last_outgoing_at')
     .eq('client_id', clientId)
+    .neq('status', 'resolved')
     .not('last_outgoing_at', 'is', null)
+    .limit(500)
 
-  if (error) {
-    throw error
-  }
+  if (error) throw error
 
-  const conversations = (data ?? []) as LeadConversation[]
-
-  return conversations.filter((conversation) => {
-    if (!conversation.last_outgoing_at || !conversation.last_incoming_at) {
-      return false
-    }
-
-    return new Date(conversation.last_incoming_at).getTime() < new Date(conversation.last_outgoing_at).getTime()
+  return ((data ?? []) as LeadConversation[]).filter((c) => {
+    if (!c.last_outgoing_at || !c.last_incoming_at) return false
+    return new Date(c.last_incoming_at).getTime() < new Date(c.last_outgoing_at).getTime()
   })
 }
 
 async function queryConversationsWithScheduledAppointment(conversationIds: string[]): Promise<Set<string>> {
-  if (!conversationIds.length) {
-    return new Set()
-  }
+  if (!conversationIds.length) return new Set()
 
   const supabase = createAdminClient()
-
   const { data, error } = await supabase
     .from('appointments')
     .select('conversation_id')
@@ -128,113 +72,32 @@ async function queryConversationsWithScheduledAppointment(conversationIds: strin
     .gt('start_at', new Date().toISOString())
     .in('conversation_id', conversationIds)
 
-  if (error) {
-    throw error
-  }
-
-  const ids = (data ?? []).map((row: { conversation_id: string | null }) => row.conversation_id).filter(Boolean) as string[]
-  return new Set(ids)
+  if (error) throw error
+  return new Set((data ?? []).map((r: { conversation_id: string | null }) => r.conversation_id).filter(Boolean) as string[])
 }
 
 async function queryContacts(contactIds: string[]): Promise<Map<string, ContactRow>> {
-  if (!contactIds.length) {
-    return new Map()
-  }
+  if (!contactIds.length) return new Map()
 
   const supabase = createAdminClient()
-  const uniqueContactIds = [...new Set(contactIds)]
-
   const { data, error } = await supabase
     .from('contacts')
     .select('id, name, phone_number, identifier')
-    .in('id', uniqueContactIds)
+    .in('id', [...new Set(contactIds)])
 
-  if (error) {
-    throw error
-  }
-
-  return new Map((data ?? []).map((contact: ContactRow) => [contact.id, contact]))
+  if (error) throw error
+  return new Map((data ?? []).map((c: ContactRow) => [c.id, c]))
 }
 
-async function sendLeadStep(
-  ctx: ClientFollowupContext,
-  conversation: LeadConversation,
-  contact: ContactRow,
-  stepKey: LeadStepKey
-): Promise<boolean> {
-  const supabase = createAdminClient()
-  const recipient = contact.identifier ?? contact.phone_number
-  const instanceName = ctx.whatsappConfig.evolution_instance_name
-
-  if (!recipient || !instanceName || !conversation.contact_id) {
-    return false
-  }
-
-  const template = getTemplateForStep(ctx.botConfig, stepKey)
-  const message = render(template, {
-    patient_name: contact.name ?? 'Paciente',
-    professional_name: ctx.botConfig.professional_name,
-    business_name: ctx.botConfig.business_name ?? ctx.botConfig.professional_name,
-  })
-
-  const sentAt = new Date().toISOString()
-
-  const { data: insertedStep, error: insertError } = await supabase
-    .from('followup_cadence_steps')
-    .upsert(
-      {
-        conversation_id: conversation.id,
-        cadence_type: 'lead',
-        step_key: stepKey,
-        message_sent: message,
-        sent_at: sentAt,
-      },
-      { onConflict: 'conversation_id,cadence_type,step_key', ignoreDuplicates: true }
-    )
-    .select('id')
-    .maybeSingle()
-
-  if (insertError) {
-    throw insertError
-  }
-
-  if (!insertedStep?.id) {
-    return false
-  }
-
-  try {
-    await sendTextMessage(instanceName, recipient, message)
-
-    await supabase.from('followup_logs').insert({
-      id: crypto.randomUUID(),
-      conversation_id: conversation.id,
-      contact_id: conversation.contact_id,
-      workflow_name: 'panel_followup',
-      step_name: stepKey,
-      message_sent: message,
-      sent_at: sentAt,
-    })
-
-    await supabase
-      .from('conversations')
-      .update({
-        followup_cadence: 'lead',
-        last_followup_at: sentAt,
-      })
-      .eq('id', conversation.id)
-
-    return true
-  } catch (error) {
-    // Remove a reserva para permitir retry no proximo ciclo de cron.
-    await supabase.from('followup_cadence_steps').delete().eq('id', insertedStep.id)
-    throw error
-  }
-}
-
-async function processClient(ctx: ClientFollowupContext): Promise<number> {
-  // Verifica working_hours real do cliente (não janela fixa 8–17).
+async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircuitBreaker): Promise<number> {
   if (!isWithinWorkingHours(ctx.botConfig.working_hours, ctx.botConfig.timezone ?? 'America/Sao_Paulo')) {
     logFollowupSkip('lead', 'fora_do_horario', { clientId: ctx.clientId })
+    return 0
+  }
+
+  const steps = resolveLeadSteps(ctx.botConfig)
+  if (!steps.length) {
+    logFollowupEvent('lead', 'skipped', { clientId: ctx.clientId, reason: 'no_enabled_steps' })
     return 0
   }
 
@@ -245,27 +108,28 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
   }
 
   const scheduledConversationIds = await queryConversationsWithScheduledAppointment(
-    conversations.map((conversation) => conversation.id)
+    conversations.map((c) => c.id)
   )
 
-  const candidates = conversations.filter(
-    (conversation) => !scheduledConversationIds.has(conversation.id)
-  )
-
+  const candidates = conversations.filter((c) => !scheduledConversationIds.has(c.id))
   if (!candidates.length) {
     logFollowupSkip('lead', 'sem_candidatos_pos_filtro', { clientId: ctx.clientId })
     return 0
   }
 
   const contactsMap = await queryContacts(
-    candidates
-      .map((conversation) => conversation.contact_id)
-      .filter(Boolean) as string[]
+    candidates.map((c) => c.contact_id).filter(Boolean) as string[]
   )
 
   let sentCount = 0
+  const instanceName = ctx.whatsappConfig.evolution_instance_name
 
   for (const conversation of candidates) {
+    if (breaker.isOpen(ctx.clientId)) {
+      logFollowupEvent('lead', 'circuit_open', { clientId: ctx.clientId })
+      break
+    }
+
     if (!conversation.last_outgoing_at || !conversation.contact_id) {
       logFollowupSkip('lead', 'sem_contato_ou_last_outgoing', {
         clientId: ctx.clientId,
@@ -274,8 +138,8 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
       continue
     }
 
-    const stepKey = resolveLeadStepKey(conversation.last_outgoing_at)
-    if (!stepKey) {
+    const resolved = resolveLeadStepKey(conversation.last_outgoing_at, steps)
+    if (!resolved) {
       logFollowupSkip('lead', 'sem_step_elegivel', {
         clientId: ctx.clientId,
         conversationId: conversation.id,
@@ -292,9 +156,33 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
       continue
     }
 
-    const wasSent = await sendLeadStep(ctx, conversation, contact, stepKey)
-    if (wasSent) {
-      sentCount++
+    const recipient = contact.identifier ?? contact.phone_number
+    if (!recipient) continue
+
+    const message = renderTemplate(resolved.template, {
+      patient_name: contact.name ?? 'Paciente',
+      professional_name: ctx.botConfig.professional_name,
+      business_name: ctx.botConfig.business_name ?? ctx.botConfig.professional_name,
+    })
+
+    try {
+      const wasSent = await sendFollowupMessage({
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+        contactId: conversation.contact_id,
+        recipient,
+        instanceName,
+        cadenceType: 'lead',
+        stepKey: resolved.stepKey,
+        message,
+      })
+      if (wasSent) {
+        sentCount++
+        breaker.recordSuccess(ctx.clientId)
+      }
+    } catch (error) {
+      breaker.recordFailure(ctx.clientId)
+      console.error(`[Followup Lead] Erro para conversation=${conversation.id}:`, error)
     }
   }
 
@@ -302,7 +190,6 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
 }
 
 export async function runLeadCadencePipeline(): Promise<LeadCadenceSummary> {
-  // Sem check global — cada cliente é verificado no seu próprio timezone dentro de processClient()
   const supabase = createAdminClient()
 
   const { data: rows, error } = await supabase
@@ -310,15 +197,12 @@ export async function runLeadCadencePipeline(): Promise<LeadCadenceSummary> {
     .select('*, panel_clients!inner(id, status), panel_whatsapp_config(*)')
     .eq('lead_followup_enabled', true)
     .eq('panel_clients.status', 'active')
+    .limit(200)
 
-  if (error) {
-    throw error
-  }
+  if (error) throw error
+  if (!rows?.length) return { clients: 0, stepsSent: 0, skippedOutsideHours: false }
 
-  if (!rows?.length) {
-    return { clients: 0, stepsSent: 0, skippedOutsideHours: false }
-  }
-
+  const breaker = new FollowupCircuitBreaker()
   let totalSent = 0
 
   for (const row of rows) {
@@ -326,25 +210,24 @@ export async function runLeadCadencePipeline(): Promise<LeadCadenceSummary> {
       ? row.panel_whatsapp_config[0]
       : row.panel_whatsapp_config
 
-    if (!whatsappConfig) {
+    if (!whatsappConfig || !isWhatsAppConnected(whatsappConfig as PanelWhatsAppConfig)) {
       logFollowupSkip('lead', 'sem_whatsapp_config', { clientId: row.client_id as string })
       continue
     }
 
     try {
-      totalSent += await processClient({
-        clientId: row.client_id as string,
-        botConfig: row as PanelBotConfig,
-        whatsappConfig: whatsappConfig as PanelWhatsAppConfig,
-      })
+      totalSent += await processClient(
+        {
+          clientId: row.client_id as string,
+          botConfig: row as PanelBotConfig,
+          whatsappConfig: whatsappConfig as PanelWhatsAppConfig,
+        },
+        breaker
+      )
     } catch (error) {
       console.error(`[Followup Lead] Erro para client=${row.client_id}:`, error)
     }
   }
 
-  return {
-    clients: rows.length,
-    stepsSent: totalSent,
-    skippedOutsideHours: false,
-  }
+  return { clients: rows.length, stepsSent: totalSent, skippedOutsideHours: false }
 }

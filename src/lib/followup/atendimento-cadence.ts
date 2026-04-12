@@ -1,44 +1,19 @@
 // Pipeline de follow-up para conversas "Em Atendimento":
 // Contato foi o ultimo a falar → bot nao respondeu → cadencia de reengajamento.
-// Steps: D+1, D+2, D+4, D+7, D+10 apos ultima mensagem recebida.
+// Steps dinamicos via JSONB ou fallback para defaults hardcoded.
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendTextMessage } from '@/lib/api/evolution'
 import { isWithinWorkingHours, logFollowupSkip } from '@/lib/followup/business-hours'
 import { DEFAULT_STAGE_LABELS, normalizeStageSlug } from '@/lib/bot/stage-labels'
-import type { PanelBotConfig, PanelWhatsAppConfig } from '@/types/database'
-
-const DEFAULT_STEP_TEMPLATES = {
-  atendimento_D1: 'Ola {patient_name}, recebi sua mensagem! Estou verificando e ja te respondo. Obrigado pela paciencia.',
-  atendimento_D2: 'Oi {patient_name}, desculpe a demora. Ainda estou cuidando da sua solicitacao. Posso te ajudar com algo mais?',
-  atendimento_D4: 'Ola {patient_name}, passando para verificar se ainda precisa de ajuda. Estou a disposicao!',
-  atendimento_D7: 'Oi {patient_name}, faz alguns dias que nao conseguimos dar sequencia. Quer que eu retome seu atendimento?',
-  atendimento_D10: 'Ola {patient_name}, este e meu ultimo lembrete. Se precisar de algo, e so me chamar que retomo na hora.',
-} as const
-
-type AtendimentoStepKey = keyof typeof DEFAULT_STEP_TEMPLATES
-
-type AtendimentoStepConfig = {
-  stepKey: AtendimentoStepKey
-  minHours: number
-  maxHours: number
-  templateField: keyof Pick<
-    PanelBotConfig,
-    | 'atendimento_followup_msg_d1'
-    | 'atendimento_followup_msg_d2'
-    | 'atendimento_followup_msg_d4'
-    | 'atendimento_followup_msg_d7'
-    | 'atendimento_followup_msg_d10'
-  >
-}
-
-const ATENDIMENTO_STEPS: AtendimentoStepConfig[] = [
-  { stepKey: 'atendimento_D1', minHours: 12, maxHours: 36, templateField: 'atendimento_followup_msg_d1' },
-  { stepKey: 'atendimento_D2', minHours: 36, maxHours: 60, templateField: 'atendimento_followup_msg_d2' },
-  { stepKey: 'atendimento_D4', minHours: 84, maxHours: 108, templateField: 'atendimento_followup_msg_d4' },
-  { stepKey: 'atendimento_D7', minHours: 156, maxHours: 180, templateField: 'atendimento_followup_msg_d7' },
-  { stepKey: 'atendimento_D10', minHours: 228, maxHours: 252, templateField: 'atendimento_followup_msg_d10' },
-]
+import {
+  resolveAtendimentoSteps,
+  renderTemplate,
+  sendFollowupMessage,
+  logFollowupEvent,
+  FollowupCircuitBreaker,
+  isWhatsAppConnected,
+} from '@/lib/followup/shared'
+import type { PanelBotConfig, PanelWhatsAppConfig, FollowupStepConfig } from '@/types/database'
 
 interface AtendimentoConversation {
   id: string
@@ -69,33 +44,13 @@ export interface AtendimentoCadenceSummary {
   skippedOutsideHours: boolean
 }
 
-function render(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? '')
-}
-
-function resolveAtendimentoStepKey(lastIncomingAt: string): AtendimentoStepKey | null {
-  const now = Date.now()
-  const elapsedHours = (now - new Date(lastIncomingAt).getTime()) / (1000 * 60 * 60)
-
-  const match = ATENDIMENTO_STEPS.find(
-    (step) => elapsedHours >= step.minHours && elapsedHours < step.maxHours
-  )
-
-  return match?.stepKey ?? null
-}
-
-function getTemplateForStep(config: PanelBotConfig, stepKey: AtendimentoStepKey): string {
-  const fieldByStep: Record<AtendimentoStepKey, AtendimentoStepConfig['templateField']> = {
-    atendimento_D1: 'atendimento_followup_msg_d1',
-    atendimento_D2: 'atendimento_followup_msg_d2',
-    atendimento_D4: 'atendimento_followup_msg_d4',
-    atendimento_D7: 'atendimento_followup_msg_d7',
-    atendimento_D10: 'atendimento_followup_msg_d10',
-  }
-
-  const field = fieldByStep[stepKey]
-  const customTemplate = config[field]
-  return customTemplate?.trim() ? customTemplate : DEFAULT_STEP_TEMPLATES[stepKey]
+function resolveAtendimentoStepKey(
+  lastIncomingAt: string,
+  steps: FollowupStepConfig[]
+): { stepKey: string; template: string } | null {
+  const elapsedHours = (Date.now() - new Date(lastIncomingAt).getTime()) / (1000 * 60 * 60)
+  const match = steps.find((step) => elapsedHours >= step.min_hours && elapsedHours < step.max_hours)
+  return match ? { stepKey: match.step_key, template: match.template } : null
 }
 
 // Labels derivados de DEFAULT_STAGE_LABELS — fonte única de verdade
@@ -127,23 +82,15 @@ function isAtendimentoStage(conversation: AtendimentoConversation, botConfig: Pa
   const hasConfiguredCadence = configuredAtendimento.size > 0
 
   if (hasConfiguredCadence) {
-    if (labels.some((label) => configuredAtendimento.has(label))) {
-      return true
-    }
-
+    if (labels.some((label) => configuredAtendimento.has(label))) return true
     return conversation.followup_cadence === 'atendimento'
   }
 
   const hasAtendimentoLabel = labels.some((label) => DEFAULT_ATENDIMENTO_LABELS.has(label))
   const hasNonAtendimentoLabel = labels.some((label) => DEFAULT_NON_ATENDIMENTO_LABELS.has(label))
 
-  if (hasAtendimentoLabel) {
-    return true
-  }
-
-  if (hasNonAtendimentoLabel) {
-    return false
-  }
+  if (hasAtendimentoLabel) return true
+  if (hasNonAtendimentoLabel) return false
 
   return conversation.followup_cadence === 'atendimento'
 }
@@ -158,43 +105,24 @@ async function queryAtendimentoConversations(
     .from('conversations')
     .select('id, contact_id, status, labels, followup_cadence, last_incoming_at, last_outgoing_at')
     .eq('client_id', clientId)
+    .neq('status', 'resolved')
     .not('last_incoming_at', 'is', null)
+    .limit(500)
 
-  if (error) {
-    throw error
-  }
+  if (error) throw error
 
-  const conversations = (data ?? []) as AtendimentoConversation[]
-
-  return conversations.filter((conversation) => {
-    if (conversation.status === 'resolved') {
-      return false
-    }
-
-    if (!isAtendimentoStage(conversation, botConfig)) {
-      return false
-    }
-
-    if (!conversation.last_incoming_at) {
-      return false
-    }
-
-    // Contato falou por ultimo: incoming > outgoing (ou outgoing nulo)
-    if (!conversation.last_outgoing_at) {
-      return true
-    }
-
+  return ((data ?? []) as AtendimentoConversation[]).filter((conversation) => {
+    if (!isAtendimentoStage(conversation, botConfig)) return false
+    if (!conversation.last_incoming_at) return false
+    if (!conversation.last_outgoing_at) return true
     return new Date(conversation.last_incoming_at).getTime() > new Date(conversation.last_outgoing_at).getTime()
   })
 }
 
 async function queryConversationsWithScheduledAppointment(conversationIds: string[]): Promise<Set<string>> {
-  if (!conversationIds.length) {
-    return new Set()
-  }
+  if (!conversationIds.length) return new Set()
 
   const supabase = createAdminClient()
-
   const { data, error } = await supabase
     .from('appointments')
     .select('conversation_id')
@@ -202,115 +130,32 @@ async function queryConversationsWithScheduledAppointment(conversationIds: strin
     .gt('start_at', new Date().toISOString())
     .in('conversation_id', conversationIds)
 
-  if (error) {
-    throw error
-  }
-
-  const ids = (data ?? []).map((row: { conversation_id: string | null }) => row.conversation_id).filter(Boolean) as string[]
-  return new Set(ids)
+  if (error) throw error
+  return new Set((data ?? []).map((r: { conversation_id: string | null }) => r.conversation_id).filter(Boolean) as string[])
 }
 
 async function queryContacts(contactIds: string[]): Promise<Map<string, ContactRow>> {
-  if (!contactIds.length) {
-    return new Map()
-  }
+  if (!contactIds.length) return new Map()
 
   const supabase = createAdminClient()
-  const uniqueContactIds = [...new Set(contactIds)]
-
   const { data, error } = await supabase
     .from('contacts')
     .select('id, name, phone_number, identifier')
-    .in('id', uniqueContactIds)
+    .in('id', [...new Set(contactIds)])
 
-  if (error) {
-    throw error
-  }
-
-  return new Map((data ?? []).map((contact: ContactRow) => [contact.id, contact]))
+  if (error) throw error
+  return new Map((data ?? []).map((c: ContactRow) => [c.id, c]))
 }
 
-async function sendAtendimentoStep(
-  ctx: ClientFollowupContext,
-  conversation: AtendimentoConversation,
-  contact: ContactRow,
-  stepKey: AtendimentoStepKey
-): Promise<boolean> {
-  const supabase = createAdminClient()
-  const recipient = contact.identifier ?? contact.phone_number
-  const instanceName = ctx.whatsappConfig.evolution_instance_name
-
-  if (!recipient || !instanceName || !conversation.contact_id) {
-    return false
-  }
-
-  const template = getTemplateForStep(ctx.botConfig, stepKey)
-  const message = render(template, {
-    patient_name: contact.name ?? 'Paciente',
-    professional_name: ctx.botConfig.professional_name,
-    business_name: ctx.botConfig.business_name ?? ctx.botConfig.professional_name,
-  })
-
-  const sentAt = new Date().toISOString()
-
-  // Reserva idempotente: UNIQUE(conversation_id, cadence_type, step_key)
-  const { data: insertedStep, error: insertError } = await supabase
-    .from('followup_cadence_steps')
-    .upsert(
-      {
-        conversation_id: conversation.id,
-        cadence_type: 'atendimento',
-        step_key: stepKey,
-        message_sent: message,
-        sent_at: sentAt,
-      },
-      { onConflict: 'conversation_id,cadence_type,step_key', ignoreDuplicates: true }
-    )
-    .select('id')
-    .maybeSingle()
-
-  if (insertError) {
-    throw insertError
-  }
-
-  // Ja enviado anteriormente → skip
-  if (!insertedStep?.id) {
-    return false
-  }
-
-  try {
-    await sendTextMessage(instanceName, recipient, message)
-
-    await supabase.from('followup_logs').insert({
-      id: crypto.randomUUID(),
-      conversation_id: conversation.id,
-      contact_id: conversation.contact_id,
-      workflow_name: 'panel_followup',
-      step_name: stepKey,
-      message_sent: message,
-      sent_at: sentAt,
-    })
-
-    await supabase
-      .from('conversations')
-      .update({
-        followup_cadence: 'atendimento',
-        last_followup_at: sentAt,
-      })
-      .eq('id', conversation.id)
-
-    return true
-  } catch (error) {
-    // Remove reserva para permitir retry no proximo ciclo
-    await supabase.from('followup_cadence_steps').delete().eq('id', insertedStep.id)
-    throw error
-  }
-}
-
-async function processClient(ctx: ClientFollowupContext): Promise<number> {
-  // Verifica working_hours real do cliente (não janela fixa 8–17).
+async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircuitBreaker): Promise<number> {
   if (!isWithinWorkingHours(ctx.botConfig.working_hours, ctx.botConfig.timezone ?? 'America/Sao_Paulo')) {
     logFollowupSkip('atendimento', 'fora_do_horario', { clientId: ctx.clientId })
+    return 0
+  }
+
+  const steps = resolveAtendimentoSteps(ctx.botConfig)
+  if (!steps.length) {
+    logFollowupEvent('atendimento', 'skipped', { clientId: ctx.clientId, reason: 'no_enabled_steps' })
     return 0
   }
 
@@ -321,27 +166,28 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
   }
 
   const scheduledConversationIds = await queryConversationsWithScheduledAppointment(
-    conversations.map((conversation) => conversation.id)
+    conversations.map((c) => c.id)
   )
 
-  const candidates = conversations.filter(
-    (conversation) => !scheduledConversationIds.has(conversation.id)
-  )
-
+  const candidates = conversations.filter((c) => !scheduledConversationIds.has(c.id))
   if (!candidates.length) {
     logFollowupSkip('atendimento', 'sem_candidatos_pos_filtro', { clientId: ctx.clientId })
     return 0
   }
 
   const contactsMap = await queryContacts(
-    candidates
-      .map((conversation) => conversation.contact_id)
-      .filter(Boolean) as string[]
+    candidates.map((c) => c.contact_id).filter(Boolean) as string[]
   )
 
   let sentCount = 0
+  const instanceName = ctx.whatsappConfig.evolution_instance_name
 
   for (const conversation of candidates) {
+    if (breaker.isOpen(ctx.clientId)) {
+      logFollowupEvent('atendimento', 'circuit_open', { clientId: ctx.clientId })
+      break
+    }
+
     if (!conversation.last_incoming_at || !conversation.contact_id) {
       logFollowupSkip('atendimento', 'sem_contato_ou_last_incoming', {
         clientId: ctx.clientId,
@@ -350,8 +196,8 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
       continue
     }
 
-    const stepKey = resolveAtendimentoStepKey(conversation.last_incoming_at)
-    if (!stepKey) {
+    const resolved = resolveAtendimentoStepKey(conversation.last_incoming_at, steps)
+    if (!resolved) {
       logFollowupSkip('atendimento', 'sem_step_elegivel', {
         clientId: ctx.clientId,
         conversationId: conversation.id,
@@ -368,9 +214,33 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
       continue
     }
 
-    const wasSent = await sendAtendimentoStep(ctx, conversation, contact, stepKey)
-    if (wasSent) {
-      sentCount++
+    const recipient = contact.identifier ?? contact.phone_number
+    if (!recipient) continue
+
+    const message = renderTemplate(resolved.template, {
+      patient_name: contact.name ?? 'Paciente',
+      professional_name: ctx.botConfig.professional_name,
+      business_name: ctx.botConfig.business_name ?? ctx.botConfig.professional_name,
+    })
+
+    try {
+      const wasSent = await sendFollowupMessage({
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+        contactId: conversation.contact_id,
+        recipient,
+        instanceName,
+        cadenceType: 'atendimento',
+        stepKey: resolved.stepKey,
+        message,
+      })
+      if (wasSent) {
+        sentCount++
+        breaker.recordSuccess(ctx.clientId)
+      }
+    } catch (error) {
+      breaker.recordFailure(ctx.clientId)
+      console.error(`[Followup Atendimento] Erro para conversation=${conversation.id}:`, error)
     }
   }
 
@@ -378,7 +248,6 @@ async function processClient(ctx: ClientFollowupContext): Promise<number> {
 }
 
 export async function runAtendimentoCadencePipeline(): Promise<AtendimentoCadenceSummary> {
-  // Sem check global — cada cliente é verificado no seu próprio timezone dentro de processClient()
   const supabase = createAdminClient()
 
   const { data: rows, error } = await supabase
@@ -386,15 +255,12 @@ export async function runAtendimentoCadencePipeline(): Promise<AtendimentoCadenc
     .select('*, panel_clients!inner(id, status), panel_whatsapp_config(*)')
     .eq('atendimento_followup_enabled', true)
     .eq('panel_clients.status', 'active')
+    .limit(200)
 
-  if (error) {
-    throw error
-  }
+  if (error) throw error
+  if (!rows?.length) return { clients: 0, stepsSent: 0, skippedOutsideHours: false }
 
-  if (!rows?.length) {
-    return { clients: 0, stepsSent: 0, skippedOutsideHours: false }
-  }
-
+  const breaker = new FollowupCircuitBreaker()
   let totalSent = 0
 
   for (const row of rows) {
@@ -402,25 +268,24 @@ export async function runAtendimentoCadencePipeline(): Promise<AtendimentoCadenc
       ? row.panel_whatsapp_config[0]
       : row.panel_whatsapp_config
 
-    if (!whatsappConfig) {
+    if (!whatsappConfig || !isWhatsAppConnected(whatsappConfig as PanelWhatsAppConfig)) {
       logFollowupSkip('atendimento', 'sem_whatsapp_config', { clientId: row.client_id as string })
       continue
     }
 
     try {
-      totalSent += await processClient({
-        clientId: row.client_id as string,
-        botConfig: row as PanelBotConfig,
-        whatsappConfig: whatsappConfig as PanelWhatsAppConfig,
-      })
+      totalSent += await processClient(
+        {
+          clientId: row.client_id as string,
+          botConfig: row as PanelBotConfig,
+          whatsappConfig: whatsappConfig as PanelWhatsAppConfig,
+        },
+        breaker
+      )
     } catch (error) {
       console.error(`[Followup Atendimento] Erro para client=${row.client_id}:`, error)
     }
   }
 
-  return {
-    clients: rows.length,
-    stepsSent: totalSent,
-    skippedOutsideHours: false,
-  }
+  return { clients: rows.length, stepsSent: totalSent, skippedOutsideHours: false }
 }

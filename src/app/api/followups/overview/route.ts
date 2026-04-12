@@ -86,6 +86,7 @@ export async function GET(request: NextRequest) {
       `)
       .eq('client_id', auth.client_id)
       .neq('stage', 'resolved')
+      .limit(500)
 
     if (convError) throw convError
 
@@ -101,6 +102,10 @@ export async function GET(request: NextRequest) {
             waitingResponseConversations: 0,
             waitingResponseAttempts: 0,
             windowDays: days,
+            unresolvedAlerts: 0,
+            deliveryTotal: 0,
+            deliveryTracked: 0,
+            deliveryRate: null,
           },
           flows: CADENCE_ORDER.map((cadence) => ({
             cadence,
@@ -111,6 +116,7 @@ export async function GET(request: NextRequest) {
             levels: [],
           })),
           recent: [],
+          alerts: [],
         },
         { headers: { 'x-request-id': requestId } }
       )
@@ -118,12 +124,18 @@ export async function GET(request: NextRequest) {
 
     const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
 
-    const [{ data: stepsRaw, error: stepsError }, { data: logsRaw, error: logsError }] = await Promise.all([
+    const [
+      { data: stepsRaw, error: stepsError },
+      { data: logsRaw, error: logsError },
+      { data: alertsRaw, error: alertsError },
+      { data: deliveryRaw, error: deliveryError },
+    ] = await Promise.all([
       admin
         .from('followup_cadence_steps')
         .select('conversation_id, cadence_type, step_key, sent_at')
         .in('conversation_id', conversationIds)
-        .gte('sent_at', windowStart),
+        .gte('sent_at', windowStart)
+        .limit(2000),
       admin
         .from('followup_logs')
         .select('id, conversation_id, contact_id, step_name, message_sent, sent_at')
@@ -131,13 +143,34 @@ export async function GET(request: NextRequest) {
         .gte('sent_at', windowStart)
         .order('sent_at', { ascending: false })
         .limit(120),
+      admin
+        .from('followup_alerts')
+        .select('id, cadence_type, alert_type, message, created_at')
+        .eq('client_id', auth.client_id)
+        .eq('resolved', false)
+        .order('created_at', { ascending: false })
+        .limit(20),
+      admin
+        .from('messages')
+        .select('id, whatsapp_status')
+        .eq('client_id', auth.client_id)
+        .eq('from_who', 'followup')
+        .gte('created_at', windowStart)
+        .limit(2000),
     ])
 
     if (stepsError) throw stepsError
     if (logsError) throw logsError
+    // Alerts and delivery queries are best-effort — don't fail the whole endpoint
+    if (alertsError) console.error('[followups/overview] alerts query error:', alertsError.message)
+    if (deliveryError) console.error('[followups/overview] delivery query error:', deliveryError.message)
 
     const steps = (stepsRaw ?? []) as StepRow[]
     const logs = (logsRaw ?? []) as LogRow[]
+    const alerts = (alertsRaw ?? []) as Array<{ id: string; cadence_type: string; alert_type: string; message: string | null; created_at: string }>
+    const deliveryMessages = (deliveryRaw ?? []) as Array<{ id: string; whatsapp_status: string | null }>
+    const deliveryTotal = deliveryMessages.length
+    const deliveryTracked = deliveryMessages.filter((m) => m.whatsapp_status != null).length
 
     const conversationById = new Map(conversations.map((c) => [c.id, c]))
     const attemptsByConversation = new Map<string, number>()
@@ -230,9 +263,14 @@ export async function GET(request: NextRequest) {
           waitingResponseConversations: waitingResponseConversations.length,
           waitingResponseAttempts,
           windowDays: days,
+          unresolvedAlerts: alerts.length,
+          deliveryTotal,
+          deliveryTracked,
+          deliveryRate: deliveryTotal > 0 ? Math.round((deliveryTracked / deliveryTotal) * 100) : null,
         },
         flows,
         recent,
+        alerts,
       },
       { headers: { 'x-request-id': requestId } }
     )

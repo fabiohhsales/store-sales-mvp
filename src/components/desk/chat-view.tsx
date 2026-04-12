@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Check, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X, Images } from 'lucide-react'
+import { Send, UserCheck, Bot, CheckCheck, Check, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X, Images, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -210,6 +210,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
   const isOutgoing = message.sender_type !== 'contact'
   const isBot = message.sender_type === 'agent_bot'
   const isOperator = message.sender_type === 'operator'
+  const isFollowup = message.from_who === 'followup'
 
   const mediaSrc = mediaProxyUrl(message, conversationId)
   const hasCaption = message.content && message.content !== '[Imagem]' && message.content !== '[Áudio]' && !message.content.startsWith('[Documento')
@@ -301,11 +302,14 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
   return (
     <div className={`flex gap-2 ${isOutgoing ? 'flex-row-reverse' : 'flex-row'}`}>
       <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full mt-1 ${
+        isFollowup ? 'bg-amber-500/15' :
         isBot ? 'bg-primary/15' :
         isOperator ? 'bg-blue-500/15' :
         'bg-secondary'
       }`}>
-        {isBot ? (
+        {isFollowup ? (
+          <Clock size={12} className="text-amber-500" />
+        ) : isBot ? (
           <Bot size={12} className="text-primary" />
         ) : isOperator ? (
           <UserCheck size={12} className="text-blue-500" />
@@ -316,16 +320,21 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
 
       <div className={`flex flex-col gap-1 max-w-[75%] ${isOutgoing ? 'items-end' : 'items-start'}`}>
         <div className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-          isBot
-            ? 'bg-primary/10 text-foreground rounded-tr-sm'
-            : isOperator
-              ? 'bg-blue-500/10 text-foreground rounded-tr-sm'
-              : 'bg-secondary text-foreground rounded-tl-sm'
+          isFollowup
+            ? 'bg-amber-500/10 text-foreground rounded-tr-sm'
+            : isBot
+              ? 'bg-primary/10 text-foreground rounded-tr-sm'
+              : isOperator
+                ? 'bg-blue-500/10 text-foreground rounded-tr-sm'
+                : 'bg-secondary text-foreground rounded-tl-sm'
         }`}>
           {renderContent()}
         </div>
         <div className="flex items-center gap-1 px-1">
           <span className="text-[10px] text-muted-foreground">{relativeTime(message.created_at)}</span>
+          {isFollowup && (
+            <span className="text-[9px] font-medium text-amber-500/80 bg-amber-500/10 rounded px-1 py-0.5 leading-none">Follow-up</span>
+          )}
           {isOutgoing && message.whatsapp_status && (
             message.whatsapp_status === 'read' || message.whatsapp_status === 'played' ? (
               <CheckCheck size={11} className="text-blue-400" />

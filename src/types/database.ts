@@ -131,6 +131,26 @@ export interface StageLabelConfig {
   followup_cadence?: 'lead' | 'atendimento' | 'agendado' | null
 }
 
+// --- Follow-up Step Config (JSONB fields in bot config) ---
+
+export interface FollowupStepConfig {
+  step_key: string
+  label: string
+  min_hours: number
+  max_hours: number
+  template: string
+  enabled: boolean
+}
+
+export interface AgendadoFollowupStepConfig {
+  step_key: string
+  label: string
+  min_hours_before: number
+  max_hours_before: number
+  template: string
+  enabled: boolean
+}
+
 // --- Working Hours (JSON field in bot config) ---
 
 export interface DaySchedule {
@@ -224,6 +244,11 @@ export interface PanelBotConfig {
   agendado_followup_msg_d2: string | null
   agendado_followup_msg_minus3h: string | null
   agendado_followup_msg_minus5min: string | null
+
+  // Dynamic follow-up steps (JSONB — overrides legacy per-step text columns when set)
+  lead_followup_steps: FollowupStepConfig[] | null
+  atendimento_followup_steps: FollowupStepConfig[] | null
+  agendado_followup_steps: AgendadoFollowupStepConfig[] | null
 
   // Handoff
   handoff_on_negative_sentiment: boolean
