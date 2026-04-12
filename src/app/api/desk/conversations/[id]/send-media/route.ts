@@ -101,8 +101,9 @@ export async function POST(
     storagePath = null
   }
 
-  // Persiste no Supabase como mensagem de conteúdo 'image' ou 'document'
-  const contentType = mediatype === 'image' ? 'image' : 'document'
+  // Persiste no Supabase com content_type fiel ao tipo real da mídia
+  const contentType = mediatype === 'video' ? 'document' : mediatype // video → document (sem player por ora)
+  const mediaSizeBytes = Math.floor(Buffer.byteLength(base64, 'utf8') * 0.75) // base64 → bytes reais (aprox)
   const { data: message, error } = await admin
     .from('messages')
     .insert({
@@ -114,6 +115,9 @@ export async function POST(
       sender_type: 'operator',
       from_who: 'human',
       media_url: storagePath,
+      media_mime_type: mimetype,
+      media_filename: file_name ?? null,
+      media_size_bytes: mediaSizeBytes,
       created_at: new Date().toISOString(),
     })
     .select()

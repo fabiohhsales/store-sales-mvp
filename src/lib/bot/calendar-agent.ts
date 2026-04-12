@@ -244,6 +244,7 @@ async function sendAndSave(
   await supabase.from('messages').insert({
     id: crypto.randomUUID(),
     conversation_id: conversation.id,
+    client_id: conversation.client_id,
     content: message,
     content_type: 'text',
     sender_type: 'agent_bot',

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +37,10 @@ interface Message {
   created_at: string
   evolution_message_id: string | null
   media_url: string | null
+  media_mime_type?: string | null
+  media_filename?: string | null
+  media_size_bytes?: number | null
+  media_duration_seconds?: number | null
 }
 
 interface ConversationDetail {
@@ -106,10 +110,154 @@ function relativeTime(date: string): string {
   } catch { return '' }
 }
 
-function MessageBubble({ message, conversationId }: { message: Message; conversationId: string }) {
+// --- Helper: resolve a URL de mídia via proxy ---
+function mediaProxyUrl(message: Message, conversationId: string): string | null {
+  if (message.evolution_message_id) return `/api/desk/media?msg_id=${message.evolution_message_id}&conversation_id=${conversationId}`
+  if (message.media_url) return `/api/desk/media?db_msg_id=${message.id}&conversation_id=${conversationId}`
+  return null
+}
+
+// --- Formata tamanho de arquivo ---
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// --- Formata duração em mm:ss ---
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+// --- Sub-renderer: Audio Player WhatsApp-style ---
+function AudioPlayer({ src }: { src: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const [playing, setPlaying] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [speed, setSpeed] = useState(1)
+
+  const togglePlay = () => {
+    const el = audioRef.current
+    if (!el) return
+    if (playing) { el.pause() } else { el.play() }
+    setPlaying(!playing)
+  }
+
+  const toggleSpeed = () => {
+    const el = audioRef.current
+    if (!el) return
+    const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1
+    el.playbackRate = next
+    setSpeed(next)
+  }
+
+  return (
+    <div className="flex items-center gap-2 min-w-[200px] max-w-[280px]">
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="metadata"
+        onLoadedMetadata={(e) => setDuration((e.target as HTMLAudioElement).duration)}
+        onTimeUpdate={(e) => {
+          const el = e.target as HTMLAudioElement
+          setProgress(el.duration ? (el.currentTime / el.duration) * 100 : 0)
+        }}
+        onEnded={() => { setPlaying(false); setProgress(0) }}
+      />
+      <button onClick={togglePlay} className="flex-shrink-0 h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center hover:bg-primary/30 transition-colors">
+        {playing ? <Pause size={14} className="text-primary" /> : <Play size={14} className="text-primary ml-0.5" />}
+      </button>
+      <div className="flex-1 flex flex-col gap-1">
+        <div className="h-1 rounded-full bg-muted-foreground/20 overflow-hidden">
+          <div className="h-full rounded-full bg-primary/60 transition-all duration-150" style={{ width: `${progress}%` }} />
+        </div>
+        <div className="flex justify-between text-[10px] text-muted-foreground">
+          <span>{duration > 0 ? formatDuration((progress / 100) * duration) : '0:00'}</span>
+          <span>{duration > 0 ? formatDuration(duration) : '--:--'}</span>
+        </div>
+      </div>
+      <button onClick={toggleSpeed} className="flex-shrink-0 text-[10px] font-bold text-muted-foreground bg-muted-foreground/10 rounded px-1.5 py-0.5 hover:bg-muted-foreground/20 transition-colors">
+        {speed}x
+      </button>
+    </div>
+  )
+}
+
+function MessageBubble({ message, conversationId, onImageClick }: { message: Message; conversationId: string; onImageClick?: (url: string, alt: string) => void }) {
   const isOutgoing = message.sender_type !== 'contact'
   const isBot = message.sender_type === 'agent_bot'
   const isOperator = message.sender_type === 'operator'
+
+  const mediaSrc = mediaProxyUrl(message, conversationId)
+  const hasCaption = message.content && message.content !== '[Imagem]' && message.content !== '[Áudio]' && !message.content.startsWith('[Documento')
+
+  // --- Render do conteúdo da bolha por tipo ---
+  function renderContent() {
+    if (message.content_type === 'image') {
+      if (mediaSrc) {
+        return (
+          <div className="flex flex-col gap-1.5">
+            <Image
+              src={mediaSrc}
+              alt={message.content || 'Imagem'}
+              width={220}
+              height={220}
+              unoptimized
+              className="max-w-[220px] h-auto rounded-lg cursor-pointer"
+              onClick={() => onImageClick?.(mediaSrc, message.content || 'Imagem')}
+            />
+            {hasCaption && <span className="whitespace-pre-wrap text-sm">{message.content}</span>}
+            <a href={mediaSrc} download className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-fit">
+              <Download size={10} /> Baixar
+            </a>
+          </div>
+        )
+      }
+      return <span className="italic text-muted-foreground">[Imagem indisponível]</span>
+    }
+
+    if (message.content_type === 'audio') {
+      if (mediaSrc) {
+        return <AudioPlayer src={mediaSrc} />
+      }
+      return <span className="italic text-muted-foreground">[Áudio indisponível]</span>
+    }
+
+    if (message.content_type === 'document') {
+      const filename = message.media_filename || message.content || 'Documento'
+      const displayName = filename.replace(/^\[Documento: /, '').replace(/\]$/, '')
+      const isPdf = message.media_mime_type?.includes('pdf')
+
+      if (mediaSrc) {
+        return (
+          <a
+            href={mediaSrc}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 rounded-lg bg-background/50 border border-border/50 px-3 py-2.5 min-w-[180px] hover:bg-background/80 transition-colors"
+          >
+            <div className={`flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center ${isPdf ? 'bg-red-500/10' : 'bg-blue-500/10'}`}>
+              <FileText size={18} className={isPdf ? 'text-red-500' : 'text-blue-500'} />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-medium truncate max-w-[180px]">{displayName}</span>
+              {message.media_size_bytes && (
+                <span className="text-[10px] text-muted-foreground">{formatBytes(message.media_size_bytes)}</span>
+              )}
+            </div>
+            <Download size={14} className="flex-shrink-0 text-muted-foreground ml-auto" />
+          </a>
+        )
+      }
+      return <span className="italic text-muted-foreground">[Arquivo indisponível]</span>
+    }
+
+    // text ou tipo desconhecido
+    return <span className="whitespace-pre-wrap">{message.content}</span>
+  }
 
   return (
     <div className={`flex gap-2 ${isOutgoing ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -135,57 +283,7 @@ function MessageBubble({ message, conversationId }: { message: Message; conversa
               ? 'bg-blue-500/10 text-foreground rounded-tr-sm'
               : 'bg-secondary text-foreground rounded-tl-sm'
         }`}>
-          {message.content_type === 'image' ? (
-            message.evolution_message_id ? (
-              <Image
-                src={`/api/desk/media?msg_id=${message.evolution_message_id}&conversation_id=${conversationId}`}
-                alt={message.content || 'Imagem'}
-                width={220}
-                height={220}
-                unoptimized
-                className="max-w-[220px] h-auto rounded-lg cursor-pointer"
-              />
-            ) : message.media_url ? (
-              <Image
-                src={`/api/desk/media?db_msg_id=${message.id}&conversation_id=${conversationId}`}
-                alt={message.content || 'Imagem'}
-                width={220}
-                height={220}
-                unoptimized
-                className="max-w-[220px] h-auto rounded-lg cursor-pointer"
-              />
-            ) : (
-              <span className="italic text-muted-foreground">[Imagem]</span>
-            )
-          ) : message.content_type === 'document' ? (
-            message.evolution_message_id ? (
-              <a
-                href={`/api/desk/media?msg_id=${message.evolution_message_id}&conversation_id=${conversationId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm underline underline-offset-2"
-              >
-                <FileText size={15} className="flex-shrink-0" />
-                <span>{message.content || 'Documento'}</span>
-              </a>
-            ) : message.media_url ? (
-              <a
-                href={`/api/desk/media?db_msg_id=${message.id}&conversation_id=${conversationId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm underline underline-offset-2"
-              >
-                <FileText size={15} className="flex-shrink-0" />
-                <span>{message.content || 'Documento'}</span>
-              </a>
-            ) : (
-              <span className="italic text-muted-foreground">{message.content || '[Documento]'}</span>
-            )
-          ) : message.content_type !== 'text' ? (
-            <span className="italic text-muted-foreground">{message.content}</span>
-          ) : (
-            <span className="whitespace-pre-wrap">{message.content}</span>
-          )}
+          {renderContent()}
         </div>
         <span className="text-[10px] text-muted-foreground px-1">{relativeTime(message.created_at)}</span>
       </div>
@@ -225,6 +323,20 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
   // Upload de mídia (B8)
   const [uploadLoading, setUploadLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Lightbox de imagem
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [lightboxAlt, setLightboxAlt] = useState('')
+
+  // Gravação de áudio
+  const [recorderState, setRecorderState] = useState<'idle' | 'recording' | 'preview'>('idle')
+  const [recordingDuration, setRecordingDuration] = useState(0)
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recorderChunksRef = useRef<Blob[]>([])
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cancelRecordingRef = useRef(false)
 
   // Respostas rápidas (cliente)
   const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>([])
@@ -607,6 +719,28 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSaveNote() }
   }
 
+  async function fileToBase64(fileOrBlob: Blob): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        resolve(result.split(',')[1] ?? '')
+      }
+      reader.onerror = () => reject(new Error('Falha ao ler mídia'))
+      reader.readAsDataURL(fileOrBlob)
+    })
+  }
+
+  async function sendMediaPayload(base64: string, mimetype: string, fileName?: string) {
+    const res = await fetch(`/api/desk/conversations/${conversationId}/send-media`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64, mimetype, file_name: fileName }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error((data as { error?: string }).error || 'Erro ao enviar mídia')
+  }
+
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -620,24 +754,8 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
 
     setUploadLoading(true)
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => {
-          const result = reader.result as string
-          // Remove o prefixo "data:<mimetype>;base64,"
-          resolve(result.split(',')[1] ?? '')
-        }
-        reader.onerror = () => reject(new Error('Falha ao ler arquivo'))
-        reader.readAsDataURL(file)
-      })
-
-      const res = await fetch(`/api/desk/conversations/${conversationId}/send-media`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base64, mimetype: file.type, file_name: file.name }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error((data as { error?: string }).error || 'Erro ao enviar mídia')
+      const base64 = await fileToBase64(file)
+      await sendMediaPayload(base64, file.type, file.name)
       toast.success('Mídia enviada')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erro ao enviar mídia')
@@ -645,6 +763,124 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
       setUploadLoading(false)
     }
   }
+
+  async function startAudioRecording() {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      toast.error('Gravação de áudio não suportada neste navegador')
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+          ? 'audio/ogg;codecs=opus'
+          : ''
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      mediaRecorderRef.current = recorder
+      recorderChunksRef.current = []
+      cancelRecordingRef.current = false
+      setRecordingDuration(0)
+      setRecorderState('recording')
+
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current)
+      timerIntervalRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1)
+      }, 1000)
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recorderChunksRef.current.push(event.data)
+      }
+
+      recorder.onstop = () => {
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current)
+          timerIntervalRef.current = null
+        }
+
+        stream.getTracks().forEach((track) => track.stop())
+
+        if (cancelRecordingRef.current) {
+          cancelRecordingRef.current = false
+          setRecorderState('idle')
+          setRecordingDuration(0)
+          setAudioBlob(null)
+          if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl)
+          setAudioPreviewUrl(null)
+          return
+        }
+
+        const blob = new Blob(recorderChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        const previewUrl = URL.createObjectURL(blob)
+
+        if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl)
+        setAudioBlob(blob)
+        setAudioPreviewUrl(previewUrl)
+        setRecorderState('preview')
+      }
+
+      recorder.start()
+    } catch (err) {
+      console.error('[ChatView] Falha ao iniciar gravação:', err)
+      toast.error('Não foi possível iniciar a gravação')
+      setRecorderState('idle')
+    }
+  }
+
+  function stopAudioRecording() {
+    if (recorderState !== 'recording') return
+    mediaRecorderRef.current?.stop()
+  }
+
+  function cancelAudioRecording() {
+    if (recorderState === 'recording') {
+      cancelRecordingRef.current = true
+      mediaRecorderRef.current?.stop()
+      return
+    }
+
+    if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl)
+    setAudioPreviewUrl(null)
+    setAudioBlob(null)
+    setRecordingDuration(0)
+    setRecorderState('idle')
+  }
+
+  async function sendRecordedAudio() {
+    if (!audioBlob || uploadLoading) return
+
+    setUploadLoading(true)
+    try {
+      const base64 = await fileToBase64(audioBlob)
+      const extension = audioBlob.type.includes('ogg') ? 'ogg' : 'webm'
+      await sendMediaPayload(base64, audioBlob.type || 'audio/webm', `audio-${Date.now()}.${extension}`)
+
+      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl)
+      setAudioPreviewUrl(null)
+      setAudioBlob(null)
+      setRecordingDuration(0)
+      setRecorderState('idle')
+      toast.success('Áudio enviado')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao enviar áudio')
+    } finally {
+      setUploadLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current)
+      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl)
+      try {
+        mediaRecorderRef.current?.stream?.getTracks().forEach((track) => track.stop())
+      } catch {
+        // noop
+      }
+    }
+  }, [audioPreviewUrl])
 
   if (loading) {
     return (
@@ -857,7 +1093,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
                   </div>
                 )}
                 {messages.map((msg) => (
-                  <MessageBubble key={msg.id} message={msg} conversationId={conversationId} />
+                  <MessageBubble key={msg.id} message={msg} conversationId={conversationId} onImageClick={(url, alt) => { setLightboxUrl(url); setLightboxAlt(alt) }} />
                 ))}
                 <div ref={bottomRef} />
               </div>
@@ -916,34 +1152,93 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
                       accept="image/*,application/pdf,video/mp4,audio/*"
                       onChange={handleFileChange}
                     />
-                    <Textarea
-                      ref={textareaRef}
-                      value={input}
-                      onChange={handleInputChange}
-                      onKeyDown={handleKeyDown}
-                      placeholder="Digite uma mensagem ou / para respostas rápidas…"
-                      className="min-h-[44px] max-h-32 resize-none text-sm"
-                      rows={1}
-                      disabled={sending}
-                    />
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadLoading}
-                      className="h-11 w-11 flex-shrink-0"
-                      title="Enviar arquivo"
-                    >
-                      {uploadLoading ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
-                    </Button>
-                    <Button
-                      size="icon"
-                      onClick={handleSend}
-                      disabled={!input.trim() || sending}
-                      className="h-11 w-11 flex-shrink-0"
-                    >
-                      {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                    </Button>
+                    {recorderState === 'recording' ? (
+                      <>
+                        <div className="flex-1 h-11 rounded-md border border-border bg-background/50 px-3 flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="inline-block h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                            <span>Gravando áudio</span>
+                            <span className="text-xs text-muted-foreground">{formatDuration(recordingDuration)}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={cancelAudioRecording} title="Cancelar">
+                              <X size={15} />
+                            </Button>
+                            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={stopAudioRecording} title="Parar">
+                              <Square size={14} />
+                            </Button>
+                          </div>
+                        </div>
+                      </>
+                    ) : recorderState === 'preview' ? (
+                      <>
+                        <div className="flex-1 h-11 rounded-md border border-border bg-background/50 px-2 flex items-center gap-2">
+                          {audioPreviewUrl && (
+                            <audio src={audioPreviewUrl} controls className="h-8 w-full" />
+                          )}
+                        </div>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={cancelAudioRecording}
+                          disabled={uploadLoading}
+                          className="h-11 w-11 flex-shrink-0"
+                          title="Descartar áudio"
+                        >
+                          <X size={16} />
+                        </Button>
+                        <Button
+                          size="icon"
+                          onClick={sendRecordedAudio}
+                          disabled={!audioBlob || uploadLoading}
+                          className="h-11 w-11 flex-shrink-0"
+                          title="Enviar áudio"
+                        >
+                          {uploadLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Textarea
+                          ref={textareaRef}
+                          value={input}
+                          onChange={handleInputChange}
+                          onKeyDown={handleKeyDown}
+                          placeholder="Digite uma mensagem ou / para respostas rápidas…"
+                          className="min-h-[44px] max-h-32 resize-none text-sm"
+                          rows={1}
+                          disabled={sending || uploadLoading}
+                        />
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadLoading || sending}
+                          className="h-11 w-11 flex-shrink-0"
+                          title="Enviar arquivo"
+                        >
+                          {uploadLoading ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={startAudioRecording}
+                          disabled={uploadLoading || sending}
+                          className="h-11 w-11 flex-shrink-0"
+                          title="Gravar áudio"
+                        >
+                          <Mic size={16} />
+                        </Button>
+                        <Button
+                          size="icon"
+                          onClick={handleSend}
+                          disabled={!input.trim() || sending || uploadLoading}
+                          className="h-11 w-11 flex-shrink-0"
+                        >
+                          {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                        </Button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1041,6 +1336,48 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
             onSave={handleSaveProfile}
             className="max-h-[75vh]"
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* Lightbox de imagem */}
+      <Dialog
+        open={!!lightboxUrl}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLightboxUrl(null)
+            setLightboxAlt('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-4xl p-2 sm:p-4">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Visualização de imagem</DialogTitle>
+            <DialogDescription className="sr-only">Preview ampliado da mídia enviada na conversa</DialogDescription>
+          </DialogHeader>
+          {lightboxUrl && (
+            <div className="space-y-3">
+              <div className="max-h-[70vh] overflow-auto rounded-md border border-border bg-background/40 p-2">
+                <Image
+                  src={lightboxUrl}
+                  alt={lightboxAlt || 'Imagem'}
+                  width={1400}
+                  height={1000}
+                  unoptimized
+                  className="h-auto w-full rounded"
+                />
+              </div>
+              <div className="flex justify-end">
+                <a
+                  href={lightboxUrl}
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted/60 transition-colors"
+                >
+                  <Download size={13} />
+                  Baixar imagem
+                </a>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

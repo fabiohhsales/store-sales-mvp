@@ -544,9 +544,13 @@ export async function saveEvolutionMessage(
 
   const message = saved as BotMessage
 
-  // Para imagens e documentos, faz upload para o Supabase Storage (persistência além do cache da Evolution)
-  if (msg.contentType === 'image' || msg.contentType === 'document') {
-    const mimetype = msg.contentType === 'image' ? 'image/jpeg' : 'application/octet-stream'
+  // Para imagens, áudios e documentos, faz upload para o Supabase Storage (persistência além do cache da Evolution)
+  if (msg.contentType === 'image' || msg.contentType === 'document' || msg.contentType === 'audio') {
+    const mimetype = msg.mediaMimetype ?? (
+      msg.contentType === 'image' ? 'image/jpeg' :
+      msg.contentType === 'audio' ? 'audio/ogg' :
+      'application/octet-stream'
+    )
     const storagePath = await uploadMediaToStorage(
       msg.instanceName,
       msg.remoteJid,
@@ -555,9 +559,19 @@ export async function saveEvolutionMessage(
       conversation.id,
       mimetype
     )
-    if (storagePath) {
-      await supabase.from('messages').update({ media_url: storagePath }).eq('id', message.id)
-      message.media_url = storagePath
+
+    // Metadados de mídia para persistir no banco
+    const mediaUpdate: Record<string, unknown> = {}
+    if (storagePath) mediaUpdate.media_url = storagePath
+    if (msg.mediaMimetype) mediaUpdate.media_mime_type = msg.mediaMimetype
+    if (msg.mediaFilename) mediaUpdate.media_filename = msg.mediaFilename
+    if (msg.mediaDuration != null) mediaUpdate.media_duration_seconds = msg.mediaDuration
+    if (msg.mediaWidth != null) mediaUpdate.media_width = msg.mediaWidth
+    if (msg.mediaHeight != null) mediaUpdate.media_height = msg.mediaHeight
+
+    if (Object.keys(mediaUpdate).length > 0) {
+      await supabase.from('messages').update(mediaUpdate).eq('id', message.id)
+      if (storagePath) message.media_url = storagePath
     }
   }
 

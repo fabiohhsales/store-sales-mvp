@@ -52,6 +52,12 @@ export interface BotMessage {
   chatwoot_conversation_id: string | null
   source_id: string | null
   media_url: string | null
+  media_mime_type: string | null
+  media_filename: string | null
+  media_size_bytes: number | null
+  media_duration_seconds: number | null
+  media_width: number | null
+  media_height: number | null
 }
 
 export interface BotAppointment {
@@ -169,7 +175,7 @@ export interface EvolutionWebhookPayload {
       conversation?: string
       extendedTextMessage?: { text: string }
       imageMessage?: { caption?: string; url?: string; mimetype?: string }
-      audioMessage?: object
+      audioMessage?: { mimetype?: string; seconds?: number; url?: string }
       documentMessage?: { fileName?: string; mimetype?: string; caption?: string }
     }
     messageType?: string  // "conversation" | "extendedTextMessage" | etc.
@@ -190,4 +196,9 @@ export interface NormalizedEvolutionMessage {
   contentType: 'text' | 'image' | 'audio' | 'document' | 'unknown'
   timestamp: Date
   mediaUrl: string | null
+  mediaMimetype: string | null
+  mediaDuration: number | null
+  mediaWidth: number | null
+  mediaHeight: number | null
+  mediaFilename: string | null
 }

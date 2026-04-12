@@ -34,14 +34,20 @@ export async function GET(
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
-  // Migration 026 fez backfill de client_id — filtro direto por eq
-  const { data: messages, error: msgError } = await admin
+  // Inclui mensagens com client_id null para não esconder históricos antigos/bugados.
+  // A segurança já está garantida pelo filtro de conversation_id + validação de acesso acima.
+  let msgQuery = admin
     .from('messages')
-    .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id')
+    .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url, media_mime_type, media_filename, media_size_bytes, media_duration_seconds')
     .eq('conversation_id', id)
-    .eq('client_id', conversation.client_id)
+
+  if (conversation.client_id) {
+    msgQuery = msgQuery.or(`client_id.eq.${conversation.client_id},client_id.is.null`)
+  }
+
+  const { data: messages, error: msgError } = await msgQuery
     .order('created_at', { ascending: true })
-    .limit(100)
+    .limit(150)
 
   if (msgError) {
     console.error(`[desk/conversations/${id}] Erro ao buscar mensagens: ${msgError.message}`)

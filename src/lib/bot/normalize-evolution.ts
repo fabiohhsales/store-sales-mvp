@@ -23,6 +23,11 @@ export function normalizeEvolutionPayload(
   let content = ''
   let contentType: NormalizedEvolutionMessage['contentType'] = 'unknown'
   let mediaUrl: string | null = null
+  let mediaMimetype: string | null = null
+  let mediaDuration: number | null = null
+  let mediaWidth: number | null = null
+  let mediaHeight: number | null = null
+  let mediaFilename: string | null = null
 
   if (data.message.conversation) {
     content = data.message.conversation
@@ -34,12 +39,20 @@ export function normalizeEvolutionPayload(
     content = data.message.imageMessage.caption || '[Imagem]'
     contentType = 'image'
     mediaUrl = data.message.imageMessage.url ?? null
+    mediaMimetype = data.message.imageMessage.mimetype ?? null
+    mediaWidth = (data.message.imageMessage as Record<string, unknown>).width as number ?? null
+    mediaHeight = (data.message.imageMessage as Record<string, unknown>).height as number ?? null
   } else if (data.message.audioMessage) {
     content = '[Áudio]'
     contentType = 'audio'
+    mediaUrl = data.message.audioMessage.url ?? null
+    mediaMimetype = data.message.audioMessage.mimetype ?? null
+    mediaDuration = data.message.audioMessage.seconds ?? null
   } else if (data.message.documentMessage) {
     content = `[Documento: ${data.message.documentMessage.fileName || 'arquivo'}]`
     contentType = 'document'
+    mediaMimetype = data.message.documentMessage.mimetype ?? null
+    mediaFilename = data.message.documentMessage.fileName ?? null
   }
 
   // Mensagem sem conteúdo processável (ex: reaction, sticker) — ignora silenciosamente
@@ -57,5 +70,10 @@ export function normalizeEvolutionPayload(
     contentType,
     timestamp: new Date((data.messageTimestamp ?? Date.now() / 1000) * 1000),
     mediaUrl,
+    mediaMimetype,
+    mediaDuration,
+    mediaWidth,
+    mediaHeight,
+    mediaFilename,
   }
 }
