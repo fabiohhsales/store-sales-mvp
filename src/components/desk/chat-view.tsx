@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Check, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X } from 'lucide-react'
+import { Send, UserCheck, Bot, CheckCheck, Check, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X, Images } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -82,7 +82,7 @@ interface Props {
   onConversationUpdate: () => void
 }
 
-type ActiveView = 'messages' | 'notes'
+type ActiveView = 'messages' | 'notes' | 'media'
 
 function normalizeCustomData(customData: Record<string, unknown> | null | undefined): Record<string, string> {
   if (!customData) return {}
@@ -273,6 +273,25 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
         )
       }
       return <span className="italic text-muted-foreground">[Arquivo indisponível]</span>
+    }
+
+    if (message.content_type === 'video') {
+      if (mediaSrc) {
+        return (
+          <div className="flex flex-col gap-1.5">
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <video
+              src={mediaSrc}
+              controls
+              preload="metadata"
+              className="max-w-[280px] rounded-lg"
+              style={{ maxHeight: 200 }}
+            />
+            {hasCaption && <span className="whitespace-pre-wrap text-sm">{message.content}</span>}
+          </div>
+        )
+      }
+      return <span className="italic text-muted-foreground">[Vídeo indisponível]</span>
     }
 
     // text ou tipo desconhecido
@@ -1045,7 +1064,7 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
         </div>
       </div>
 
-      {/* Toggle Mensagens / Notas — B7 */}
+      {/* Toggle Mensagens / Notas / Mídia */}
       <div className="flex border-b border-border bg-card/20 flex-shrink-0">
         <button
           onClick={() => setActiveView('messages')}
@@ -1071,6 +1090,22 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
           {notes.length > 0 && (
             <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
               {notes.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveView('media')}
+          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+            activeView === 'media'
+              ? 'border-primary text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Images size={12} />
+          Mídia
+          {messages.filter(m => m.content_type === 'image' || m.content_type === 'audio' || m.content_type === 'document' || m.content_type === 'video').length > 0 && (
+            <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {messages.filter(m => m.content_type === 'image' || m.content_type === 'audio' || m.content_type === 'document' || m.content_type === 'video').length}
             </span>
           )}
         </button>
@@ -1285,8 +1320,91 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
                 )}
               </div>
             </>
+          ) : activeView === 'media' ? (
+            /* Galeria de mídia */
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+              {(() => {
+                const mediaMsgs = messages.filter(m =>
+                  m.content_type === 'image' || m.content_type === 'audio' ||
+                  m.content_type === 'document' || m.content_type === 'video'
+                )
+                if (mediaMsgs.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center h-32 text-center">
+                      <Images size={24} className="text-muted-foreground/30 mb-2" />
+                      <p className="text-xs text-muted-foreground">Nenhuma mídia nesta conversa.</p>
+                    </div>
+                  )
+                }
+                const images = mediaMsgs.filter(m => m.content_type === 'image')
+                const others = mediaMsgs.filter(m => m.content_type !== 'image')
+                return (
+                  <>
+                    {images.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Imagens ({images.length})</p>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {images.map((m) => {
+                            const src = mediaProxyUrl(m, conversationId)
+                            if (!src) return null
+                            return (
+                              <button
+                                key={m.id}
+                                onClick={() => { setLightboxUrl(src); setLightboxAlt(m.content || 'Imagem') }}
+                                className="relative aspect-square rounded-md overflow-hidden border border-border bg-muted/40 hover:opacity-80 transition-opacity"
+                              >
+                                <Image src={src} alt={m.content || 'Imagem'} fill unoptimized className="object-cover" />
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {others.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Arquivos ({others.length})</p>
+                        <div className="flex flex-col gap-2">
+                          {others.map((m) => {
+                            const src = mediaProxyUrl(m, conversationId)
+                            const isAudio = m.content_type === 'audio'
+                            const isVideo = m.content_type === 'video'
+                            const isPdf = m.media_mime_type?.includes('pdf')
+                            const displayName = (m.media_filename || m.content || 'Arquivo')
+                              .replace(/^\[Documento: /, '').replace(/^\[Vídeo: /, '').replace(/\]$/, '')
+                            const label = isAudio ? 'Áudio' : isVideo ? 'Vídeo' : isPdf ? 'PDF' : 'Documento'
+                            const iconColor = isAudio ? 'text-purple-500' : isVideo ? 'text-green-500' : isPdf ? 'text-red-500' : 'text-blue-500'
+                            const iconBg = isAudio ? 'bg-purple-500/10' : isVideo ? 'bg-green-500/10' : isPdf ? 'bg-red-500/10' : 'bg-blue-500/10'
+                            return (
+                              <div key={m.id} className="flex items-center gap-2.5 rounded-lg border border-border bg-card/50 px-3 py-2.5">
+                                <div className={`flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center ${iconBg}`}>
+                                  <FileText size={16} className={iconColor} />
+                                </div>
+                                <div className="flex flex-col min-w-0 flex-1">
+                                  <span className="text-xs font-medium truncate">{displayName}</span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {label}{m.media_size_bytes ? ` · ${formatBytes(m.media_size_bytes)}` : ''}{m.media_duration_seconds ? ` · ${formatDuration(m.media_duration_seconds)}` : ''} · {relativeTime(m.created_at)}
+                                  </span>
+                                  {isAudio && m.media_transcript && (
+                                    <span className="text-[10px] text-muted-foreground italic truncate max-w-[200px]">"{m.media_transcript}"</span>
+                                  )}
+                                </div>
+                                {src && (
+                                  <a href={src} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors">
+                                    <Download size={14} />
+                                  </a>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
           ) : (
-            /* View de Notas internas — B7 */
+            /* View de Notas internas */
             <>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {notesLoading ? (

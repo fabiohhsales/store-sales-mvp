@@ -48,9 +48,22 @@ export function normalizeEvolutionPayload(
     mediaUrl = data.message.audioMessage.url ?? null
     mediaMimetype = data.message.audioMessage.mimetype ?? null
     mediaDuration = data.message.audioMessage.seconds ?? null
+  } else if (data.message.videoMessage) {
+    content = data.message.videoMessage.caption || '[Vídeo]'
+    contentType = 'video'
+    mediaUrl = data.message.videoMessage.url ?? null
+    mediaMimetype = data.message.videoMessage.mimetype ?? null
+    mediaDuration = data.message.videoMessage.seconds ?? null
   } else if (data.message.documentMessage) {
-    content = `[Documento: ${data.message.documentMessage.fileName || 'arquivo'}]`
-    contentType = 'document'
+    // Documentos com mimetype de vídeo são tratados como vídeo
+    const isVideo = data.message.documentMessage.mimetype?.startsWith('video/')
+    if (isVideo) {
+      content = data.message.documentMessage.caption || `[Vídeo: ${data.message.documentMessage.fileName || 'arquivo'}]`
+      contentType = 'video'
+    } else {
+      content = `[Documento: ${data.message.documentMessage.fileName || 'arquivo'}]`
+      contentType = 'document'
+    }
     mediaMimetype = data.message.documentMessage.mimetype ?? null
     mediaFilename = data.message.documentMessage.fileName ?? null
   }

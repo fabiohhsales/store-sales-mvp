@@ -64,7 +64,12 @@ function buildChatMessages(
     if (!msg.content) continue
 
     if (msg.from_who === 'lead') {
-      messages.push({ role: 'user', content: msg.content })
+      // Se for áudio com transcrição, substitui o placeholder pelo texto real
+      let userContent = msg.content
+      if (msg.content_type === 'audio' && msg.media_transcript) {
+        userContent = `[Áudio transcrito]: "${msg.media_transcript}"`
+      }
+      messages.push({ role: 'user', content: userContent })
     } else if (msg.from_who === 'ai') {
       // Armazena só o texto da resposta, não o JSON completo
       messages.push({ role: 'assistant', content: msg.content })

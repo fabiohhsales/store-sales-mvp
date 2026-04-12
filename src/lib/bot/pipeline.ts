@@ -572,11 +572,12 @@ export async function saveEvolutionMessage(
 
   const message = saved as BotMessage
 
-  // Para imagens, áudios e documentos, faz upload para o Supabase Storage (persistência além do cache da Evolution)
-  if (msg.contentType === 'image' || msg.contentType === 'document' || msg.contentType === 'audio') {
+  // Para imagens, áudios, vídeos e documentos, faz upload para o Supabase Storage
+  if (msg.contentType === 'image' || msg.contentType === 'document' || msg.contentType === 'audio' || msg.contentType === 'video') {
     const mimetype = msg.mediaMimetype ?? (
       msg.contentType === 'image' ? 'image/jpeg' :
       msg.contentType === 'audio' ? 'audio/ogg' :
+      msg.contentType === 'video' ? 'video/mp4' :
       'application/octet-stream'
     )
     const { storagePath, buffer: mediaBuffer, resolvedMime } = await uploadMediaToStorage(

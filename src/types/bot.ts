@@ -178,6 +178,7 @@ export interface EvolutionWebhookPayload {
       extendedTextMessage?: { text: string }
       imageMessage?: { caption?: string; url?: string; mimetype?: string }
       audioMessage?: { mimetype?: string; seconds?: number; url?: string }
+      videoMessage?: { caption?: string; url?: string; mimetype?: string; seconds?: number }
       documentMessage?: { fileName?: string; mimetype?: string; caption?: string }
     }
     messageType?: string  // "conversation" | "extendedTextMessage" | etc.
@@ -195,7 +196,7 @@ export interface NormalizedEvolutionMessage {
   contactName: string
   messageId: string
   content: string
-  contentType: 'text' | 'image' | 'audio' | 'document' | 'unknown'
+  contentType: 'text' | 'image' | 'audio' | 'document' | 'video' | 'unknown'
   timestamp: Date
   mediaUrl: string | null
   mediaMimetype: string | null

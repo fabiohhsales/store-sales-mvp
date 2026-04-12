@@ -102,7 +102,7 @@ export async function POST(
   }
 
   // Persiste no Supabase com content_type fiel ao tipo real da mídia
-  const contentType = mediatype === 'video' ? 'document' : mediatype // video → document (sem player por ora)
+  const contentType = mediatype // image | audio | video | document
   const mediaSizeBytes = Math.floor(Buffer.byteLength(base64, 'utf8') * 0.75) // base64 → bytes reais (aprox)
   const { data: message, error } = await admin
     .from('messages')
