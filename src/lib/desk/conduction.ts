@@ -103,6 +103,50 @@ export function slaColor(stageChangedAt: string | null): 'green' | 'amber' | 're
   }
 }
 
+// ── Handoff reason labels (PT-BR) ───────────────────────────────────────────
+
+const HANDOFF_REASON_LABELS: Record<string, string> = {
+  negative_sentiment: 'Sentimento negativo detectado',
+  medical_urgency: 'Urgência médica',
+  unknown_intent: 'Intenção não reconhecida',
+  photo_handoff: 'Fotos recebidas para análise',
+  explicit_request: 'Paciente pediu atendente',
+  intake_photos_complete: 'Fotos do intake recebidas',
+  fallback: 'Motivo não classificado',
+}
+
+/**
+ * Maps a raw handoff reason code to a human-readable label.
+ * Returns null if the code is null/undefined or not in the dictionary.
+ */
+export function handoffReasonLabel(code: string | null | undefined): string | null {
+  if (!code) return null
+  return HANDOFF_REASON_LABELS[code] ?? null
+}
+
+// ── Event type labels (PT-BR) ───────────────────────────────────────────────
+
+export interface EventTypeMeta {
+  label: string
+  color: string // tailwind color stem, e.g. 'red', 'blue'
+}
+
+export const EVENT_TYPE_LABELS: Record<string, EventTypeMeta> = {
+  handoff_triggered: { label: 'Transferido para operador', color: 'red' },
+  handoff_assumed: { label: 'Operador assumiu', color: 'blue' },
+  returned_to_bot: { label: 'Devolvido ao bot', color: 'amber' },
+  conversation_resolved: { label: 'Conversa finalizada', color: 'emerald' },
+  appointment_created: { label: 'Agendamento criado', color: 'violet' },
+  appointment_rescheduled: { label: 'Agendamento reagendado', color: 'violet' },
+  appointment_sync_error: { label: 'Erro de sincronização de agenda', color: 'red' },
+  intake_updated: { label: 'Dados do intake atualizados', color: 'sky' },
+  followup_sent: { label: 'Follow-up enviado', color: 'emerald' },
+  followup_blocked: { label: 'Follow-up bloqueado', color: 'amber' },
+  bot_paused: { label: 'Bot pausado', color: 'amber' },
+  bot_resumed: { label: 'Bot retomado', color: 'emerald' },
+  stage_changed: { label: 'Stage alterado', color: 'sky' },
+}
+
 /**
  * Returns Tailwind classes for an SLA-colored badge.
  */

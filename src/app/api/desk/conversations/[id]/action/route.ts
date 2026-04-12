@@ -49,6 +49,7 @@ export async function POST(
       .update({
         stage: 'in_service',
         last_system_action: 'operator_assumed',
+        handoff_assumed_at: new Date().toISOString(),
       })
       .eq('id', id)
       .select('stage')

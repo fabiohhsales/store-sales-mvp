@@ -71,7 +71,11 @@ export interface ConversationContext {
     currentIntent: string | null
     collectedDataSummary: string[]
     handoffReason: string | null
-    nextStepSuggested: string | null
+    nextStepSuggested: {
+      action: string
+      label: string
+      priority: 'low' | 'medium' | 'high'
+    } | null
     alerts: ContextAlert[]
   }
 
@@ -106,6 +110,8 @@ export interface ConversationContext {
     reasonCode: string | null
     reasonLabel: string | null
     transferredAt: string | null
+    assumedAt: string | null
+    waitDurationMinutes: number | null
     returnedToBotAt: string | null
   }
 

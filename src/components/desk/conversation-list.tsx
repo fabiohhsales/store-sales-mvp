@@ -5,7 +5,7 @@ import { Bot, Clock, UserCheck, CheckCheck, MessageSquare, Search } from 'lucide
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { deriveConductionMode, conductionLabel, conductionBadgeVariant } from '@/lib/desk/conduction'
+import { deriveConductionMode, conductionLabel, conductionBadgeVariant, handoffReasonLabel } from '@/lib/desk/conduction'
 import type { DeskConversation } from './desk-shell'
 
 const STAGES = [
@@ -97,8 +97,14 @@ function getWaitingBadge(date: string | null): { label: string; className: strin
 export function ConversationList({ conversations, selectedId, stageFilter, loading, stageCounts, currentUserId, onSelect, onStageChange }: Props) {
   const currentStage = STAGES.find((s) => s.key === stageFilter) ?? STAGES[0]
   const [searchQuery, setSearchQuery] = useState('')
+  const [journeyFilter, setJourneyFilter] = useState<string>('all')
 
-  const visibleConversations = searchQuery.trim()
+  // Collect distinct journey_stage values for the filter
+  const journeyStages = Array.from(
+    new Set(conversations.map((c) => c.journey_stage).filter(Boolean) as string[])
+  ).sort()
+
+  let visibleConversations = searchQuery.trim()
     ? conversations.filter((c) => {
         const q = searchQuery.toLowerCase()
         return (
@@ -107,6 +113,10 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
         )
       })
     : conversations
+
+  if (journeyFilter !== 'all') {
+    visibleConversations = visibleConversations.filter((c) => c.journey_stage === journeyFilter)
+  }
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -121,6 +131,18 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
             className="h-8 pl-7 text-xs"
           />
         </div>
+        {journeyStages.length > 0 && (
+          <select
+            value={journeyFilter}
+            onChange={(e) => setJourneyFilter(e.target.value)}
+            className="mt-1 h-7 w-full rounded-md border border-border bg-background px-2 text-[11px] text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="all">Todas as jornadas</option>
+            {journeyStages.map((js) => (
+              <option key={js} value={js}>{js}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Tabs de stage */}
@@ -257,6 +279,14 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                         className="mt-1.5 h-4 px-1.5 text-[10px] border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400"
                       >
                         {conv.journey_stage}
+                      </Badge>
+                    )}
+                    {conv.handoff_reason_code && (
+                      <Badge
+                        variant="outline"
+                        className="mt-1.5 h-4 px-1.5 text-[10px] border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                      >
+                        {handoffReasonLabel(conv.handoff_reason_code) ?? conv.handoff_reason_code}
                       </Badge>
                     )}
                   </div>

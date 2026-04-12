@@ -11,7 +11,9 @@ export async function GET(request: NextRequest) {
   if (!deskUser.clientId) return NextResponse.json({ error: 'client_id obrigatório' }, { status: 400 })
 
   const stage = request.nextUrl.searchParams.get('stage') ?? 'all'
-  console.log('[desk/conversations] clientId=%s stage=%s', deskUser.clientId, stage)
+  const journeyStageFilter = request.nextUrl.searchParams.get('journey_stage') ?? null
+  const handoffReasonFilter = request.nextUrl.searchParams.get('handoff_reason_code') ?? null
+  console.log('[desk/conversations] clientId=%s stage=%s journey=%s reason=%s', deskUser.clientId, stage, journeyStageFilter, handoffReasonFilter)
   const admin = createAdminClient()
 
   const baseSelect = `
@@ -35,6 +37,13 @@ export async function GET(request: NextRequest) {
   } else {
     // 'all' = tudo exceto resolved (inclui stage IS NULL para conversas legadas)
     query = query.or('stage.neq.resolved,stage.is.null')
+  }
+
+  if (journeyStageFilter) {
+    query = query.eq('journey_stage', journeyStageFilter)
+  }
+  if (handoffReasonFilter) {
+    query = query.eq('handoff_reason_code', handoffReasonFilter)
   }
 
   const { data, error } = await query.limit(100)

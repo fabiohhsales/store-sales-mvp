@@ -8,6 +8,7 @@ import { handleAgendaCheck, handleAgendaCreate } from './calendar-agent'
 import { clearAiPause } from './agent'
 import { normalizeStageSlug } from './stage-labels'
 import { emitConversationEvent } from '@/lib/desk/emit-conversation-event'
+import { handoffReasonLabel } from '@/lib/desk/conduction'
 import type { AgentOutput } from './output-schema'
 import type { PipelineResult } from './pipeline'
 import type { PanelBotConfig, IntakeFieldConfig } from '@/types/database'
@@ -299,7 +300,7 @@ async function handleHandoff(
     stage: 'awaiting_human',
     summary,
     handoff_reason_code: handoffReason,
-    handoff_reason_label: handoffReason,
+    handoff_reason_label: handoffReasonLabel(handoffReason) ?? handoffReason,
     handoff_transferred_at: new Date().toISOString(),
     journey_stage: journeyStage,
   }).eq('id', conversationId)

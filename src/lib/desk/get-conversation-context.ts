@@ -3,7 +3,7 @@
 // and conversation_events into a single ConversationContext view-model.
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { deriveConductionMode, slaColor } from './conduction'
+import { deriveConductionMode, slaColor, handoffReasonLabel } from './conduction'
 import type {
   ConversationContext,
   IntakeStatus,
@@ -82,8 +82,14 @@ function resolveSlaStatus(stageChangedAt: string | null): SlaStatus {
 function buildAlerts(
   intakeStatus: IntakeStatus,
   appointmentStatus: AppointmentContextStatus,
+  followupStatus: FollowupContextStatus,
   stage: string,
-  lastIncomingAt: string | null
+  lastIncomingAt: string | null,
+  assignedOperatorId: string | null,
+  stageChangedAt: string | null,
+  handoffAssumedAt: string | null,
+  handoffTransferredAt: string | null,
+  nextAppointmentAt: string | null
 ): ContextAlert[] {
   const alerts: ContextAlert[] = []
 
@@ -96,6 +102,32 @@ function buildAlerts(
         code: 'long_wait',
         severity: 'warning',
         message: `Paciente aguardando há ${wait} min`,
+      })
+    }
+
+    // No operator assigned for >15min
+    if (!assignedOperatorId && stageChangedAt) {
+      const sinceStage = Math.round((Date.now() - new Date(stageChangedAt).getTime()) / 60000)
+      if (sinceStage > 15) {
+        alerts.push({
+          code: 'handoff_no_operator',
+          severity: 'error',
+          message: `Sem operador designado há ${sinceStage} min`,
+        })
+      }
+    }
+  }
+
+  // Slow pickup: transferred but took >30min to assume
+  if (handoffTransferredAt && handoffAssumedAt) {
+    const waitMin = Math.round(
+      (new Date(handoffAssumedAt).getTime() - new Date(handoffTransferredAt).getTime()) / 60000
+    )
+    if (waitMin > 30) {
+      alerts.push({
+        code: 'handoff_slow_pickup',
+        severity: 'warning',
+        message: `Operador demorou ${waitMin} min para assumir`,
       })
     }
   }
@@ -116,7 +148,57 @@ function buildAlerts(
     })
   }
 
+  // Upcoming appointment within 24h
+  if (nextAppointmentAt) {
+    const hoursUntil = (new Date(nextAppointmentAt).getTime() - Date.now()) / 3600000
+    if (hoursUntil > 0 && hoursUntil <= 24) {
+      alerts.push({
+        code: 'appointment_upcoming',
+        severity: 'info',
+        message: `Agendamento em ${hoursUntil < 1 ? `${Math.round(hoursUntil * 60)} min` : `${Math.round(hoursUntil)}h`}`,
+      })
+    }
+  }
+
+  if (followupStatus === 'blocked') {
+    alerts.push({
+      code: 'followup_blocked',
+      severity: 'warning',
+      message: 'Follow-up bloqueado',
+    })
+  }
+
   return alerts
+}
+
+function buildSuggestedNextStep(
+  stage: string,
+  intakeStatus: IntakeStatus,
+  appointmentStatus: AppointmentContextStatus,
+  followupStatus: FollowupContextStatus,
+  assignedOperatorId: string | null
+): ConversationContext['summary']['nextStepSuggested'] {
+  if (stage === 'awaiting_human' && !assignedOperatorId) {
+    return { action: 'assume', label: 'Assumir conversa — paciente aguardando', priority: 'high' }
+  }
+  if (stage === 'in_service') {
+    if (intakeStatus === 'empty' || intakeStatus === 'partial') {
+      return { action: 'complete_intake', label: 'Completar dados do paciente', priority: 'medium' }
+    }
+    if (intakeStatus === 'completed' && appointmentStatus === 'none') {
+      return { action: 'schedule', label: 'Verificar disponibilidade e agendar', priority: 'medium' }
+    }
+    if (appointmentStatus === 'scheduled' || appointmentStatus === 'rescheduled') {
+      return { action: 'confirm_appointment', label: 'Confirmar agendamento com paciente', priority: 'low' }
+    }
+  }
+  if (appointmentStatus === 'noshow') {
+    return { action: 'reschedule', label: 'Entrar em contato para reagendamento', priority: 'high' }
+  }
+  if (followupStatus === 'blocked') {
+    return { action: 'unblock_followup', label: 'Verificar bloqueio de follow-up', priority: 'medium' }
+  }
+  return null
 }
 
 function buildCollectedDataSummary(
@@ -145,7 +227,7 @@ export async function getConversationContext(
         client_id, contact_id, followup_cadence, last_followup_at,
         appointment_status,
         journey_stage, handoff_reason_code, handoff_reason_label,
-        handoff_transferred_at, handoff_returned_to_bot_at, last_system_action,
+        handoff_transferred_at, handoff_assumed_at, handoff_returned_to_bot_at, last_system_action,
         contacts ( id, name, phone_number, identifier, custom_data, intake_completed_at )
       `)
       .eq('id', conversationId)
@@ -248,7 +330,17 @@ export async function getConversationContext(
   const sla = resolveSlaStatus(conv.stage_changed_at)
   const appointmentCtxStatus = resolveAppointmentStatus(conv.appointment_status ?? appointment?.status)
   const followupStatus = resolveFollowupStatus(conv.followup_cadence, conv.last_followup_at)
-  const alerts = buildAlerts(intakeStatus, appointmentCtxStatus, stage, conv.last_incoming_at)
+  const nextAppointmentAt = appointment?.date && appointment?.time
+    ? `${appointment.date}T${appointment.time}` : null
+  const alerts = buildAlerts(
+    intakeStatus, appointmentCtxStatus, followupStatus, stage,
+    conv.last_incoming_at, conv.assigned_operator_id,
+    conv.stage_changed_at, conv.handoff_assumed_at,
+    conv.handoff_transferred_at, nextAppointmentAt
+  )
+  const nextStep = buildSuggestedNextStep(
+    stage, intakeStatus, appointmentCtxStatus, followupStatus, conv.assigned_operator_id
+  )
   const collectedSummary = buildCollectedDataSummary(collected)
 
   const recentEvents: ContextEvent[] = (eventsResult.data ?? []).map((e) => ({
@@ -280,8 +372,8 @@ export async function getConversationContext(
       contactReason: conv.summary ?? null,
       currentIntent: conv.last_intent ?? null,
       collectedDataSummary: collectedSummary,
-      handoffReason: conv.handoff_reason_label ?? null,
-      nextStepSuggested: null, // future: AI-driven suggestion
+      handoffReason: handoffReasonLabel(conv.handoff_reason_code) ?? conv.handoff_reason_label ?? null,
+      nextStepSuggested: nextStep,
       alerts,
     },
 
@@ -305,8 +397,12 @@ export async function getConversationContext(
     handoff: {
       isHandoff: stage === 'awaiting_human' || stage === 'in_service',
       reasonCode: conv.handoff_reason_code ?? null,
-      reasonLabel: conv.handoff_reason_label ?? null,
+      reasonLabel: handoffReasonLabel(conv.handoff_reason_code) ?? conv.handoff_reason_label ?? null,
       transferredAt: conv.handoff_transferred_at ?? null,
+      assumedAt: conv.handoff_assumed_at ?? null,
+      waitDurationMinutes: conv.handoff_transferred_at && conv.handoff_assumed_at
+        ? Math.round((new Date(conv.handoff_assumed_at).getTime() - new Date(conv.handoff_transferred_at).getTime()) / 60000)
+        : null,
       returnedToBotAt: conv.handoff_returned_to_bot_at ?? null,
     },
 

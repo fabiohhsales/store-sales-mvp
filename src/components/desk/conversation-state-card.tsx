@@ -20,6 +20,7 @@ interface Props {
   lastOutgoingAt: string | null
   journeyStage?: string | null
   handoffReason?: string | null
+  handoffWaitMinutes?: number | null
 }
 
 export function ConversationStateCard({
@@ -31,6 +32,7 @@ export function ConversationStateCard({
   lastOutgoingAt,
   journeyStage,
   handoffReason,
+  handoffWaitMinutes,
 }: Props) {
   // Live timer for "time in stage"
   const [, setTick] = useState(0)
@@ -65,6 +67,18 @@ export function ConversationStateCard({
       {handoffReason && (
         <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-2 py-1 leading-snug">
           Motivo do handoff: {handoffReason}
+        </p>
+      )}
+
+      {handoffWaitMinutes != null && (
+        <p className={`text-[11px] rounded px-2 py-1 leading-snug ${
+          handoffWaitMinutes > 30
+            ? 'text-red-600 dark:text-red-400 bg-red-500/10'
+            : 'text-muted-foreground bg-muted/50'
+        }`}>
+          Tempo de espera para atendimento: {handoffWaitMinutes < 60
+            ? `${handoffWaitMinutes} min`
+            : `${Math.floor(handoffWaitMinutes / 60)}h${handoffWaitMinutes % 60 > 0 ? ` ${handoffWaitMinutes % 60}min` : ''}`}
         </p>
       )}
 

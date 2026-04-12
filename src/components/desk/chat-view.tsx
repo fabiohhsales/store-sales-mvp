@@ -23,6 +23,7 @@ import { ConversationStateCard } from './conversation-state-card'
 import { ConversationAppointmentCard } from './conversation-appointment-card'
 import { ConversationIntakeCard } from './conversation-intake-card'
 import { ConversationHistoryCard } from './conversation-history-card'
+import { ConversationTimelineCard } from './conversation-timeline-card'
 import type { ConversationContext } from '@/types/conversation-context'
 
 interface Message {
@@ -1065,6 +1066,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                 lastIncomingAt={conversation.last_incoming_at}
                 handoffReason={context?.handoff.reasonLabel ?? null}
                 alerts={context?.summary.alerts ?? []}
+                nextStep={context?.summary.nextStepSuggested ?? null}
               />
 
               {/* Mensagens */}
@@ -1392,6 +1394,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
               lastOutgoingAt={conversation.last_outgoing_at}
               journeyStage={context?.header.journeyStage ?? null}
               handoffReason={context?.handoff.reasonLabel ?? null}
+              handoffWaitMinutes={context?.handoff.waitDurationMinutes ?? null}
             />
             <ConversationAppointmentCard appointments={profile?.appointments ?? []} />
             {/* Contact basic data — nome editável + telefone + identifier */}
@@ -1428,6 +1431,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
               conversations={profile?.conversations ?? []}
               currentConversationId={conversationId}
             />
+            <ConversationTimelineCard events={context?.recentEvents ?? []} />
           </div>
         </aside>
       </div>
@@ -1448,6 +1452,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
               lastOutgoingAt={conversation.last_outgoing_at}
               journeyStage={context?.header.journeyStage ?? null}
               handoffReason={context?.handoff.reasonLabel ?? null}
+              handoffWaitMinutes={context?.handoff.waitDurationMinutes ?? null}
             />
             <ConversationAppointmentCard appointments={profile?.appointments ?? []} />
             <div className="rounded-xl border bg-background p-4 space-y-2">
@@ -1474,6 +1479,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
               conversations={profile?.conversations ?? []}
               currentConversationId={conversationId}
             />
+            <ConversationTimelineCard events={context?.recentEvents ?? []} />
           </div>
         </DialogContent>
       </Dialog>

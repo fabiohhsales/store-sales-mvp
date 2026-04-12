@@ -1,9 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { Info, ChevronDown, ChevronUp, CalendarDays, ClipboardList, MessageSquare, Clock, AlertTriangle } from 'lucide-react'
+import { Info, ChevronDown, ChevronUp, CalendarDays, ClipboardList, MessageSquare, Clock, AlertTriangle, AlertCircle, Lightbulb } from 'lucide-react'
 import { relativeTime } from '@/lib/desk/conduction'
 import type { ContextAlert } from '@/types/conversation-context'
+
+interface NextStep {
+  action: string
+  label: string
+  priority: 'low' | 'medium' | 'high'
+}
 
 interface Props {
   summary: string | null
@@ -12,6 +18,7 @@ interface Props {
   lastIncomingAt: string | null
   handoffReason?: string | null
   alerts?: ContextAlert[]
+  nextStep?: NextStep | null
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -29,6 +36,7 @@ export function ConversationCaseSummaryBanner({
   lastIncomingAt,
   handoffReason,
   alerts,
+  nextStep,
 }: Props) {
   const [expanded, setExpanded] = useState(false)
 
@@ -50,6 +58,18 @@ export function ConversationCaseSummaryBanner({
 
   return (
     <div className="flex flex-col px-4 py-2 bg-muted/30 border-b border-border text-xs flex-shrink-0">
+      {/* Suggested next step */}
+      {nextStep && (
+        <div className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 mb-2 ${
+          nextStep.priority === 'high' ? 'bg-red-500/10 text-red-700 dark:text-red-400' :
+          nextStep.priority === 'medium' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400' :
+          'bg-blue-500/10 text-blue-700 dark:text-blue-400'
+        }`}>
+          <Lightbulb size={13} className="flex-shrink-0" />
+          <span className="text-[11px] font-medium leading-snug">{nextStep.label}</span>
+        </div>
+      )}
+
       {/* Quick-glance grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="flex items-start gap-1.5">
@@ -127,19 +147,23 @@ export function ConversationCaseSummaryBanner({
       {/* Context alerts */}
       {alerts && alerts.length > 0 && (
         <div className="flex flex-col gap-1 mt-2">
-          {alerts.map((alert) => (
-            <div
-              key={alert.code}
-              className={`flex items-start gap-1.5 rounded px-2 py-1 text-[11px] leading-snug ${
-                alert.severity === 'error' ? 'bg-red-500/10 text-red-600 dark:text-red-400' :
-                alert.severity === 'warning' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
-                'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-              }`}
-            >
-              <AlertTriangle size={10} className="mt-0.5 flex-shrink-0" />
-              {alert.message}
-            </div>
-          ))}
+          {alerts.map((alert) => {
+            const AlertIcon = alert.severity === 'error' ? AlertTriangle :
+              alert.severity === 'warning' ? AlertCircle : Info
+            return (
+              <div
+                key={alert.code}
+                className={`flex items-start gap-1.5 rounded px-2 py-1 text-[11px] leading-snug ${
+                  alert.severity === 'error' ? 'bg-red-500/10 text-red-600 dark:text-red-400' :
+                  alert.severity === 'warning' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                  'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                }`}
+              >
+                <AlertIcon size={10} className="mt-0.5 flex-shrink-0" />
+                {alert.message}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
