@@ -71,8 +71,8 @@ export async function POST(
     }).eq('id', id)
   }
 
-  // Envia via Evolution API
-  await sendTextMessage(instanceName, identifier, content.trim())
+  // Envia via Evolution API — captura o message ID para rastreamento de entrega
+  const evolutionMsgId = await sendTextMessage(instanceName, identifier, content.trim())
 
   // Persiste no Supabase
   const { data: message, error } = await admin
@@ -85,6 +85,7 @@ export async function POST(
       content_type: 'text',
       sender_type: 'operator',
       from_who: 'human',
+      evolution_message_id: evolutionMsgId ?? null,
       created_at: new Date().toISOString(),
     })
     .select()

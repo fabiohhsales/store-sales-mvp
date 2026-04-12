@@ -27,6 +27,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
+  if (event === 'messages.update') {
+    void handleMessagesUpdate(payload)
+    return NextResponse.json({ ok: true })
+  }
+
   if (event !== 'messages.upsert') {
     return NextResponse.json({ ok: true, skipped: true })
   }
@@ -105,5 +110,34 @@ async function handleConnectionUpdate(payload: EvolutionWebhookPayload) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'erro desconhecido'
     console.error(`[Evolution] Falha ao atualizar connection status (${instance}):`, message)
+  }
+}
+
+// Atualiza whatsapp_status das mensagens enviadas por nós com base nos acks da Evolution.
+// Status codes: 2=sent, 3=delivered, 4=read, 5=played
+async function handleMessagesUpdate(payload: EvolutionWebhookPayload) {
+  interface UpdateEntry {
+    key: { remoteJid: string; fromMe: boolean; id: string }
+    update: { status?: number }
+  }
+  const rawData = (payload as unknown as { data: unknown }).data
+  if (!Array.isArray(rawData) || rawData.length === 0) return
+
+  const statusMap: Record<number, string> = { 2: 'sent', 3: 'delivered', 4: 'read', 5: 'played' }
+  const supabase = createAdminClient()
+
+  for (const u of rawData as UpdateEntry[]) {
+    if (!u.key?.fromMe) continue
+    const whatsappStatus = statusMap[u.update?.status ?? 0]
+    if (!whatsappStatus) continue
+
+    const { error } = await supabase
+      .from('messages')
+      .update({ whatsapp_status: whatsappStatus })
+      .eq('evolution_message_id', u.key.id)
+
+    if (error) {
+      console.warn(`[Evolution] Falha ao atualizar whatsapp_status para msg=${u.key.id}:`, error.message)
+    }
   }
 }

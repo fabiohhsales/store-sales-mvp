@@ -4,6 +4,7 @@
 // runBasePipeline   — pipeline legado (Chatwoot). Mantido para compatibilidade.
 // runEvolutionPipeline — novo pipeline direto da Evolution API (sem Chatwoot).
 
+import OpenAI, { toFile } from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type {
   NormalizedWebhookMessage,
@@ -15,8 +16,13 @@ import type {
 import type { PanelWhatsAppConfig, PanelBotConfig, PanelGoogleConfig } from '@/types/database'
 import { stageLabelSlugs } from './stage-labels'
 
-// Baixa mídia da Evolution e faz upload para o Supabase Storage.
-// Retorna o storage path (ex: "clientId/convId/msgId.jpg") ou null se falhar.
+interface MediaUploadResult {
+  storagePath: string | null
+  buffer: Buffer | null
+  resolvedMime: string
+}
+
+// Baixa mídia da Evolution, faz upload para o Supabase Storage e retorna o buffer (para transcrição).
 async function uploadMediaToStorage(
   instanceName: string,
   remoteJid: string,
@@ -24,10 +30,11 @@ async function uploadMediaToStorage(
   clientId: string,
   conversationId: string,
   mimetype: string
-): Promise<string | null> {
+): Promise<MediaUploadResult> {
+  const nil: MediaUploadResult = { storagePath: null, buffer: null, resolvedMime: mimetype }
   const evolutionUrl = process.env.EVOLUTION_API_URL?.replace(/\/$/, '')
   const evolutionKey = process.env.EVOLUTION_API_KEY
-  if (!evolutionUrl || !evolutionKey) return null
+  if (!evolutionUrl || !evolutionKey) return nil
 
   try {
     const controller = new AbortController()
@@ -42,13 +49,13 @@ async function uploadMediaToStorage(
 
     if (!res.ok) {
       console.warn(`[Pipeline] Mídia não disponível na Evolution: msg=${messageId} status=${res.status}`)
-      return null
+      return nil
     }
 
     const data = await res.json()
     const base64 = data.base64 as string | undefined
     const resolvedMime = (data.mimetype as string | undefined) ?? mimetype
-    if (!base64) return null
+    if (!base64) return { ...nil, resolvedMime }
 
     const ext = resolvedMime.split('/')[1]?.split(';')[0] ?? 'bin'
     const storagePath = `${clientId}/${conversationId}/${messageId}.${ext}`
@@ -61,12 +68,33 @@ async function uploadMediaToStorage(
 
     if (error && !error.message.includes('already exists')) {
       console.error('[Pipeline] Erro ao fazer upload para Storage:', error.message)
-      return null
+      return { storagePath: null, buffer, resolvedMime }
     }
 
-    return storagePath
+    return { storagePath, buffer, resolvedMime }
   } catch (err) {
     console.warn('[Pipeline] Falha ao baixar/enviar mídia:', err)
+    return nil
+  }
+}
+
+// Transcreve áudio usando OpenAI Whisper (ou Groq whisper-large-v3).
+// Fire-and-forget: erros são logados e retornam null — nunca bloqueiam o pipeline.
+async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY
+  const groqKey = process.env.GROQ_API_KEY
+  if (!apiKey && !groqKey) return null
+  try {
+    const client = apiKey
+      ? new OpenAI({ apiKey })
+      : new OpenAI({ apiKey: groqKey!, baseURL: 'https://api.groq.com/openai/v1' })
+    const model = apiKey ? 'whisper-1' : 'whisper-large-v3'
+    const ext = resolvedMime.split('/')[1]?.split(';')[0] ?? 'ogg'
+    const file = await toFile(buffer, `audio.${ext}`, { type: resolvedMime })
+    const result = await client.audio.transcriptions.create({ file, model, language: 'pt' })
+    return result.text?.trim() || null
+  } catch (err) {
+    console.warn('[Pipeline] Transcrição de áudio falhou (não crítico):', err)
     return null
   }
 }
@@ -551,7 +579,7 @@ export async function saveEvolutionMessage(
       msg.contentType === 'audio' ? 'audio/ogg' :
       'application/octet-stream'
     )
-    const storagePath = await uploadMediaToStorage(
+    const { storagePath, buffer: mediaBuffer, resolvedMime } = await uploadMediaToStorage(
       msg.instanceName,
       msg.remoteJid,
       msg.messageId,
@@ -559,6 +587,12 @@ export async function saveEvolutionMessage(
       conversation.id,
       mimetype
     )
+
+    // Transcrição de áudio via Whisper (não bloqueia nem falha o pipeline)
+    let transcript: string | null = null
+    if (msg.contentType === 'audio' && mediaBuffer) {
+      transcript = await transcribeAudio(mediaBuffer, resolvedMime)
+    }
 
     // Metadados de mídia para persistir no banco
     const mediaUpdate: Record<string, unknown> = {}
@@ -568,6 +602,7 @@ export async function saveEvolutionMessage(
     if (msg.mediaDuration != null) mediaUpdate.media_duration_seconds = msg.mediaDuration
     if (msg.mediaWidth != null) mediaUpdate.media_width = msg.mediaWidth
     if (msg.mediaHeight != null) mediaUpdate.media_height = msg.mediaHeight
+    if (transcript) mediaUpdate.media_transcript = transcript
 
     if (Object.keys(mediaUpdate).length > 0) {
       await supabase.from('messages').update(mediaUpdate).eq('id', message.id)

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, UserCheck, Bot, CheckCheck, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X } from 'lucide-react'
+import { Send, UserCheck, Bot, CheckCheck, Check, Loader2, Info, Trash2, UserRound, StickyNote, MessageSquare, Paperclip, Zap, FileText, CalendarSearch, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -41,6 +41,8 @@ interface Message {
   media_filename?: string | null
   media_size_bytes?: number | null
   media_duration_seconds?: number | null
+  media_transcript?: string | null
+  whatsapp_status?: string | null
 }
 
 interface ConversationDetail {
@@ -132,12 +134,13 @@ function formatDuration(seconds: number): string {
 }
 
 // --- Sub-renderer: Audio Player WhatsApp-style ---
-function AudioPlayer({ src }: { src: string }) {
+function AudioPlayer({ src, transcript }: { src: string; transcript?: string | null }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [duration, setDuration] = useState(0)
   const [speed, setSpeed] = useState(1)
+  const [showTranscript, setShowTranscript] = useState(false)
 
   const togglePlay = () => {
     const el = audioRef.current
@@ -155,33 +158,50 @@ function AudioPlayer({ src }: { src: string }) {
   }
 
   return (
-    <div className="flex items-center gap-2 min-w-[200px] max-w-[280px]">
-      <audio
-        ref={audioRef}
-        src={src}
-        preload="metadata"
-        onLoadedMetadata={(e) => setDuration((e.target as HTMLAudioElement).duration)}
-        onTimeUpdate={(e) => {
-          const el = e.target as HTMLAudioElement
-          setProgress(el.duration ? (el.currentTime / el.duration) * 100 : 0)
-        }}
-        onEnded={() => { setPlaying(false); setProgress(0) }}
-      />
-      <button onClick={togglePlay} className="flex-shrink-0 h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center hover:bg-primary/30 transition-colors">
-        {playing ? <Pause size={14} className="text-primary" /> : <Play size={14} className="text-primary ml-0.5" />}
-      </button>
-      <div className="flex-1 flex flex-col gap-1">
-        <div className="h-1 rounded-full bg-muted-foreground/20 overflow-hidden">
-          <div className="h-full rounded-full bg-primary/60 transition-all duration-150" style={{ width: `${progress}%` }} />
+    <div className="flex flex-col gap-1.5 min-w-[200px] max-w-[280px]">
+      <div className="flex items-center gap-2">
+        <audio
+          ref={audioRef}
+          src={src}
+          preload="metadata"
+          onLoadedMetadata={(e) => setDuration((e.target as HTMLAudioElement).duration)}
+          onTimeUpdate={(e) => {
+            const el = e.target as HTMLAudioElement
+            setProgress(el.duration ? (el.currentTime / el.duration) * 100 : 0)
+          }}
+          onEnded={() => { setPlaying(false); setProgress(0) }}
+        />
+        <button onClick={togglePlay} className="flex-shrink-0 h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center hover:bg-primary/30 transition-colors">
+          {playing ? <Pause size={14} className="text-primary" /> : <Play size={14} className="text-primary ml-0.5" />}
+        </button>
+        <div className="flex-1 flex flex-col gap-1">
+          <div className="h-1 rounded-full bg-muted-foreground/20 overflow-hidden">
+            <div className="h-full rounded-full bg-primary/60 transition-all duration-150" style={{ width: `${progress}%` }} />
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>{duration > 0 ? formatDuration((progress / 100) * duration) : '0:00'}</span>
+            <span>{duration > 0 ? formatDuration(duration) : '--:--'}</span>
+          </div>
         </div>
-        <div className="flex justify-between text-[10px] text-muted-foreground">
-          <span>{duration > 0 ? formatDuration((progress / 100) * duration) : '0:00'}</span>
-          <span>{duration > 0 ? formatDuration(duration) : '--:--'}</span>
-        </div>
+        <button onClick={toggleSpeed} className="flex-shrink-0 text-[10px] font-bold text-muted-foreground bg-muted-foreground/10 rounded px-1.5 py-0.5 hover:bg-muted-foreground/20 transition-colors">
+          {speed}x
+        </button>
       </div>
-      <button onClick={toggleSpeed} className="flex-shrink-0 text-[10px] font-bold text-muted-foreground bg-muted-foreground/10 rounded px-1.5 py-0.5 hover:bg-muted-foreground/20 transition-colors">
-        {speed}x
-      </button>
+      {transcript && (
+        <div className="space-y-0.5">
+          <button
+            onClick={() => setShowTranscript(!showTranscript)}
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+          >
+            {showTranscript ? 'Ocultar transcrição' : 'Ver transcrição'}
+          </button>
+          {showTranscript && (
+            <p className="text-[11px] text-muted-foreground italic leading-relaxed max-w-[260px]">
+              &ldquo;{transcript}&rdquo;
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -221,7 +241,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
 
     if (message.content_type === 'audio') {
       if (mediaSrc) {
-        return <AudioPlayer src={mediaSrc} />
+        return <AudioPlayer src={mediaSrc} transcript={message.media_transcript} />
       }
       return <span className="italic text-muted-foreground">[Áudio indisponível]</span>
     }
@@ -285,7 +305,18 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
         }`}>
           {renderContent()}
         </div>
-        <span className="text-[10px] text-muted-foreground px-1">{relativeTime(message.created_at)}</span>
+        <div className="flex items-center gap-1 px-1">
+          <span className="text-[10px] text-muted-foreground">{relativeTime(message.created_at)}</span>
+          {isOutgoing && message.whatsapp_status && (
+            message.whatsapp_status === 'read' || message.whatsapp_status === 'played' ? (
+              <CheckCheck size={11} className="text-blue-400" />
+            ) : message.whatsapp_status === 'delivered' ? (
+              <CheckCheck size={11} className="text-muted-foreground" />
+            ) : message.whatsapp_status === 'sent' ? (
+              <Check size={11} className="text-muted-foreground" />
+            ) : null
+          )}
+        </div>
       </div>
     </div>
   )
@@ -483,6 +514,17 @@ export function ChatView({ conversationId, clientId, onConversationUpdate }: Pro
           if (exists) return prev
           return [...prev, payload.new as Message]
         })
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      }, (payload) => {
+        // Merge atualização (media_url, whatsapp_status, media_transcript etc.)
+        setMessages((prev) => prev.map((m) =>
+          m.id === (payload.new as Message).id ? { ...m, ...(payload.new as Message) } : m
+        ))
       })
       .on('postgres_changes', {
         event: 'UPDATE',

@@ -80,8 +80,8 @@ export async function POST(
 
   const mediatype = resolveMediatype(mimetype)
 
-  // Envia via Evolution API
-  await sendMediaMessage(instanceName, identifier, mediatype, mimetype, base64, caption, file_name)
+  // Envia via Evolution API — captura o message ID para rastreamento de entrega
+  const evolutionMsgId = await sendMediaMessage(instanceName, identifier, mediatype, mimetype, base64, caption, file_name)
 
   // Upload para Supabase Storage para persistência
   let storagePath: string | null = null
@@ -114,6 +114,7 @@ export async function POST(
       content_type: contentType,
       sender_type: 'operator',
       from_who: 'human',
+      evolution_message_id: evolutionMsgId ?? null,
       media_url: storagePath,
       media_mime_type: mimetype,
       media_filename: file_name ?? null,

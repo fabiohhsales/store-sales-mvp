@@ -58,6 +58,8 @@ export interface BotMessage {
   media_duration_seconds: number | null
   media_width: number | null
   media_height: number | null
+  media_transcript: string | null
+  whatsapp_status: string | null
 }
 
 export interface BotAppointment {

@@ -120,15 +120,25 @@ export async function deleteInstance(instanceName: string): Promise<void> {
   })
 }
 
+interface EvolutionSendResponse {
+  key?: { id?: string }
+}
+
+// Returns the Evolution message ID (key.id) or null on failure / unknown response.
 export async function sendTextMessage(
   instanceName: string,
   remoteJid: string,
   text: string
-): Promise<void> {
-  await evolutionFetch(`/message/sendText/${instanceName}`, {
-    method: 'POST',
-    body: JSON.stringify({ number: remoteJid, text }),
-  })
+): Promise<string | null> {
+  try {
+    const res = await evolutionFetch<EvolutionSendResponse>(`/message/sendText/${instanceName}`, {
+      method: 'POST',
+      body: JSON.stringify({ number: remoteJid, text }),
+    })
+    return res.key?.id ?? null
+  } catch (err) {
+    throw err // re-throw so callers still get the error
+  }
 }
 
 export async function sendMediaMessage(
@@ -139,8 +149,8 @@ export async function sendMediaMessage(
   base64: string,
   caption?: string,
   fileName?: string
-): Promise<void> {
-  await evolutionFetch(`/message/sendMedia/${instanceName}`, {
+): Promise<string | null> {
+  const res = await evolutionFetch<EvolutionSendResponse>(`/message/sendMedia/${instanceName}`, {
     method: 'POST',
     body: JSON.stringify({
       number: remoteJid,
@@ -151,6 +161,7 @@ export async function sendMediaMessage(
       fileName: fileName ?? undefined,
     }),
   })
+  return res.key?.id ?? null
 }
 
 export async function sendMediaByUrl(
@@ -161,8 +172,8 @@ export async function sendMediaByUrl(
   mediaUrl: string,
   caption?: string,
   fileName?: string
-): Promise<void> {
-  await evolutionFetch(`/message/sendMedia/${instanceName}`, {
+): Promise<string | null> {
+  const res = await evolutionFetch<EvolutionSendResponse>(`/message/sendMedia/${instanceName}`, {
     method: 'POST',
     body: JSON.stringify({
       number: remoteJid,
@@ -173,6 +184,7 @@ export async function sendMediaByUrl(
       fileName: fileName ?? undefined,
     }),
   })
+  return res.key?.id ?? null
 }
 
 export async function setWebhook(
