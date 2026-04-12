@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await query.limit(100)
   if (error) {
     console.error('[desk/conversations] query error:', error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
 
   console.log('[desk/conversations] returned %d conversations', (data ?? []).length)

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
-import { Loader2, BarChart3, Clock, AlertTriangle, CheckCircle2, Users, TrendingUp, Download } from 'lucide-react'
+import { Loader2, BarChart3, Clock, AlertTriangle, CheckCircle2, Users, TrendingUp, Download, Timer, Hourglass } from 'lucide-react'
 
 interface AnalyticsData {
   period: string
@@ -14,6 +14,24 @@ interface AnalyticsData {
   operatorCounts: Record<string, number>
   operatorNames: Record<string, string>
   awaitingLong: number
+}
+
+interface SlaStats {
+  count: number
+  avg: number | null
+  median: number | null
+  p95: number | null
+  max: number | null
+}
+
+interface SlaData {
+  period: { days: number; since: string }
+  total: number
+  resolved: number
+  waitTime: SlaStats
+  serviceTime: SlaStats
+  volumeByDay: Record<string, number>
+  stageDistribution: Record<string, number>
 }
 
 type Period = 'today' | 'week' | 'month'
@@ -80,19 +98,26 @@ function StageBar({ label, value, max, color }: { label: string; value: number; 
 
 export function AnalyticsView({ clientId }: Props) {
   const [data, setData] = useState<AnalyticsData | null>(null)
+  const [sla, setSla] = useState<SlaData | null>(null)
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<Period>('week')
   const [exporting, setExporting] = useState(false)
 
+  const slaDays = { today: 1, week: 7, month: 30 }[period]
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/desk/analytics?client_id=${clientId}&period=${period}`)
-      if (res.ok) setData(await res.json())
+      const [analyticsRes, slaRes] = await Promise.all([
+        fetch(`/api/desk/analytics?client_id=${clientId}&period=${period}`),
+        fetch(`/api/desk/stats/sla?days=${slaDays}`),
+      ])
+      if (analyticsRes.ok) setData(await analyticsRes.json())
+      if (slaRes.ok) setSla(await slaRes.json())
     } finally {
       setLoading(false)
     }
-  }, [clientId, period])
+  }, [clientId, period, slaDays])
 
   useEffect(() => { void load() }, [load])
 
@@ -269,6 +294,71 @@ export function AnalyticsView({ clientId }: Props) {
                   })}
               </div>
             </div>
+          )}
+
+          {/* SLA Dashboard */}
+          {sla && (
+            <>
+              {/* SLA KPIs */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <MetricCard
+                  icon={<Timer size={18} className="text-amber-500" />}
+                  label="Espera média (fila → atendimento)"
+                  value={formatMinutes(sla.waitTime.avg)}
+                  sub={sla.waitTime.count > 0 ? `em ${sla.waitTime.count} atendimentos` : 'sem dados'}
+                  highlight={sla.waitTime.avg !== null && sla.waitTime.avg > 30}
+                />
+                <MetricCard
+                  icon={<Hourglass size={18} className="text-purple-500" />}
+                  label="Espera P95"
+                  value={formatMinutes(sla.waitTime.p95)}
+                  sub={sla.waitTime.max !== null ? `máx ${formatMinutes(sla.waitTime.max)}` : '—'}
+                  highlight={sla.waitTime.p95 !== null && sla.waitTime.p95 > 60}
+                />
+                <MetricCard
+                  icon={<Clock size={18} className="text-teal-500" />}
+                  label="Atendimento médio"
+                  value={formatMinutes(sla.serviceTime.avg)}
+                  sub={sla.serviceTime.count > 0 ? `em ${sla.serviceTime.count} resolvidas` : 'sem dados'}
+                />
+                <MetricCard
+                  icon={<CheckCircle2 size={18} className="text-green-500" />}
+                  label="Total no período"
+                  value={String(sla.total)}
+                  sub={`${sla.resolved} resolvidas`}
+                />
+              </div>
+
+              {/* Volume by day */}
+              {Object.keys(sla.volumeByDay).length > 0 && (
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <h2 className="text-sm font-medium text-foreground mb-4 flex items-center gap-2">
+                    <BarChart3 size={15} className="text-primary" />
+                    Volume diário
+                  </h2>
+                  <div className="flex items-end gap-1 h-24">
+                    {Object.entries(sla.volumeByDay)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([day, count]) => {
+                        const maxCount = Math.max(...Object.values(sla.volumeByDay))
+                        const pct = maxCount > 0 ? (count / maxCount) * 100 : 0
+                        return (
+                          <div key={day} className="flex-1 flex flex-col items-center gap-1">
+                            <span className="text-[9px] text-muted-foreground">{count}</span>
+                            <div
+                              className="w-full bg-primary/80 rounded-t-sm min-h-[2px]"
+                              style={{ height: `${Math.max(pct, 3)}%` }}
+                            />
+                            <span className="text-[9px] text-muted-foreground/60">
+                              {day.slice(8)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

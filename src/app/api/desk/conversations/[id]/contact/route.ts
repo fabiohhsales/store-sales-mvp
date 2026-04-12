@@ -25,7 +25,10 @@ export async function GET(
     .eq('id', conversationId)
     .maybeSingle()
 
-  if (convError) return NextResponse.json({ error: convError.message }, { status: 500 })
+  if (convError) {
+    console.error('[desk/contact] conv error:', convError)
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
+  }
   if (!conv) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
 
   if (!deskUser.isAdmin && conv.client_id !== deskUser.clientId) {
@@ -43,7 +46,10 @@ export async function GET(
     .eq('id', conv.contact_id)
     .maybeSingle()
 
-  if (contactError) return NextResponse.json({ error: contactError.message }, { status: 500 })
+  if (contactError) {
+    console.error('[desk/contact] contact error:', contactError)
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
+  }
   if (!contact) return NextResponse.json({ error: 'Contato não encontrado' }, { status: 404 })
 
   // 3. Histórico de conversas deste contato neste cliente (exclui a conversa atual)
@@ -126,7 +132,7 @@ export async function PATCH(
 
   if (error) {
     console.error('[desk/contact] PATCH error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
 
   return NextResponse.json(updated)

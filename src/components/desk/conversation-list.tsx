@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Bot, Clock, UserCheck, CheckCheck, MessageSquare, Search } from 'lucide-react'
+import { Bot, Clock, UserCheck, CheckCheck, MessageSquare, Search, AlertTriangle } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -92,6 +92,29 @@ function getWaitingBadge(date: string | null): { label: string; className: strin
     label: `Espera ${wait}`,
     className: 'border-destructive/30 bg-destructive/10 text-destructive',
   }
+}
+
+type ListAlert = { icon: 'warning' | 'danger'; tip: string }
+
+function deriveListAlerts(conv: DeskConversation): ListAlert | null {
+  const now = Date.now()
+
+  if (conv.stage === 'awaiting_human') {
+    const waitMs = conv.last_incoming_at
+      ? now - new Date(conv.last_incoming_at).getTime()
+      : 0
+    if (waitMs > 60 * 60_000) return { icon: 'danger', tip: 'SLA em risco — espera >1h' }
+    if (!conv.assigned_operator_id && waitMs > 30 * 60_000)
+      return { icon: 'warning', tip: 'Sem operador atribuído há >30min' }
+  }
+
+  if (conv.stage === 'in_service' && conv.last_outgoing_at) {
+    const silenceMs = now - new Date(conv.last_outgoing_at).getTime()
+    if (silenceMs > 2 * 60 * 60_000)
+      return { icon: 'warning', tip: 'Sem resposta do operador há >2h' }
+  }
+
+  return null
 }
 
 export function ConversationList({ conversations, selectedId, stageFilter, loading, stageCounts, currentUserId, onSelect, onStageChange }: Props) {
@@ -209,6 +232,7 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
               const isAwaitingHuman = conv.stage === 'awaiting_human'
               const waitingBadge = isAwaitingHuman ? getWaitingBadge(conv.last_incoming_at) : null
               const isAssignedToMe = !!(currentUserId && conv.assigned_operator_id === currentUserId)
+              const alert = deriveListAlerts(conv)
 
               return (
                 <button
@@ -221,12 +245,26 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                   }`}
                 >
                   {/* Avatar */}
-                  <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                    isAwaitingHuman ? 'bg-destructive/15 text-destructive' :
-                    isSelected ? 'bg-primary/15 text-primary' :
-                    'bg-secondary text-muted-foreground'
-                  }`}>
-                    {getInitials(conv.contacts?.name)}
+                  <div className="relative flex-shrink-0">
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold ${
+                      isAwaitingHuman ? 'bg-destructive/15 text-destructive' :
+                      isSelected ? 'bg-primary/15 text-primary' :
+                      'bg-secondary text-muted-foreground'
+                    }`}>
+                      {getInitials(conv.contacts?.name)}
+                    </div>
+                    {alert && (
+                      <span
+                        title={alert.tip}
+                        className={`absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full ${
+                          alert.icon === 'danger'
+                            ? 'bg-destructive text-destructive-foreground'
+                            : 'bg-amber-500 text-white'
+                        }`}
+                      >
+                        <AlertTriangle size={10} />
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex-1 min-w-0">

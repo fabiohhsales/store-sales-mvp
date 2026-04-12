@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ConversationList } from './conversation-list'
 import { ChatView } from './chat-view'
@@ -149,6 +149,36 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
       Notification.requestPermission()
     }
   }, [])
+
+  // Periodic SLA alert check — toast when conversations cross the 1h threshold
+  const alertedIds = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    const checkAlerts = () => {
+      const now = Date.now()
+      for (const conv of conversations) {
+        if (conv.stage !== 'awaiting_human' || !conv.last_incoming_at) continue
+        const waitMs = now - new Date(conv.last_incoming_at).getTime()
+        if (waitMs > 60 * 60_000 && !alertedIds.current.has(conv.id)) {
+          alertedIds.current.add(conv.id)
+          const name = conv.contacts?.name ?? conv.contacts?.phone_number ?? 'Paciente'
+          toast.warning(`SLA em risco — ${name}`, {
+            description: 'Esperando há mais de 1 hora',
+            duration: 8000,
+          })
+        }
+      }
+      // Clean up resolved / no longer awaiting
+      for (const id of alertedIds.current) {
+        const conv = conversations.find(c => c.id === id)
+        if (!conv || conv.stage !== 'awaiting_human') alertedIds.current.delete(id)
+      }
+    }
+
+    checkAlerts()
+    const interval = setInterval(checkAlerts, 60_000)
+    return () => clearInterval(interval)
+  }, [conversations])
 
   return (
     <div className="flex h-full w-full overflow-hidden">

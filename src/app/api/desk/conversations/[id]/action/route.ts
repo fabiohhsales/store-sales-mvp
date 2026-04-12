@@ -56,7 +56,7 @@ export async function POST(
       .single()
     if (error) {
       console.error('[desk/action] assume error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
     }
     newStage = data.stage
 
@@ -79,7 +79,7 @@ export async function POST(
       .single()
     if (error) {
       console.error('[desk/action] return error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
     }
     newStage = data.stage
 
@@ -103,7 +103,7 @@ export async function POST(
       .single()
     if (error) {
       console.error('[desk/action] resolve error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
     }
     newStage = data.stage
 

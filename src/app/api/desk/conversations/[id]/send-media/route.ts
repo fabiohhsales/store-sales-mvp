@@ -124,7 +124,10 @@ export async function POST(
     .select()
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    console.error('[desk/send-media] insert error:', error)
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
+  }
 
   await admin.from('conversations').update({
     last_outgoing_at: new Date().toISOString(),

@@ -38,7 +38,7 @@ export async function GET(
 
   if (error) {
     console.error('[notes] GET error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
 
   return NextResponse.json(data ?? [])
@@ -101,7 +101,7 @@ export async function POST(
 
   if (error) {
     console.error('[notes] POST error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
 
   return NextResponse.json(data, { status: 201 })

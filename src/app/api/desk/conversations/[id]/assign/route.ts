@@ -66,7 +66,7 @@ export async function PATCH(
 
   if (error) {
     console.error('[desk/assign] error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
 
   console.log(`[desk/assign] conv=${conversationId} operator=${operatorId ?? 'none'}`)
@@ -106,7 +106,8 @@ export async function GET(
     .order('display_name', { ascending: true, nullsFirst: false })
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error('[desk/assign] operators error:', error)
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
 
   return NextResponse.json({

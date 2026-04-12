@@ -28,7 +28,10 @@ export async function GET(
     .eq('id', id)
     .maybeSingle()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    console.error('[desk/conversations] detail error:', error)
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
+  }
   if (!conversation) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
 
   // Valida que o operador tem acesso a este cliente
@@ -53,7 +56,7 @@ export async function GET(
 
   if (msgError) {
     console.error(`[desk/conversations/${id}] Erro ao buscar mensagens: ${msgError.message}`)
-    return NextResponse.json({ error: msgError.message, conversation }, { status: 500 })
+    return NextResponse.json({ error: 'Erro ao buscar mensagens', conversation }, { status: 500 })
   }
 
   console.log(`[desk/conversations/${id}] ${messages?.length ?? 0} mensagem(ns) retornada(s)`)
