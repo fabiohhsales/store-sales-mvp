@@ -279,7 +279,7 @@ export interface PanelBotConfig {
   updated_at: string
 }
 
-export type PanelBotConfigInsert = Omit<PanelBotConfig, 'id' | 'created_at' | 'updated_at'> & {
+export type PanelBotConfigInsert = Omit<PanelBotConfig, 'id' | 'created_at' | 'updated_at' | 'lead_followup_steps' | 'atendimento_followup_steps' | 'agendado_followup_steps'> & {
   id?: string
   lead_followup_steps?: FollowupStepConfig[] | null
   atendimento_followup_steps?: FollowupStepConfig[] | null
