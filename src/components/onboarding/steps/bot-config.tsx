@@ -27,6 +27,8 @@ import type { PanelBotConfig } from '@/types/database'
 interface BotConfigStepProps {
   clientId: string
   initialConfig?: Partial<PanelBotConfig>
+  /** Whether the user actually connected Google Calendar in step 3 (vs. skipped). */
+  googleConnected?: boolean
   onComplete: (config: Partial<PanelBotConfig>) => void
 }
 
@@ -66,7 +68,7 @@ function buildInitialDraft(config?: Partial<PanelBotConfig>): OnboardingDraft {
   }
 }
 
-export function BotConfigStep({ clientId, initialConfig, onComplete }: BotConfigStepProps) {
+export function BotConfigStep({ clientId, initialConfig, googleConnected = false, onComplete }: BotConfigStepProps) {
   const [loading, setLoading] = useState(false)
   const [subStep, setSubStep] = useState(1)
   const [draft, setDraft] = useState<OnboardingDraft>(() => buildInitialDraft(initialConfig))
@@ -169,7 +171,7 @@ export function BotConfigStep({ clientId, initialConfig, onComplete }: BotConfig
         {subStep === 1 && <IdentityBlock draft={draft} onChange={handleChange} />}
         {subStep === 2 && <GoalsBlock draft={draft} onChange={handleChange} />}
         {subStep === 3 && <OperationsBlock draft={draft} onChange={handleChange} />}
-        {subStep === 4 && <ReviewBlock draft={draft} />}
+        {subStep === 4 && <ReviewBlock draft={draft} googleConnected={googleConnected} />}
 
         <div className="flex items-center justify-between mt-6 pt-4 border-t">
           <Button

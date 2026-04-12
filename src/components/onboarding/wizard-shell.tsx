@@ -29,6 +29,8 @@ export function WizardShell() {
   const [clientId, setClientId] = useState(initialClientId)
   const [, setInstanceName] = useState('')
   const [botConfig, setBotConfig] = useState<Partial<PanelBotConfig>>({})
+  // Tracks whether Google Calendar was actually connected in step 3 (vs. skipped)
+  const [googleConnected, setGoogleConnected] = useState(false)
 
   const goToStep = useCallback(
     (step: number) => {
@@ -58,6 +60,7 @@ export function WizardShell() {
   )
 
   const handleCalendarSetup = useCallback(() => {
+    setGoogleConnected(true)
     goToStep(4)
   }, [goToStep])
 
@@ -98,6 +101,7 @@ export function WizardShell() {
         <BotConfigStep
           clientId={clientId}
           initialConfig={botConfig}
+          googleConnected={googleConnected}
           onComplete={handleBotConfigSaved}
         />
       )}

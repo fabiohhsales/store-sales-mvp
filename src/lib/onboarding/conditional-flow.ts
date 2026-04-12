@@ -38,6 +38,9 @@ export function getVisibleBlocks(draft: OnboardingDraft): OnboardingBlock[] {
 /**
  * Returns a short validation message if the draft is not ready to proceed
  * from a given sub-step, or null if it's ok.
+ *
+ * Level 1 — required fields (sub-steps 1 and 2)
+ * Level 2 — conditional coherence (sub-step 3)
  */
 export function validateSubStep(
   draft: OnboardingDraft,
@@ -48,10 +51,29 @@ export function validateSubStep(
       return 'Nome do responsável é obrigatório'
     }
   }
+
   if (subStep === 2) {
     if (!Object.values(draft.goals).some(Boolean)) {
       return 'Selecione ao menos um objetivo para o bot'
     }
   }
+
+  if (subStep === 3) {
+    // Level 2: validate operational coherence based on selected goals
+
+    // If scheduling is enabled, at least one working day must be active
+    if (draft.goals.schedules) {
+      const anyDayEnabled = Object.values(draft.workingHours).some((d) => d.enabled)
+      if (!anyDayEnabled) {
+        return 'Configure ao menos um dia de atendimento para habilitar agendamentos'
+      }
+    }
+
+    // If human handoff is enabled, at least one trigger must be selected
+    if (draft.goals.usesHumanHandoff && draft.flow.handoffReasons.length === 0) {
+      return 'Selecione ao menos um gatilho para ativar o atendimento humano'
+    }
+  }
+
   return null
 }

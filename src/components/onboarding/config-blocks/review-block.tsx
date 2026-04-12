@@ -5,6 +5,8 @@ import type { OnboardingDraft } from '@/types/onboarding'
 
 interface Props {
   draft: OnboardingDraft
+  /** Whether Google Calendar was connected in step 3. Used to warn about scheduling misconfiguration. */
+  googleConnected?: boolean
 }
 
 const SEGMENT_LABELS: Record<string, string> = {
@@ -47,7 +49,7 @@ function Row({ label, value, ok }: { label: string; value: string; ok: boolean }
   )
 }
 
-export function ReviewBlock({ draft }: Props) {
+export function ReviewBlock({ draft, googleConnected = false }: Props) {
   const { business, goals, flow, followupModes, services } = draft
 
   const goalText = [
@@ -69,8 +71,32 @@ export function ReviewBlock({ draft }: Props) {
 
   const serviceNames = services.filter((s) => s.name.trim()).map((s) => s.name).join(', ')
 
+  // Detect operational mismatches that would produce a broken config in production
+  const hasSchedulingWithoutCalendar = goals.schedules && !googleConnected
+  const hasHandoffWithoutReasons = goals.usesHumanHandoff && flow.handoffReasons.length === 0
+
+  const warnings: string[] = []
+  if (hasSchedulingWithoutCalendar) {
+    warnings.push('Agenda Google não conectada — o bot está configurado para agendar, mas a conta Google não foi conectada. Volte à etapa 3 para conectar.')
+  }
+  if (hasHandoffWithoutReasons) {
+    warnings.push('Atendimento humano ativo sem gatilhos definidos — selecione ao menos um motivo de transferência.')
+  }
+
   return (
     <div className="space-y-5">
+
+      {/* Operational warnings — only shown when a misconfiguration is detected */}
+      {warnings.length > 0 && (
+        <div className="space-y-2">
+          {warnings.map((w, i) => (
+            <div key={i} className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex gap-2.5">
+              <AlertCircle className="size-4 text-amber-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-amber-800 leading-snug">{w}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Narrative summary */}
       <div className="rounded-lg bg-muted/40 p-4">

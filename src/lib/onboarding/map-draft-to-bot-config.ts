@@ -68,6 +68,13 @@ export function mapOnboardingDraftToPanelBotConfig(
     (r) => HANDOFF_KEYWORDS[r] ?? []
   )
 
+  // ── Custom instructions derived from goals ────────────────────────────────
+  // goals.supports has no dedicated DB flag; it is surfaced via custom
+  // instructions so the AI prompt reflects the intent.
+  const ai_custom_instructions: string | null = goals.supports
+    ? 'O bot deve atender dúvidas e acompanhar o paciente após o atendimento, respondendo questões pós-consulta com atenção e cuidado.'
+    : null
+
   return {
     client_id: clientId,
 
@@ -96,7 +103,7 @@ export function mapOnboardingDraftToPanelBotConfig(
     ai_greeting_message: null,
     ai_tone: business.tone,
     ai_language: business.language,
-    ai_custom_instructions: null,
+    ai_custom_instructions,
     process_flow_guide: null,
     objections_guide: null,
     qualification_questions_guide: null,
