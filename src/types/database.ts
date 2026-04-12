@@ -281,6 +281,9 @@ export interface PanelBotConfig {
 
 export type PanelBotConfigInsert = Omit<PanelBotConfig, 'id' | 'created_at' | 'updated_at'> & {
   id?: string
+  lead_followup_steps?: FollowupStepConfig[] | null
+  atendimento_followup_steps?: FollowupStepConfig[] | null
+  agendado_followup_steps?: AgendadoFollowupStepConfig[] | null
 }
 
 export type PanelBotConfigUpdate = Partial<Omit<PanelBotConfig, 'id' | 'client_id' | 'created_at'>>
