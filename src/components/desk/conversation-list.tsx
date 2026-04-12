@@ -251,6 +251,14 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                         Você
                       </Badge>
                     )}
+                    {conv.journey_stage && (
+                      <Badge
+                        variant="outline"
+                        className="mt-1.5 h-4 px-1.5 text-[10px] border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400"
+                      >
+                        {conv.journey_stage}
+                      </Badge>
+                    )}
                   </div>
                 </button>
               )

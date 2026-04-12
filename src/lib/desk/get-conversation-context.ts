@@ -166,14 +166,17 @@ export async function getConversationContext(
   const conv = convResult.data
   if (!conv) return null
 
-  const contact = conv.contacts as unknown as {
+  // Supabase may return the joined relation as an object or array depending on cardinality
+  const rawContacts = conv.contacts
+  const contactRow = Array.isArray(rawContacts) ? rawContacts[0] : rawContacts
+  const contact = (contactRow as {
     id: string
     name: string | null
     phone_number: string | null
     identifier: string | null
     custom_data: Record<string, string> | null
     intake_completed_at: string | null
-  } | null
+  } | undefined) ?? null
 
   const intakeEnabled = botConfigResult.data?.intake_enabled ?? false
   const intakeFields: IntakeFieldConfig[] = (botConfigResult.data?.intake_fields as IntakeFieldConfig[]) ?? []
