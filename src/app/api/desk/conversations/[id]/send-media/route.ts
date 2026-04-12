@@ -18,8 +18,8 @@ function resolveMediatype(mimetype: string): 'image' | 'document' | 'audio' | 'v
   return 'document'
 }
 
-// Limite de payload: 10 MB em base64 (~7.5 MB de arquivo)
-const MAX_BASE64_BYTES = 10 * 1024 * 1024
+// Limite de payload: 50 MB em base64 (~37.5 MB de arquivo)
+const MAX_BASE64_BYTES = 50 * 1024 * 1024
 
 export async function POST(
   request: NextRequest,
@@ -43,8 +43,10 @@ export async function POST(
   if (!base64 || !mimetype) {
     return NextResponse.json({ error: 'base64 e mimetype são obrigatórios' }, { status: 400 })
   }
+    return NextResponse.json({ error: 'Arquivo excede o limite de 50 MB' }, { status: 413 })
+  }
   if (Buffer.byteLength(base64, 'utf8') > MAX_BASE64_BYTES) {
-    return NextResponse.json({ error: 'Arquivo excede o limite de 10 MB' }, { status: 413 })
+    return NextResponse.json({ error: 'Arquivo excede o limite de 50 MB' }, { status: 413 })
   }
 
   const admin = createAdminClient()

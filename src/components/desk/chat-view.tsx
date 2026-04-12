@@ -945,7 +945,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     e.target.value = ''
 
     if (file.size > 10 * 1024 * 1024) {
-      toast.error('Arquivo excede o limite de 10 MB')
+      toast.error('Arquivo excede o limite de 50 MB')
       return
     }
 
