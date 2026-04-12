@@ -944,7 +944,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     // Reset input para permitir re-upload do mesmo arquivo
     e.target.value = ''
 
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > 50 * 1024 * 1024) {
       toast.error('Arquivo excede o limite de 50 MB')
       return
     }

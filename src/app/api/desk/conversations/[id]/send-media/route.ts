@@ -43,9 +43,14 @@ export async function POST(
   if (!base64 || !mimetype) {
     return NextResponse.json({ error: 'base64 e mimetype são obrigatórios' }, { status: 400 })
   }
-    return NextResponse.json({ error: 'Arquivo excede o limite de 50 MB' }, { status: 413 })
+  // Decodifica base64 e valida tamanho real do arquivo
+  let fileBuffer: Buffer
+  try {
+    fileBuffer = Buffer.from(base64, 'base64')
+  } catch {
+    return NextResponse.json({ error: 'Base64 inválido' }, { status: 400 })
   }
-  if (Buffer.byteLength(base64, 'utf8') > MAX_BASE64_BYTES) {
+  if (fileBuffer.length > 50 * 1024 * 1024) {
     return NextResponse.json({ error: 'Arquivo excede o limite de 50 MB' }, { status: 413 })
   }
 
@@ -109,7 +114,7 @@ export async function POST(
 
   // Persiste no Supabase com content_type fiel ao tipo real da mídia
   const contentType = mediatype // image | audio | video | document
-  const mediaSizeBytes = Math.floor(Buffer.byteLength(base64, 'utf8') * 0.75) // base64 → bytes reais (aprox)
+  const mediaSizeBytes = fileBuffer.length
   const { data: message, error } = await admin
     .from('messages')
     .insert({

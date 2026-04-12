@@ -6,7 +6,11 @@ UPDATE storage.buckets
 SET max_file_size = 52428800
 WHERE id = 'desk-media';
 
--- Add audio/webm;codecs=opus to allowed_mime_types
+-- Adiciona audio/webm;codecs=opus apenas se ainda não existir
 UPDATE storage.buckets
-SET allowed_mime_types = array_append(allowed_mime_types, 'audio/webm;codecs=opus')
+SET allowed_mime_types = allowed_mime_types || ARRAY[
+	CASE WHEN NOT ('audio/webm;codecs=opus' = ANY(allowed_mime_types))
+		THEN 'audio/webm;codecs=opus'
+		ELSE NULL END
+]::text[]
 WHERE id = 'desk-media';
