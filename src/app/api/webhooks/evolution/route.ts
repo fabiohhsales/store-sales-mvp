@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { runAgent } from '@/lib/bot/agent'
-import { dispatch } from '@/lib/bot/dispatcher'
 import { normalizeEvolutionPayload } from '@/lib/bot/normalize-evolution'
-import { runEvolutionPipeline, refreshMessageHistory } from '@/lib/bot/pipeline'
+import { runEvolutionPipeline } from '@/lib/bot/pipeline'
+import { runConversationBotTurn } from '@/lib/bot/run-conversation-turn'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncConnectionStateFromWebhook } from '@/lib/whatsapp/connection-state'
 import type { EvolutionWebhookPayload } from '@/types/bot'
@@ -88,13 +87,8 @@ async function runPipeline(msg: import('@/types/bot').NormalizedEvolutionMessage
       return
     }
 
-    // 4. Re-fetch message history (includes all messages saved during debounce window)
-    const freshHistory = await refreshMessageHistory(conversation.id)
-    const freshResult = { ...result, messageHistory: freshHistory }
-
-    // 5. Run AI and dispatch
-    const output = await runAgent(freshResult)
-    await dispatch(freshResult, output)
+    // 4. Run the same bot-turn pipeline used elsewhere in the app
+    await runConversationBotTurn(result)
   } catch (err) {
     console.error('[Evolution] Erro no pipeline:', err)
   }

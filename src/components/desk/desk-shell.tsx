@@ -258,7 +258,7 @@ export function DeskShell({ clientId, clientName, userEmail, userId, initialConv
                 }`}
               >
                 <BarChart3 size={13} />
-                <span className="hidden sm:inline">Analytics</span>
+                <span className="hidden sm:inline">Operacional</span>
               </button>
             </nav>
           </div>

@@ -20,6 +20,35 @@ import { getBotConfigByClientId } from '@/lib/db/bot-config'
 import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
 
+type StageCounts = { bot_triage: number; awaiting_human: number; in_service: number; resolved_week: number }
+type TemperatureCounts = { hot: number; warm: number; cold: number; frozen: number }
+type FollowupSentWeek = { lead: number; atendimento: number; agendado: number }
+type AgendaWeek = { total: number; confirmed: number; scheduled: number; noshow: number }
+
+interface FunnelResponse {
+  stageCounts: StageCounts
+  temperatureCounts: TemperatureCounts
+  followupSentWeek: FollowupSentWeek
+  agendaWeek: AgendaWeek
+  funnelCounts: Record<string, number>
+  funnelLabels: ReturnType<typeof sanitizeStageLabels>
+  operational: {
+    stageCounts: StageCounts
+    temperatureCounts: TemperatureCounts
+  }
+  commercial: {
+    funnelCounts: Record<string, number>
+    funnelLabels: ReturnType<typeof sanitizeStageLabels>
+    source: 'labels[]'
+  }
+  followup: {
+    sentWeek: FollowupSentWeek
+  }
+  agenda: {
+    week: AgendaWeek
+  }
+}
+
 function classifyTemperature(lastIncomingAt: string | null): 'hot' | 'warm' | 'cold' | 'frozen' {
   if (!lastIncomingAt) return 'frozen'
   const diffDays = (Date.now() - new Date(lastIncomingAt).getTime()) / (1000 * 60 * 60 * 24)
@@ -118,12 +147,29 @@ export async function GET(request: NextRequest) {
     else if (s === 'noshow') agendaWeek.noshow++
   }
 
-  return NextResponse.json({
+  const response: FunnelResponse = {
     stageCounts,
     temperatureCounts,
     followupSentWeek,
     agendaWeek,
     funnelCounts,
     funnelLabels: stageLabels,
-  })
+    operational: {
+      stageCounts,
+      temperatureCounts,
+    },
+    commercial: {
+      funnelCounts,
+      funnelLabels: stageLabels,
+      source: 'labels[]',
+    },
+    followup: {
+      sentWeek: followupSentWeek,
+    },
+    agenda: {
+      week: agendaWeek,
+    },
+  }
+
+  return NextResponse.json(response)
 }

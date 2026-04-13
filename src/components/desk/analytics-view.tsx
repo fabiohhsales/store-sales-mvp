@@ -153,8 +153,8 @@ export function AnalyticsView({ clientId }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Analytics</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">SLA e métricas operacionais</p>
+          <h1 className="text-lg font-semibold text-foreground">Operacional</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Stage, SLA e fila operacional</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
@@ -230,7 +230,7 @@ export function AnalyticsView({ clientId }: Props) {
           <div className="rounded-xl border border-border bg-card p-5">
             <h2 className="text-sm font-medium text-foreground mb-4 flex items-center gap-2">
               <BarChart3 size={15} className="text-primary" />
-              Fila atual por estágio
+              Fila operacional por estágio
             </h2>
             <div className="space-y-3">
               <StageBar

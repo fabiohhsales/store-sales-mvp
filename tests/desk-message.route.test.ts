@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/desk/auth', () => ({
   resolveDeskUser: mocks.resolveDeskUser,
+  applyRateLimit: vi.fn(() => null),
 }))
 
 vi.mock('@/lib/supabase/admin', () => ({
@@ -205,6 +206,25 @@ describe('POST /api/desk/conversations/[id]/message', () => {
       (c) => c.table === 'conversations' && c.op === 'update' && (c.payload as { stage?: string }).stage === 'in_service'
     )
     expect(stageReflips).toHaveLength(0)
+  })
+
+  it('persiste o evolution_message_id retornado por sendTextMessage', async () => {
+    mocks.resolveDeskUser.mockResolvedValue({ userId: 'op-1', clientId: 'client-A', isAdmin: false })
+    mocks.sendTextMessage.mockResolvedValue('EVO-TEXT-1')
+    const { admin, calls } = buildAdmin({
+      conv: { id: 'conv-1', client_id: 'client-A', stage: 'in_service', status: 'open' },
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+
+    const res = await POST(makeRequest({ content: 'olá' }), { params })
+    expect(res.status).toBe(200)
+
+    const messageInsert = calls.find((c) => c.table === 'messages' && c.op === 'insert')
+    expect(messageInsert?.payload).toMatchObject({
+      evolution_message_id: 'EVO-TEXT-1',
+      content: 'olá',
+      from_who: 'human',
+    })
   })
 
   it('two consecutive operator messages on an in_service conversation produce two upserts with strictly increasing paused_until', async () => {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { Shield, XCircle, Download, ChevronDown } from 'lucide-react'
+import { Shield, XCircle, Download, ChevronDown, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -14,6 +14,33 @@ import type { PanelAuditLog, PanelHealthCheck, PanelClientWithRelations } from '
 type Period = '24h' | '7d' | '30d' | 'all'
 
 interface ActivityPoint { date: string; count: number }
+
+interface SOCAlertSummary {
+  total: number
+  bySeverity: {
+    critical: number
+    warning: number
+    info: number
+  }
+  byType: Record<string, number>
+}
+
+interface SOCDiagnosticSummary {
+  overall_status: 'ok' | 'warning' | 'critical' | 'unknown'
+  clients: {
+    total: number
+    ok: number
+    warning: number
+    critical: number
+    unknown: number
+  }
+  global: {
+    phone_conflicts: number
+    draft_with_instance: number
+    stuck_conversations: number
+    expired_ai_pauses: number
+  }
+}
 
 interface SOCContentProps {
   initialLogs: PanelAuditLog[]
@@ -350,6 +377,29 @@ function exportLogsCSV(logs: PanelAuditLog[], clientMap: Record<string, string>)
   URL.revokeObjectURL(url)
 }
 
+function SeverityCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: number
+  tone: 'critical' | 'warning' | 'info'
+}) {
+  const toneClasses = {
+    critical: 'border-red-200 bg-red-50 text-red-800',
+    warning: 'border-yellow-200 bg-yellow-50 text-yellow-800',
+    info: 'border-blue-200 bg-blue-50 text-blue-800',
+  }[tone]
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 ${toneClasses}`}>
+      <p className="text-xs opacity-80">{label}</p>
+      <p className="text-2xl font-semibold">{value}</p>
+    </div>
+  )
+}
+
 // --- Main Component ---
 
 export function SOCContent({
@@ -361,6 +411,10 @@ export function SOCContent({
   errorHealthChecks,
   activityData,
 }: SOCContentProps) {
+  const [alertSummary, setAlertSummary] = useState<SOCAlertSummary | null>(null)
+  const [diagnosticSummary, setDiagnosticSummary] = useState<SOCDiagnosticSummary | null>(null)
+  const [hubLoading, setHubLoading] = useState(true)
+
   // Audit state
   const [logs, setLogs] = useState(initialLogs)
   const [logsTotal, setLogsTotal] = useState<number | null>(null)
@@ -387,6 +441,36 @@ export function SOCContent({
   // Refs para ignorar o efeito no mount inicial
   const logsMounted = useRef(false)
   const checksMounted = useRef(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadHubSummary = async () => {
+      try {
+        const [socRes, diagnosticRes] = await Promise.all([
+          fetch('/api/soc'),
+          fetch('/api/soc/diagnostic'),
+        ])
+
+        if (!cancelled && socRes.ok) {
+          const data = await socRes.json()
+          setAlertSummary(data.summary ?? null)
+        }
+
+        if (!cancelled && diagnosticRes.ok) {
+          const data = await diagnosticRes.json()
+          setDiagnosticSummary(data.summary ?? null)
+        }
+      } finally {
+        if (!cancelled) setHubLoading(false)
+      }
+    }
+
+    loadHubSummary()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Fetch logs quando filtros mudam
   useEffect(() => {
@@ -455,6 +539,89 @@ export function SOCContent({
           Centro de Operações
         </h1>
         <span className="text-sm text-muted-foreground border-l border-border pl-3">SOC</span>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Resumo de alertas</h2>
+              <p className="text-xs text-muted-foreground">Sinalização consolidada por severidade</p>
+            </div>
+          </div>
+          {hubLoading ? (
+            <div className="grid grid-cols-3 gap-2">
+              <div className="h-16 animate-pulse rounded-lg bg-secondary/60" />
+              <div className="h-16 animate-pulse rounded-lg bg-secondary/60" />
+              <div className="h-16 animate-pulse rounded-lg bg-secondary/60" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              <SeverityCard
+                label="Críticos"
+                value={alertSummary?.bySeverity.critical ?? 0}
+                tone="critical"
+              />
+              <SeverityCard
+                label="Avisos"
+                value={alertSummary?.bySeverity.warning ?? 0}
+                tone="warning"
+              />
+              <SeverityCard
+                label="Info"
+                value={alertSummary?.bySeverity.info ?? 0}
+                tone="info"
+              />
+            </div>
+          )}
+          <p className="mt-3 text-xs text-muted-foreground">
+            {alertSummary?.total ?? 0} alerta{(alertSummary?.total ?? 0) !== 1 ? 's' : ''} ativos
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Resumo diagnóstico</h2>
+              <p className="text-xs text-muted-foreground">Consumo do /api/soc/diagnostic</p>
+            </div>
+          </div>
+          {hubLoading ? (
+            <div className="grid grid-cols-4 gap-2">
+              <div className="h-16 animate-pulse rounded-lg bg-secondary/60" />
+              <div className="h-16 animate-pulse rounded-lg bg-secondary/60" />
+              <div className="h-16 animate-pulse rounded-lg bg-secondary/60" />
+              <div className="h-16 animate-pulse rounded-lg bg-secondary/60" />
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 gap-2">
+                <div className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">OK</p>
+                  <p className="text-lg font-semibold text-foreground">{diagnosticSummary?.clients.ok ?? 0}</p>
+                </div>
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2">
+                  <p className="text-[11px] text-yellow-600">Aviso</p>
+                  <p className="text-lg font-semibold text-yellow-800">{diagnosticSummary?.clients.warning ?? 0}</p>
+                </div>
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                  <p className="text-[11px] text-red-600">Crítico</p>
+                  <p className="text-lg font-semibold text-red-800">{diagnosticSummary?.clients.critical ?? 0}</p>
+                </div>
+                <div className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Global</p>
+                  <p className="text-lg font-semibold text-foreground">{(diagnosticSummary?.global.phone_conflicts ?? 0) + (diagnosticSummary?.global.draft_with_instance ?? 0) + (diagnosticSummary?.global.stuck_conversations ?? 0)}</p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Status geral: {diagnosticSummary?.overall_status ?? 'unknown'} ·
+                Pausas expiradas: {diagnosticSummary?.global.expired_ai_pauses ?? 0}
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Alertas críticos */}

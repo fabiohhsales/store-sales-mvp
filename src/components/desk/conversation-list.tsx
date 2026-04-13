@@ -34,6 +34,12 @@ function getInitials(name: string | null | undefined): string {
   return name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()
 }
 
+function formatCommercialLabel(label: string): string {
+  return label
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
 function relativeTime(date: string | null): string {
   if (!date) return ''
   try {
@@ -106,21 +112,25 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
             className="h-8 pl-7 text-xs"
           />
         </div>
+        <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">Funil comercial</p>
         {journeyStages.length > 0 && (
           <select
             value={journeyFilter}
             onChange={(e) => setJourneyFilter(e.target.value)}
             className="mt-1 h-7 w-full rounded-md border border-border bg-background px-2 text-[11px] text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           >
-            <option value="all">Todas as jornadas</option>
+            <option value="all">Todo o funil comercial</option>
             {journeyStages.map((js) => (
-              <option key={js} value={js}>{js}</option>
+              <option key={js} value={js}>{formatCommercialLabel(js)}</option>
             ))}
           </select>
         )}
       </div>
 
       {/* Tabs de stage */}
+      <div className="px-2 pt-1">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Operacional</p>
+      </div>
       <div className="flex flex-col gap-0.5 p-2 border-b border-border">
         {STAGES.map((stage) => {
           const Icon = stage.icon
@@ -268,7 +278,7 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                         variant="outline"
                         className="mt-1.5 h-4 px-1.5 text-[10px] border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400"
                       >
-                        {conv.journey_stage}
+                        Comercial: {formatCommercialLabel(conv.journey_stage)}
                       </Badge>
                     )}
                     {conv.handoff_reason_code && (

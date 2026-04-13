@@ -48,6 +48,23 @@ export interface IntakeField {
   value: string | null
 }
 
+export interface OperationalStatusModel {
+  stage: string
+  conductionMode: ConductionMode
+  slaStatus: SlaStatus
+  lastSystemAction: string | null
+}
+
+export interface CommercialStatusModel {
+  labels: string[]
+  journeyStage: string | null
+}
+
+export interface StatusModel {
+  operational: OperationalStatusModel
+  commercial: CommercialStatusModel
+}
+
 // ── Main type ────────────────────────────────────────────────────────────────
 
 export interface ConversationContext {
@@ -85,6 +102,8 @@ export interface ConversationContext {
     followupStatus: FollowupContextStatus
     lastSystemAction: string | null
   }
+
+  statusModel: StatusModel
 
   appointment: {
     id: string

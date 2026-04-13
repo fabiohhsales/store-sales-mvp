@@ -19,8 +19,19 @@ export interface SOCAlert {
   action_url: string
 }
 
+export interface SOCAlertSummary {
+  total: number
+  bySeverity: {
+    critical: number
+    warning: number
+    info: number
+  }
+  byType: Record<string, number>
+}
+
 interface CacheEntry {
   alerts: SOCAlert[]
+  summary: SOCAlertSummary
   checked_at: string
 }
 
@@ -185,6 +196,25 @@ async function buildAlertsForClient(client: PanelClientWithRelations): Promise<S
 
 const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 }
 
+function summarizeAlerts(alerts: SOCAlert[]): SOCAlertSummary {
+  const summary: SOCAlertSummary = {
+    total: alerts.length,
+    bySeverity: {
+      critical: 0,
+      warning: 0,
+      info: 0,
+    },
+    byType: {},
+  }
+
+  for (const alert of alerts) {
+    summary.bySeverity[alert.severity] += 1
+    summary.byType[alert.type] = (summary.byType[alert.type] ?? 0) + 1
+  }
+
+  return summary
+}
+
 async function checkGlobalConflicts(): Promise<SOCAlert[]> {
   const supabase = await createClient()
   const alerts: SOCAlert[] = []
@@ -270,7 +300,11 @@ async function runCheck(): Promise<CacheEntry> {
     (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
   )
 
-  return { alerts, checked_at: new Date().toISOString() }
+  return {
+    alerts,
+    summary: summarizeAlerts(alerts),
+    checked_at: new Date().toISOString(),
+  }
 }
 
 // --- Handler ---

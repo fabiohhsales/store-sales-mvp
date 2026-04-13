@@ -328,6 +328,7 @@ export async function getConversationContext(
   const stage = conv.stage ?? 'bot_triage'
   const conductionMode = deriveConductionMode(stage)
   const sla = resolveSlaStatus(conv.stage_changed_at)
+  const labels = Array.isArray(conv.labels) ? (conv.labels as string[]) : []
   const appointmentCtxStatus = resolveAppointmentStatus(conv.appointment_status ?? appointment?.status)
   const followupStatus = resolveFollowupStatus(conv.followup_cadence, conv.last_followup_at)
   const nextAppointmentAt = appointment?.date && appointment?.time
@@ -382,6 +383,19 @@ export async function getConversationContext(
       appointmentStatus: appointmentCtxStatus,
       followupStatus,
       lastSystemAction: conv.last_system_action ?? null,
+    },
+
+    statusModel: {
+      operational: {
+        stage,
+        conductionMode,
+        slaStatus: sla,
+        lastSystemAction: conv.last_system_action ?? null,
+      },
+      commercial: {
+        labels,
+        journeyStage: conv.journey_stage ?? null,
+      },
     },
 
     appointment,

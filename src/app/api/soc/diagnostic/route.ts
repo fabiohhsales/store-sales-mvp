@@ -50,6 +50,22 @@ interface DiagnosticReport {
   overall_status: CheckStatus
   checked_at: string
   duration_ms: number
+  summary: {
+    overall_status: CheckStatus
+    clients: {
+      total: number
+      ok: number
+      warning: number
+      critical: number
+      unknown: number
+    }
+    global: {
+      phone_conflicts: number
+      draft_with_instance: number
+      stuck_conversations: number
+      expired_ai_pauses: number
+    }
+  }
   global: GlobalDiagnostic
   clients: ClientDiagnostic[]
 }
@@ -316,6 +332,22 @@ export async function GET() {
       overall_status: overallStatus,
       checked_at: new Date().toISOString(),
       duration_ms: Date.now() - start,
+      summary: {
+        overall_status: overallStatus,
+        clients: {
+          total: clientDiagnostics.length,
+          ok: clientDiagnostics.filter((client) => client.overall === 'ok').length,
+          warning: clientDiagnostics.filter((client) => client.overall === 'warning').length,
+          critical: clientDiagnostics.filter((client) => client.overall === 'critical').length,
+          unknown: clientDiagnostics.filter((client) => client.overall === 'unknown').length,
+        },
+        global: {
+          phone_conflicts: global.phone_conflicts.length,
+          draft_with_instance: global.draft_with_instance.length,
+          stuck_conversations: global.stuck_conversations.length,
+          expired_ai_pauses: global.expired_ai_pauses,
+        },
+      },
       global,
       clients: clientDiagnostics,
     }
