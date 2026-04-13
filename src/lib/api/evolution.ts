@@ -164,6 +164,28 @@ export async function sendMediaMessage(
   return res.key?.id ?? null
 }
 
+export async function sendAudioMessage(
+  instanceName: string,
+  remoteJid: string,
+  mimetype: string,
+  base64: string,
+  caption?: string,
+  fileName?: string
+): Promise<string | null> {
+  const res = await evolutionFetch<EvolutionSendResponse>(`/message/sendMedia/${instanceName}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      number: remoteJid,
+      mediatype: 'audio',
+      mimetype,
+      media: base64,
+      caption: caption ?? undefined,
+      fileName: fileName ?? undefined,
+    }),
+  })
+  return res.key?.id ?? null
+}
+
 export async function sendMediaByUrl(
   instanceName: string,
   remoteJid: string,

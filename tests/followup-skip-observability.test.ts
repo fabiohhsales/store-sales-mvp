@@ -29,23 +29,32 @@ import { runAgendadoCadencePipeline } from '@/lib/followup/agendado-cadence'
  * way to trigger the `sem_whatsapp_config` skip in every cadence pipeline.
  */
 function buildAdminWithRowMissingWhatsapp() {
+  const result = {
+    data: [
+      {
+        client_id: 'client-A',
+        timezone: 'America/Sao_Paulo',
+        working_hours: null,
+        panel_clients: { id: 'client-A', status: 'active' },
+        panel_whatsapp_config: null,
+      },
+    ],
+    error: null,
+  }
+
   function selectChain() {
     return {
       eq() {
         return {
           eq() {
-            return Promise.resolve({
-              data: [
-                {
-                  client_id: 'client-A',
-                  timezone: 'America/Sao_Paulo',
-                  working_hours: null,
-                  panel_clients: { id: 'client-A', status: 'active' },
-                  panel_whatsapp_config: null,
-                },
-              ],
-              error: null,
-            })
+            return {
+              limit() {
+                return Promise.resolve(result)
+              },
+              then(onfulfilled: (value: typeof result) => unknown, onrejected?: (reason: unknown) => unknown) {
+                return Promise.resolve(result).then(onfulfilled, onrejected)
+              },
+            }
           },
         }
       },

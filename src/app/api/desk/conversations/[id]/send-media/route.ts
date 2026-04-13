@@ -1,16 +1,14 @@
 // POST /api/desk/conversations/[id]/send-media
-// Operador envia imagem/documento via Evolution API e persiste no Supabase.
+// Operador envia mídia via Evolution API e persiste no Supabase.
 // Body: { base64: string, mimetype: string, caption?: string, file_name?: string }
-// Tipos suportados: image/*, application/pdf, video/mp4, audio/*
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
 import { RATE_LIMITS } from '@/lib/desk/rate-limit'
-import { sendMediaMessage } from '@/lib/api/evolution'
+import { sendAudioMessage, sendMediaMessage } from '@/lib/api/evolution'
 import { extractEvolutionInstanceName, extractFirstContact } from '@/lib/desk/conversation-row'
 
-// Mapeia mimetype → mediatype da Evolution
 function resolveMediatype(mimetype: string): 'image' | 'document' | 'audio' | 'video' {
   if (mimetype.startsWith('image/')) return 'image'
   if (mimetype.startsWith('video/')) return 'video'
@@ -18,8 +16,45 @@ function resolveMediatype(mimetype: string): 'image' | 'document' | 'audio' | 'v
   return 'document'
 }
 
-// Limite efetivo do arquivo: 50 MB reais, alinhado com front e Storage.
 const MAX_FILE_BYTES = 50 * 1024 * 1024
+
+interface StorageUploadResult {
+  storagePath: string | null
+  errorMessage: string | null
+}
+
+function buildStoragePath(clientId: string, conversationId: string, messageId: string, mimetype: string): string {
+  const ext = mimetype.split('/')[1]?.split(';')[0] ?? 'bin'
+  return `${clientId}/${conversationId}/out-${messageId}.${ext}`
+}
+
+async function uploadOutboundMediaToStorage(
+  admin: ReturnType<typeof createAdminClient>,
+  clientId: string,
+  conversationId: string,
+  messageId: string,
+  mimetype: string,
+  fileBuffer: Buffer
+): Promise<StorageUploadResult> {
+  const storagePath = buildStoragePath(clientId, conversationId, messageId, mimetype)
+
+  try {
+    const { error: uploadError } = await admin.storage
+      .from('desk-media')
+      .upload(storagePath, fileBuffer, { contentType: mimetype, upsert: false })
+
+    if (uploadError) {
+      return { storagePath: null, errorMessage: uploadError.message }
+    }
+
+    return { storagePath, errorMessage: null }
+  } catch (error) {
+    return {
+      storagePath: null,
+      errorMessage: error instanceof Error ? error.message : 'storage_upload_failed',
+    }
+  }
+}
 
 export async function POST(
   request: NextRequest,
@@ -43,20 +78,20 @@ export async function POST(
   if (!base64 || !mimetype) {
     return NextResponse.json({ error: 'base64 e mimetype são obrigatórios' }, { status: 400 })
   }
-  // Decodifica base64 e valida tamanho real do arquivo
+
   let fileBuffer: Buffer
   try {
     fileBuffer = Buffer.from(base64, 'base64')
   } catch {
     return NextResponse.json({ error: 'Base64 inválido' }, { status: 400 })
   }
+
   if (fileBuffer.length > MAX_FILE_BYTES) {
     return NextResponse.json({ error: 'Arquivo excede o limite de 50 MB' }, { status: 413 })
   }
 
   const admin = createAdminClient()
 
-  // Carrega conversa + instância Evolution
   const { data: conv } = await admin
     .from('conversations')
     .select(`
@@ -90,35 +125,40 @@ export async function POST(
   }
 
   const mediatype = resolveMediatype(mimetype)
+  const messageId = crypto.randomUUID()
+  const mediaSizeBytes = fileBuffer.length
 
-  // Envia via Evolution API — captura o message ID para rastreamento de entrega
-  const evolutionMsgId = await sendMediaMessage(instanceName, identifier, mediatype, mimetype, base64, caption, file_name)
-
-  // Upload para Supabase Storage para persistência
-  let storagePath: string | null = null
+  let evolutionMsgId: string | null = null
   try {
-    const ext = mimetype.split('/')[1]?.split(';')[0] ?? 'bin'
-    const msgId = crypto.randomUUID()
-    storagePath = `${conv.client_id}/${id}/out-${msgId}.${ext}`
-    const buffer = Buffer.from(base64, 'base64')
-    const { error: uploadError } = await admin.storage
-      .from('desk-media')
-      .upload(storagePath, buffer, { contentType: mimetype, upsert: false })
-    if (uploadError) {
-      console.warn('[send-media] Erro ao fazer upload para Storage:', uploadError.message)
-      storagePath = null
-    }
-  } catch {
-    storagePath = null
+    evolutionMsgId = mediatype === 'audio'
+      ? await sendAudioMessage(instanceName, identifier, mimetype, base64, caption, file_name)
+      : await sendMediaMessage(instanceName, identifier, mediatype, mimetype, base64, caption, file_name)
+  } catch (error) {
+    console.error('[desk/send-media] evolution send failed:', {
+      conversationId: id,
+      clientId: conv.client_id,
+      mediatype,
+      mimetype,
+      fileName: file_name ?? null,
+      error,
+    })
+    return NextResponse.json({ error: 'Falha ao enviar mídia no WhatsApp' }, { status: 502 })
   }
 
-  // Persiste no Supabase com content_type fiel ao tipo real da mídia
-  const contentType = mediatype // image | audio | video | document
-  const mediaSizeBytes = fileBuffer.length
+  const { storagePath, errorMessage: storageError } = await uploadOutboundMediaToStorage(
+    admin,
+    conv.client_id,
+    id,
+    messageId,
+    mimetype,
+    fileBuffer
+  )
+
+  const contentType = mediatype
   const { data: message, error } = await admin
     .from('messages')
     .insert({
-      id: crypto.randomUUID(),
+      id: messageId,
       conversation_id: id,
       client_id: conv.client_id,
       content: caption ?? file_name ?? `[${contentType}]`,
@@ -138,6 +178,18 @@ export async function POST(
   if (error) {
     console.error('[desk/send-media] insert error:', error)
     return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
+  }
+
+  if (storageError) {
+    console.warn('[desk/send-media] persisted without storage fallback:', {
+      conversationId: id,
+      messageId,
+      evolutionMessageId: evolutionMsgId,
+      mediatype,
+      mimetype,
+      fileName: file_name ?? null,
+      error: storageError,
+    })
   }
 
   await admin.from('conversations').update({

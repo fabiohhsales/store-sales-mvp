@@ -109,6 +109,9 @@ function relativeTime(date: string): string {
 
 // --- Helper: resolve a URL de mídia via proxy ---
 function mediaProxyUrl(message: Message, conversationId: string): string | null {
+  if (message.sender_type === 'operator') {
+    return `/api/desk/media?db_msg_id=${message.id}&conversation_id=${conversationId}`
+  }
   if (message.evolution_message_id) return `/api/desk/media?msg_id=${message.evolution_message_id}&conversation_id=${conversationId}`
   if (message.media_url) return `/api/desk/media?db_msg_id=${message.id}&conversation_id=${conversationId}`
   return null
@@ -702,8 +705,8 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
       const body = await res.json()
       if (!res.ok) { toast.error(`Erro: ${body.error ?? 'falha ao executar ação'}`); return }
       setConversation((prev) => prev ? { ...prev, stage: body.stage } : prev)
-      const labels = { assume: 'Conversa assumida — você pode digitar', return: 'Bot retomou a conversa', resolve: 'Conversa finalizada' }
-      toast.success(labels[action])
+      const labels = { assume: 'Conversa assumida — você pode digitar', resolve: 'Conversa finalizada' }
+      toast.success(action === 'return' ? 'Bot retomou a conversa' : labels[action])
       onConversationUpdate()
     } catch {
       toast.error('Erro de conexão ao executar ação')

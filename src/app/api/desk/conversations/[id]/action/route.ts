@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
 import { RATE_LIMITS } from '@/lib/desk/rate-limit'
 import { emitConversationEvent } from '@/lib/desk/emit-conversation-event'
+import { resumeConversationFromDesk } from '@/lib/bot/resume-from-desk'
 
 export async function POST(
   request: NextRequest,
@@ -25,8 +26,6 @@ export async function POST(
   }
 
   const admin = createAdminClient()
-
-  // Valida acesso à conversa
   const { data: conv } = await admin
     .from('conversations')
     .select('id, client_id, stage')
@@ -59,13 +58,15 @@ export async function POST(
       .eq('id', id)
       .select('stage')
       .single()
+
     if (error) {
       console.error('[desk/action] assume error:', error.message)
       return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
     }
+
     newStage = data.stage
 
-    emitConversationEvent(id, conv.client_id, 'handoff_assumed', 'operator', {
+    void emitConversationEvent(id, conv.client_id, 'handoff_assumed', 'operator', {
       previous_stage: conv.stage,
     }, deskUser.userId)
   }
@@ -82,15 +83,22 @@ export async function POST(
       .eq('id', id)
       .select('stage')
       .single()
+
     if (error) {
       console.error('[desk/action] return error:', error.message)
       return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
     }
+
     newStage = data.stage
 
-    emitConversationEvent(id, conv.client_id, 'returned_to_bot', 'operator', {
+    void emitConversationEvent(id, conv.client_id, 'returned_to_bot', 'operator', {
       previous_stage: conv.stage,
     }, deskUser.userId)
+
+    void resumeConversationFromDesk(id, {
+      triggeredBy: deskUser.userId,
+      previousStage: conv.stage,
+    })
   }
 
   if (action === 'resolve') {
@@ -106,13 +114,15 @@ export async function POST(
       .eq('id', id)
       .select('stage')
       .single()
+
     if (error) {
       console.error('[desk/action] resolve error:', error.message)
       return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
     }
+
     newStage = data.stage
 
-    emitConversationEvent(id, conv.client_id, 'conversation_resolved', 'operator', {
+    void emitConversationEvent(id, conv.client_id, 'conversation_resolved', 'operator', {
       previous_stage: conv.stage,
     }, deskUser.userId)
   }

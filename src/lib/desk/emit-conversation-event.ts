@@ -17,6 +17,9 @@ export type ConversationEventType =
   | 'followup_blocked'
   | 'bot_paused'
   | 'bot_resumed'
+  | 'bot_resume_triggered'
+  | 'bot_resume_skipped'
+  | 'bot_resume_failed'
   | 'stage_changed'
 
 export async function emitConversationEvent(
