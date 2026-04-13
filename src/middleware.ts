@@ -7,6 +7,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // Desk APIs resolvem auth e rate limit no próprio handler. Excluir esse
+    // namespace evita buffering parcial de bodies grandes pelo proxy do Next.
+    '/((?!api/desk|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

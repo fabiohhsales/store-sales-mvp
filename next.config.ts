@@ -21,6 +21,11 @@ const chatwootFrameAncestors = Array.from(
 )
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Se algum outro proxy precisar ler o body completo, use um teto alinhado
+    // com uploads de 50 MB reais enviados como JSON base64 (~66,7 MB no fio).
+    proxyClientMaxBodySize: '70mb',
+  },
   typescript: {
     // Docker OOM: se `next build` estourar memória no CI, adicionar
     // NODE_OPTIONS=--max-old-space-size=4096 no step de build, ou mover o

@@ -18,8 +18,8 @@ function resolveMediatype(mimetype: string): 'image' | 'document' | 'audio' | 'v
   return 'document'
 }
 
-// Limite de payload: 50 MB em base64 (~37.5 MB de arquivo)
-const MAX_BASE64_BYTES = 50 * 1024 * 1024
+// Limite efetivo do arquivo: 50 MB reais, alinhado com front e Storage.
+const MAX_FILE_BYTES = 50 * 1024 * 1024
 
 export async function POST(
   request: NextRequest,
@@ -50,7 +50,7 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: 'Base64 inválido' }, { status: 400 })
   }
-  if (fileBuffer.length > 50 * 1024 * 1024) {
+  if (fileBuffer.length > MAX_FILE_BYTES) {
     return NextResponse.json({ error: 'Arquivo excede o limite de 50 MB' }, { status: 413 })
   }
 
