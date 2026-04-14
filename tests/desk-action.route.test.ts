@@ -107,11 +107,11 @@ beforeEach(() => {
   mocks.applyRateLimit.mockReturnValue(null)
   mocks.resolveDeskUser.mockResolvedValue({ userId: 'op-1', clientId: 'client-1', isAdmin: false })
   mocks.emitConversationEvent.mockResolvedValue(undefined)
-  mocks.resumeConversationFromDesk.mockResolvedValue({ attempted: true, triggered: true, reason: 'triggered' })
+  mocks.resumeConversationFromDesk.mockResolvedValue({ attempted: true, sent: true, reason: null })
 })
 
 describe('POST /api/desk/conversations/[id]/action', () => {
-  it('return keeps the public response shape and triggers async bot replay', async () => {
+  it('return adds auto_reply to the public response shape and waits for the bot report', async () => {
     const { admin, calls } = buildAdmin('in_service')
     mocks.createAdminClient.mockReturnValue(admin)
 
@@ -123,6 +123,11 @@ describe('POST /api/desk/conversations/[id]/action', () => {
       ok: true,
       action: 'return',
       stage: 'bot_triage',
+      auto_reply: {
+        attempted: true,
+        sent: true,
+        reason: null,
+      },
     })
     expect(mocks.resumeConversationFromDesk).toHaveBeenCalledWith('conv-1', {
       triggeredBy: 'op-1',
@@ -143,6 +148,11 @@ describe('POST /api/desk/conversations/[id]/action', () => {
       ok: true,
       action: 'assume',
       stage: 'in_service',
+      auto_reply: {
+        attempted: false,
+        sent: false,
+        reason: null,
+      },
     })
     expect(calls.some((call) => call.table === 'ai_pauses' && call.op === 'upsert')).toBe(true)
     expect(mocks.resumeConversationFromDesk).not.toHaveBeenCalled()
@@ -160,6 +170,11 @@ describe('POST /api/desk/conversations/[id]/action', () => {
       ok: true,
       action: 'resolve',
       stage: 'resolved',
+      auto_reply: {
+        attempted: false,
+        sent: false,
+        reason: null,
+      },
     })
     expect(calls.some((call) => call.table === 'ai_pauses' && call.op === 'delete')).toBe(true)
     expect(mocks.resumeConversationFromDesk).not.toHaveBeenCalled()

@@ -1,10 +1,12 @@
 // GET /api/desk/media?msg_id=&conversation_id=&client_id=
-// Resolve mídia pelo Storage e, para mensagens inbound, tenta fallback na Evolution.
+// Resolve media from Storage and, for inbound messages, lazily repairs rows
+// that were saved without media_url when the binary can still be recovered.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser } from '@/lib/desk/auth'
 import { extractEvolutionInstanceName, extractFirstContact } from '@/lib/desk/conversation-row'
+import { uploadMediaToStorage } from '@/lib/bot/media-storage'
 
 interface MediaMessageRow {
   id: string
@@ -36,13 +38,13 @@ async function createMediaSignedUrl(
 
 export async function GET(request: NextRequest) {
   const deskUser = await resolveDeskUser(request)
-  if (!deskUser) return new NextResponse('Não autenticado', { status: 401 })
+  if (!deskUser) return new NextResponse('N\u00e3o autenticado', { status: 401 })
 
   const msgId = request.nextUrl.searchParams.get('msg_id')
   const dbMsgId = request.nextUrl.searchParams.get('db_msg_id')
   const conversationId = request.nextUrl.searchParams.get('conversation_id')
   if ((!msgId && !dbMsgId) || !conversationId) {
-    return new NextResponse('Parâmetros inválidos', { status: 400 })
+    return new NextResponse('Par\u00e2metros inv\u00e1lidos', { status: 400 })
   }
 
   const admin = createAdminClient()
@@ -57,14 +59,22 @@ export async function GET(request: NextRequest) {
     .eq('id', conversationId)
     .maybeSingle()
 
-  if (!conv) return new NextResponse('Conversa não encontrada', { status: 404 })
+  if (!conv) return new NextResponse('Conversa n\u00e3o encontrada', { status: 404 })
   if (!deskUser.isAdmin && conv.client_id !== deskUser.clientId) {
     return new NextResponse('Acesso negado', { status: 403 })
   }
 
   const messageQuery = dbMsgId
-    ? admin.from('messages').select('id, evolution_message_id, media_url, media_mime_type, sender_type, from_who').eq('id', dbMsgId).maybeSingle()
-    : admin.from('messages').select('id, evolution_message_id, media_url, media_mime_type, sender_type, from_who').eq('evolution_message_id', msgId!).maybeSingle()
+    ? admin
+        .from('messages')
+        .select('id, evolution_message_id, media_url, media_mime_type, sender_type, from_who')
+        .eq('id', dbMsgId)
+        .maybeSingle()
+    : admin
+        .from('messages')
+        .select('id, evolution_message_id, media_url, media_mime_type, sender_type, from_who')
+        .eq('evolution_message_id', msgId!)
+        .maybeSingle()
 
   const { data: messageRow } = await messageQuery
   const message = (messageRow ?? null) as MediaMessageRow | null
@@ -75,7 +85,7 @@ export async function GET(request: NextRequest) {
         conversationId,
         dbMsgId,
       })
-      return new NextResponse('Mídia não disponível', { status: 404 })
+      return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
     }
 
     if (!message.media_url) {
@@ -86,7 +96,7 @@ export async function GET(request: NextRequest) {
         fromWho: message.from_who,
         mimetype: message.media_mime_type,
       })
-      return new NextResponse('Mídia não disponível', { status: 404 })
+      return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
     }
 
     const signedUrl = await createMediaSignedUrl(admin, message.media_url)
@@ -97,7 +107,7 @@ export async function GET(request: NextRequest) {
         mediaUrl: message.media_url,
         senderType: message.sender_type,
       })
-      return new NextResponse('Mídia não disponível', { status: 404 })
+      return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
     }
 
     return NextResponse.redirect(signedUrl, { status: 302 })
@@ -131,7 +141,7 @@ export async function GET(request: NextRequest) {
       conversationId,
       msgId,
     })
-    return new NextResponse('Mídia não disponível', { status: 404 })
+    return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
   }
 
   const remoteJid = contact?.identifier ?? (contact?.phone_number ? `${contact.phone_number}@s.whatsapp.net` : null)
@@ -142,65 +152,82 @@ export async function GET(request: NextRequest) {
       hasIdentifier: Boolean(contact?.identifier),
       hasPhone: Boolean(contact?.phone_number),
     })
-    return new NextResponse('Mídia não disponível', { status: 404 })
+    return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
   }
 
-  const evolutionUrl = process.env.EVOLUTION_API_URL?.replace(/\/$/, '')
-  const evolutionKey = process.env.EVOLUTION_API_KEY
-  if (!evolutionUrl || !evolutionKey) {
-    logMediaEvent('evolution_not_configured', {
+  const recovered = await uploadMediaToStorage(
+    instanceName,
+    remoteJid,
+    msgId!,
+    conv.client_id,
+    conversationId,
+    message?.media_mime_type ?? 'application/octet-stream',
+    null,
+    (event, payload) => logMediaEvent(event, {
       conversationId,
       msgId,
-      hasUrl: Boolean(evolutionUrl),
-      hasKey: Boolean(evolutionKey),
+      ...payload,
     })
-    return new NextResponse('Mídia não disponível', { status: 404 })
+  )
+
+  if (!recovered.buffer) {
+    return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
   }
 
-  try {
-    const res = await fetch(`${evolutionUrl}/message/getBase64FromMediaMessage/${instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
-      body: JSON.stringify({ message: { key: { remoteJid, fromMe: false, id: msgId } } }),
-    })
+  if (message?.id && recovered.storagePath) {
+    const { error: updateError } = await admin
+      .from('messages')
+      .update({
+        media_url: recovered.storagePath,
+        media_mime_type: recovered.resolvedMime,
+        media_size_bytes: recovered.buffer.length,
+      })
+      .eq('id', message.id)
 
-    if (!res.ok) {
-      logMediaEvent('evolution_media_fetch_failed', {
+    if (updateError) {
+      logMediaEvent('media_backfill_failed', {
         conversationId,
         msgId,
-        status: res.status,
-        instanceName,
-        remoteJid,
+        messageId: message.id,
+        storagePath: recovered.storagePath,
+        error: updateError.message,
       })
-      return new NextResponse('Mídia não disponível', { status: 404 })
-    }
-
-    const data = await res.json()
-    const base64 = data.base64 as string | undefined
-    const mimetype = (data.mimetype as string | undefined) ?? 'image/jpeg'
-
-    if (!base64) {
-      logMediaEvent('evolution_media_without_base64', {
+    } else {
+      logMediaEvent('media_backfill_succeeded', {
         conversationId,
         msgId,
-        instanceName,
+        messageId: message.id,
+        storagePath: recovered.storagePath,
+        source: recovered.source,
       })
-      return new NextResponse('Mídia não disponível', { status: 404 })
-    }
 
-    const buffer = Buffer.from(base64, 'base64')
-    return new NextResponse(buffer, {
-      headers: {
-        'Content-Type': mimetype,
-        'Cache-Control': 'private, max-age=3600',
-      },
-    })
-  } catch (error) {
-    logMediaEvent('evolution_media_exception', {
+      const signedUrl = await createMediaSignedUrl(admin, recovered.storagePath)
+      if (signedUrl) {
+        return NextResponse.redirect(signedUrl, { status: 302 })
+      }
+
+      logMediaEvent('media_backfill_failed', {
+        conversationId,
+        msgId,
+        messageId: message.id,
+        storagePath: recovered.storagePath,
+        error: 'signed_url_failed_after_backfill',
+      })
+    }
+  } else {
+    logMediaEvent('media_backfill_failed', {
       conversationId,
       msgId,
-      error: error instanceof Error ? error.message : 'unknown_error',
+      hasMessageRow: Boolean(message?.id),
+      storagePath: recovered.storagePath,
+      error: recovered.storagePath ? 'message_row_missing' : 'storage_path_missing',
     })
-    return new NextResponse('Mídia não disponível', { status: 404 })
   }
+
+  return new NextResponse(new Uint8Array(recovered.buffer), {
+    headers: {
+      'Content-Type': recovered.resolvedMime,
+      'Cache-Control': 'private, max-age=3600',
+    },
+  })
 }

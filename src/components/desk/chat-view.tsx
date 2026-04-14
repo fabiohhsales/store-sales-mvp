@@ -132,7 +132,17 @@ function formatDuration(seconds: number): string {
 }
 
 // --- Sub-renderer: Audio Player WhatsApp-style ---
-function AudioPlayer({ src, transcript, onError }: { src: string; transcript?: string | null; onError?: () => void }) {
+function AudioPlayer({
+  src,
+  transcript,
+  onError,
+  onReady,
+}: {
+  src: string
+  transcript?: string | null
+  onError?: () => void
+  onReady?: () => void
+}) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -162,6 +172,7 @@ function AudioPlayer({ src, transcript, onError }: { src: string; transcript?: s
           ref={audioRef}
           src={src}
           preload="metadata"
+          onCanPlay={() => onReady?.()}
           onLoadedMetadata={(e) => setDuration((e.target as HTMLAudioElement).duration)}
           onTimeUpdate={(e) => {
             const el = e.target as HTMLAudioElement
@@ -213,19 +224,46 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
 
   const baseMediaSrc = mediaProxyUrl(message, conversationId)
   // Add cache-bust suffix to retry expired signed URLs
+  const latestMediaTokenRef = useRef(0)
   const [mediaBust, setMediaBust] = useState(0)
   const mediaSrc = baseMediaSrc ? (mediaBust ? `${baseMediaSrc}&_t=${mediaBust}` : baseMediaSrc) : null
   const [mediaFailed, setMediaFailed] = useState(false)
+  const [mediaRetrying, setMediaRetrying] = useState(false)
+
+  useEffect(() => {
+    if (!baseMediaSrc) return
+    const nextToken = Date.now()
+    latestMediaTokenRef.current = nextToken
+    setMediaFailed(false)
+    setMediaRetrying(false)
+    setMediaBust(nextToken)
+  }, [baseMediaSrc, message.id, message.media_mime_type, message.media_url])
+
+  const markMediaFailed = useCallback((token: number) => {
+    if (latestMediaTokenRef.current !== token) return
+    setMediaRetrying(false)
+    setMediaFailed(true)
+  }, [])
+
+  const markMediaReady = useCallback((token: number) => {
+    if (latestMediaTokenRef.current !== token) return
+    setMediaRetrying(false)
+    setMediaFailed(false)
+  }, [])
 
   const retryMedia = useCallback(() => {
+    const nextToken = Date.now()
+    latestMediaTokenRef.current = nextToken
+    setMediaRetrying(true)
     setMediaFailed(false)
-    setMediaBust(Date.now())
+    setMediaBust(nextToken)
   }, [])
   const hasCaption = message.content && message.content !== '[Imagem]' && message.content !== '[Áudio]' && !message.content.startsWith('[Documento')
 
   // --- Render do conteúdo da bolha por tipo ---
   function renderContent() {
     if (message.content_type === 'image') {
+      const renderToken = mediaBust
       if (mediaSrc && !mediaFailed) {
         return (
           <div className="flex flex-col gap-1.5">
@@ -237,7 +275,8 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
               unoptimized
               className="max-w-[220px] h-auto rounded-lg cursor-pointer"
               onClick={() => onImageClick?.(mediaSrc, message.content || 'Imagem')}
-              onError={() => setMediaFailed(true)}
+              onLoad={() => markMediaReady(renderToken)}
+              onError={() => markMediaFailed(renderToken)}
             />
             {hasCaption && <span className="whitespace-pre-wrap text-sm">{message.content}</span>}
             <a href={mediaSrc} download className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-fit">
@@ -249,7 +288,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
       if (mediaFailed && baseMediaSrc) {
         return (
           <button onClick={retryMedia} className="flex items-center gap-1.5 italic text-muted-foreground hover:text-foreground transition-colors text-sm">
-            <RefreshCw size={12} /> Recarregar imagem
+            <RefreshCw size={12} className={mediaRetrying ? 'animate-spin' : ''} /> Recarregar imagem
           </button>
         )
       }
@@ -257,13 +296,21 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
     }
 
     if (message.content_type === 'audio') {
+      const renderToken = mediaBust
       if (mediaSrc && !mediaFailed) {
-        return <AudioPlayer src={mediaSrc} transcript={message.media_transcript} onError={() => setMediaFailed(true)} />
+        return (
+          <AudioPlayer
+            src={mediaSrc}
+            transcript={message.media_transcript}
+            onReady={() => markMediaReady(renderToken)}
+            onError={() => markMediaFailed(renderToken)}
+          />
+        )
       }
       if (mediaFailed && baseMediaSrc) {
         return (
           <button onClick={retryMedia} className="flex items-center gap-1.5 italic text-muted-foreground hover:text-foreground transition-colors text-sm">
-            <RefreshCw size={12} /> Recarregar áudio
+            <RefreshCw size={12} className={mediaRetrying ? 'animate-spin' : ''} /> Recarregar áudio
           </button>
         )
       }
@@ -300,6 +347,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
     }
 
     if (message.content_type === 'video') {
+      const renderToken = mediaBust
       if (mediaSrc && !mediaFailed) {
         return (
           <div className="flex flex-col gap-1.5">
@@ -310,7 +358,8 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
               preload="metadata"
               className="max-w-[280px] rounded-lg"
               style={{ maxHeight: 200 }}
-              onError={() => setMediaFailed(true)}
+              onLoadedData={() => markMediaReady(renderToken)}
+              onError={() => markMediaFailed(renderToken)}
             />
             {hasCaption && <span className="whitespace-pre-wrap text-sm">{message.content}</span>}
           </div>
@@ -319,7 +368,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
       if (mediaFailed && baseMediaSrc) {
         return (
           <button onClick={retryMedia} className="flex items-center gap-1.5 italic text-muted-foreground hover:text-foreground transition-colors text-sm">
-            <RefreshCw size={12} /> Recarregar vídeo
+            <RefreshCw size={12} className={mediaRetrying ? 'animate-spin' : ''} /> Recarregar vídeo
           </button>
         )
       }

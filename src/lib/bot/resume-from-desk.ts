@@ -1,8 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { emitConversationEvent } from '@/lib/desk/emit-conversation-event'
-import { runAgent } from './agent'
-import { dispatch } from './dispatcher'
 import { refreshMessageHistory, type PipelineResult } from './pipeline'
+import { runConversationBotTurn, type BotTurnReport } from './run-conversation-turn'
 import type { BotContact, BotConversation, BotMessage } from '@/types/bot'
 import type { PanelBotConfig, PanelGoogleConfig, PanelWhatsAppConfig } from '@/types/database'
 
@@ -11,11 +10,7 @@ interface ResumeConversationMeta {
   previousStage?: string | null
 }
 
-interface ResumeConversationResult {
-  attempted: boolean
-  triggered: boolean
-  reason: string
-}
+type ResumeConversationResult = BotTurnReport
 
 type ConversationResumeRow = BotConversation & {
   contacts?: BotContact | BotContact[] | null
@@ -85,7 +80,7 @@ async function emitSkip(
     meta.triggeredBy ?? null
   )
 
-  return { attempted: false, triggered: false, reason }
+  return { attempted: false, sent: false, reason }
 }
 
 export async function resumeConversationFromDesk(
@@ -113,7 +108,7 @@ export async function resumeConversationFromDesk(
       conversationId,
       error: error?.message ?? null,
     })
-    return { attempted: false, triggered: false, reason: 'conversation_not_found' }
+    return { attempted: false, sent: false, reason: 'conversation_not_found' }
   }
 
   const conversation = row as ConversationResumeRow
@@ -125,7 +120,7 @@ export async function resumeConversationFromDesk(
   const googleConfig = firstOrNull(panelClient?.panel_google_config)
 
   if (!clientId) {
-    return { attempted: false, triggered: false, reason: 'client_id_missing' }
+    return { attempted: false, sent: false, reason: 'client_id_missing' }
   }
 
   if (conversation.status === 'resolved' || conversation.stage === 'resolved') {
@@ -181,28 +176,20 @@ export async function resumeConversationFromDesk(
     meta.triggeredBy ?? null
   )
 
-  try {
-    const output = await runAgent(pipelineResult)
-    await dispatch(pipelineResult, output)
-    return { attempted: true, triggered: true, reason: 'triggered' }
-  } catch (resumeError) {
-    console.error('[bot/resume-from-desk] replay failed:', {
-      conversationId,
-      error: resumeError,
-    })
-
+  const report = await runConversationBotTurn(pipelineResult)
+  if (!report.sent && report.reason === 'bot_turn_error') {
     await emitConversationEvent(
       conversationId,
       clientId,
       'bot_resume_failed',
       'system',
       {
-        reason: resumeError instanceof Error ? resumeError.message : 'unknown_error',
+        reason: report.reason,
         previous_stage: meta.previousStage ?? null,
       },
       meta.triggeredBy ?? null
     )
-
-    return { attempted: true, triggered: false, reason: 'resume_failed' }
   }
+
+  return report
 }

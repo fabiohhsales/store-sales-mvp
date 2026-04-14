@@ -6,6 +6,7 @@
 
 import OpenAI, { toFile } from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { uploadMediaToStorage as uploadMediaToStorageShared } from './media-storage'
 import type {
   NormalizedWebhookMessage,
   NormalizedEvolutionMessage,
@@ -580,13 +581,15 @@ export async function saveEvolutionMessage(
       msg.contentType === 'video' ? 'video/mp4' :
       'application/octet-stream'
     )
-    const { storagePath, buffer: mediaBuffer, resolvedMime } = await uploadMediaToStorage(
+    const { storagePath, buffer: mediaBuffer, resolvedMime } = await uploadMediaToStorageShared(
       msg.instanceName,
       msg.remoteJid,
       msg.messageId,
       clientId,
       conversation.id,
-      mimetype
+      mimetype,
+      msg.mediaUrl,
+      (event, payload) => console.warn(`[Pipeline] ${event}`, payload)
     )
 
     // Transcrição de áudio via Whisper (não bloqueia nem falha o pipeline)
@@ -598,11 +601,12 @@ export async function saveEvolutionMessage(
     // Metadados de mídia para persistir no banco
     const mediaUpdate: Record<string, unknown> = {}
     if (storagePath) mediaUpdate.media_url = storagePath
-    if (msg.mediaMimetype) mediaUpdate.media_mime_type = msg.mediaMimetype
+    mediaUpdate.media_mime_type = resolvedMime
     if (msg.mediaFilename) mediaUpdate.media_filename = msg.mediaFilename
     if (msg.mediaDuration != null) mediaUpdate.media_duration_seconds = msg.mediaDuration
     if (msg.mediaWidth != null) mediaUpdate.media_width = msg.mediaWidth
     if (msg.mediaHeight != null) mediaUpdate.media_height = msg.mediaHeight
+    if (mediaBuffer) mediaUpdate.media_size_bytes = mediaBuffer.length
     if (transcript) mediaUpdate.media_transcript = transcript
 
     if (Object.keys(mediaUpdate).length > 0) {

@@ -64,6 +64,7 @@ export function normalizeEvolutionPayload(
       content = `[Documento: ${data.message.documentMessage.fileName || 'arquivo'}]`
       contentType = 'document'
     }
+    mediaUrl = data.message.documentMessage.url ?? null
     mediaMimetype = data.message.documentMessage.mimetype ?? null
     mediaFilename = data.message.documentMessage.fileName ?? null
   }

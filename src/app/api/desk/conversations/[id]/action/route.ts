@@ -38,6 +38,7 @@ export async function POST(
   }
 
   let newStage: string = conv.stage
+  let autoReply = { attempted: false, sent: false, reason: null as string | null }
 
   if (action === 'assume') {
     await admin.from('ai_pauses').upsert({
@@ -95,7 +96,7 @@ export async function POST(
       previous_stage: conv.stage,
     }, deskUser.userId)
 
-    void resumeConversationFromDesk(id, {
+    autoReply = await resumeConversationFromDesk(id, {
       triggeredBy: deskUser.userId,
       previousStage: conv.stage,
     })
@@ -128,5 +129,5 @@ export async function POST(
   }
 
   console.log(`[desk/action] conv=${id} action=${action} stage=${newStage}`)
-  return NextResponse.json({ ok: true, action, stage: newStage })
+  return NextResponse.json({ ok: true, action, stage: newStage, auto_reply: autoReply })
 }

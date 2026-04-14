@@ -179,7 +179,7 @@ export interface EvolutionWebhookPayload {
       imageMessage?: { caption?: string; url?: string; mimetype?: string }
       audioMessage?: { mimetype?: string; seconds?: number; url?: string }
       videoMessage?: { caption?: string; url?: string; mimetype?: string; seconds?: number }
-      documentMessage?: { fileName?: string; mimetype?: string; caption?: string }
+      documentMessage?: { fileName?: string; mimetype?: string; caption?: string; url?: string }
     }
     messageType?: string  // "conversation" | "extendedTextMessage" | etc.
     messageTimestamp?: number

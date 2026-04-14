@@ -58,7 +58,7 @@ export async function runConversationBotTurn(result: PipelineResult): Promise<Bo
     return {
       attempted: true,
       sent: false,
-      reason: error instanceof Error ? error.message : 'bot_turn_error',
+      reason: 'bot_turn_error',
     }
   }
 }

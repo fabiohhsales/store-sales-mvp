@@ -3,8 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   refreshMessageHistory: vi.fn(),
-  runAgent: vi.fn(),
-  dispatch: vi.fn(),
+  runConversationBotTurn: vi.fn(),
   emitConversationEvent: vi.fn(),
 }))
 
@@ -16,12 +15,8 @@ vi.mock('@/lib/bot/pipeline', () => ({
   refreshMessageHistory: mocks.refreshMessageHistory,
 }))
 
-vi.mock('@/lib/bot/agent', () => ({
-  runAgent: mocks.runAgent,
-}))
-
-vi.mock('@/lib/bot/dispatcher', () => ({
-  dispatch: mocks.dispatch,
+vi.mock('@/lib/bot/run-conversation-turn', () => ({
+  runConversationBotTurn: mocks.runConversationBotTurn,
 }))
 
 vi.mock('@/lib/desk/emit-conversation-event', () => ({
@@ -105,24 +100,15 @@ function buildAdmin(conversationRow = buildConversationRow()) {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.emitConversationEvent.mockResolvedValue(undefined)
-  mocks.runAgent.mockResolvedValue({
-    reply: 'Resposta do bot',
-    handoff: { needs_human: false, reason: null },
-    classification: { stage: null, intent: null },
-    labels_next: [],
-    status_next: 'open',
-    actions: {
-      agenda_check: { should_check: false },
-      agenda_create: { should_create: false },
-    },
-    intake_save: null,
-    debug: {},
+  mocks.runConversationBotTurn.mockResolvedValue({
+    attempted: true,
+    sent: true,
+    reason: null,
   })
-  mocks.dispatch.mockResolvedValue(undefined)
 })
 
 describe('resumeConversationFromDesk', () => {
-  it('triggers runAgent + dispatch when the latest meaningful message is from the lead', async () => {
+  it('triggers the canonical bot-turn helper when the latest meaningful message is from the lead', async () => {
     mocks.createAdminClient.mockReturnValue(buildAdmin())
     mocks.refreshMessageHistory.mockResolvedValue([
       {
@@ -142,9 +128,8 @@ describe('resumeConversationFromDesk', () => {
       previousStage: 'in_service',
     })
 
-    expect(result).toMatchObject({ attempted: true, triggered: true, reason: 'triggered' })
-    expect(mocks.runAgent).toHaveBeenCalledTimes(1)
-    expect(mocks.dispatch).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ attempted: true, sent: true, reason: null })
+    expect(mocks.runConversationBotTurn).toHaveBeenCalledTimes(1)
     expect(mocks.emitConversationEvent).toHaveBeenCalledWith(
       'conv-1',
       'client-1',
@@ -175,9 +160,8 @@ describe('resumeConversationFromDesk', () => {
     const { resumeConversationFromDesk } = await import('@/lib/bot/resume-from-desk')
     const result = await resumeConversationFromDesk('conv-1')
 
-    expect(result).toMatchObject({ attempted: false, triggered: false, reason: 'latest_message_from_operator' })
-    expect(mocks.runAgent).not.toHaveBeenCalled()
-    expect(mocks.dispatch).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ attempted: false, sent: false, reason: 'latest_message_from_operator' })
+    expect(mocks.runConversationBotTurn).not.toHaveBeenCalled()
   })
 
   it('skips when the latest meaningful message is from the bot', async () => {
@@ -197,8 +181,8 @@ describe('resumeConversationFromDesk', () => {
     const { resumeConversationFromDesk } = await import('@/lib/bot/resume-from-desk')
     const result = await resumeConversationFromDesk('conv-1')
 
-    expect(result).toMatchObject({ attempted: false, triggered: false, reason: 'latest_message_from_bot' })
-    expect(mocks.runAgent).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ attempted: false, sent: false, reason: 'latest_message_from_bot' })
+    expect(mocks.runConversationBotTurn).not.toHaveBeenCalled()
   })
 
   it('skips resolved conversations', async () => {
@@ -210,7 +194,7 @@ describe('resumeConversationFromDesk', () => {
     const { resumeConversationFromDesk } = await import('@/lib/bot/resume-from-desk')
     const result = await resumeConversationFromDesk('conv-1')
 
-    expect(result).toMatchObject({ attempted: false, triggered: false, reason: 'conversation_resolved' })
+    expect(result).toMatchObject({ attempted: false, sent: false, reason: 'conversation_resolved' })
     expect(mocks.refreshMessageHistory).not.toHaveBeenCalled()
   })
 
@@ -230,7 +214,7 @@ describe('resumeConversationFromDesk', () => {
     const { resumeConversationFromDesk } = await import('@/lib/bot/resume-from-desk')
     const result = await resumeConversationFromDesk('conv-1')
 
-    expect(result).toMatchObject({ attempted: false, triggered: false, reason: 'bot_config_missing' })
+    expect(result).toMatchObject({ attempted: false, sent: false, reason: 'bot_config_missing' })
     expect(mocks.refreshMessageHistory).not.toHaveBeenCalled()
   })
 
@@ -242,11 +226,11 @@ describe('resumeConversationFromDesk', () => {
     const { resumeConversationFromDesk } = await import('@/lib/bot/resume-from-desk')
     const result = await resumeConversationFromDesk('conv-1')
 
-    expect(result).toMatchObject({ attempted: false, triggered: false, reason: 'stage_not_bot_triage' })
+    expect(result).toMatchObject({ attempted: false, sent: false, reason: 'stage_not_bot_triage' })
     expect(mocks.refreshMessageHistory).not.toHaveBeenCalled()
   })
 
-  it('emits bot_resume_failed when the replay throws', async () => {
+  it('emits bot_resume_failed when the canonical bot-turn helper returns a hard failure', async () => {
     mocks.createAdminClient.mockReturnValue(buildAdmin())
     mocks.refreshMessageHistory.mockResolvedValue([
       {
@@ -259,19 +243,23 @@ describe('resumeConversationFromDesk', () => {
         created_at: '2026-04-12T12:04:00Z',
       },
     ])
-    mocks.runAgent.mockRejectedValue(new Error('llm_down'))
+    mocks.runConversationBotTurn.mockResolvedValue({
+      attempted: true,
+      sent: false,
+      reason: 'bot_turn_error',
+    })
 
     const { resumeConversationFromDesk } = await import('@/lib/bot/resume-from-desk')
     const result = await resumeConversationFromDesk('conv-1', { triggeredBy: 'op-1' })
 
-    expect(result).toMatchObject({ attempted: true, triggered: false, reason: 'resume_failed' })
+    expect(result).toMatchObject({ attempted: true, sent: false, reason: 'bot_turn_error' })
     expect(mocks.emitConversationEvent).toHaveBeenCalledWith(
       'conv-1',
       'client-1',
       'bot_resume_failed',
       'system',
       expect.objectContaining({
-        reason: 'llm_down',
+        reason: 'bot_turn_error',
       }),
       'op-1'
     )
