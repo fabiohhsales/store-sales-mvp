@@ -33,12 +33,16 @@ function sniffMimeFromBuffer(buf: Buffer, fallback: string): string {
   if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png'
   // GIF: 47 49 46
   if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif'
+  // WebP: RIFF....WEBP
+  if (
+    buf.length >= 12 &&
+    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
   // PDF: 25 50 44 46
   if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'application/pdf'
-  // WebM: 1A 45 DF A3
-  if (buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3) return 'audio/webm'
-  // OGG: 4F 67 67 53
-  if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return 'audio/ogg'
   return fallback
 }
 
@@ -330,11 +334,23 @@ export async function uploadMediaToStorage(
     return nil
   }
 
-  // Normaliza MIME quando fallback genérico: detecta tipo real pelos magic bytes
-  if (downloaded.resolvedMime === 'application/octet-stream') {
+  // Quando o provider retorna MIME genérico, tenta inferir apenas tipos seguros
+  // ligados ao bug atual de imagem/documento.
+  if (!downloaded.resolvedMime || downloaded.resolvedMime.trim().length === 0 || downloaded.resolvedMime === 'application/octet-stream') {
+    const sniffedMime = sniffMimeFromBuffer(downloaded.buffer, 'application/octet-stream')
+    if (sniffedMime !== downloaded.resolvedMime) {
+      logger?.('media_mime_sniffed', {
+        clientId,
+        conversationId,
+        messageId,
+        source: downloaded.source,
+        previousMime: downloaded.resolvedMime,
+        sniffedMime,
+      })
+    }
     downloaded = {
       ...downloaded,
-      resolvedMime: sniffMimeFromBuffer(downloaded.buffer, 'application/octet-stream'),
+      resolvedMime: sniffedMime,
     }
   }
 

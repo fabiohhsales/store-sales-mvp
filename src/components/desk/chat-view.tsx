@@ -226,15 +226,20 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
   const baseMediaSrc = mediaProxyUrl(message, conversationId)
   // Add cache-bust suffix to retry expired signed URLs
   const latestMediaTokenRef = useRef(0)
+  const imageAutoRetryRef = useRef(false)
   const [mediaBust, setMediaBust] = useState(0)
   const mediaSrc = baseMediaSrc ? (mediaBust ? `${baseMediaSrc}&_t=${mediaBust}` : baseMediaSrc) : null
   const [mediaFailed, setMediaFailed] = useState(false)
   const [mediaRetrying, setMediaRetrying] = useState(false)
 
   useEffect(() => {
-    if (!baseMediaSrc) return
+    if (!baseMediaSrc) {
+      imageAutoRetryRef.current = false
+      return
+    }
     const nextToken = Date.now()
     latestMediaTokenRef.current = nextToken
+    imageAutoRetryRef.current = false
     setMediaFailed(false)
     setMediaRetrying(false)
     setMediaBust(nextToken)
@@ -246,6 +251,21 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
     setMediaFailed(true)
   }, [])
 
+  const markImageFailed = useCallback((token: number) => {
+    if (latestMediaTokenRef.current !== token) return
+    if (baseMediaSrc && !imageAutoRetryRef.current) {
+      imageAutoRetryRef.current = true
+      const retryToken = Date.now()
+      latestMediaTokenRef.current = retryToken
+      setMediaRetrying(true)
+      setMediaFailed(false)
+      setMediaBust(retryToken)
+      return
+    }
+    setMediaRetrying(false)
+    setMediaFailed(true)
+  }, [baseMediaSrc])
+
   const markMediaReady = useCallback((token: number) => {
     if (latestMediaTokenRef.current !== token) return
     setMediaRetrying(false)
@@ -255,6 +275,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
   const retryMedia = useCallback(() => {
     const nextToken = Date.now()
     latestMediaTokenRef.current = nextToken
+    imageAutoRetryRef.current = false
     setMediaRetrying(true)
     setMediaFailed(false)
     setMediaBust(nextToken)
@@ -277,7 +298,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
               className="max-w-[220px] h-auto rounded-lg cursor-pointer"
               onClick={() => onImageClick?.(mediaSrc, message.content || 'Imagem')}
               onLoad={() => markMediaReady(renderToken)}
-              onError={() => markMediaFailed(renderToken)}
+              onError={() => markImageFailed(renderToken)}
             />
             {hasCaption && <span className="whitespace-pre-wrap text-sm">{message.content}</span>}
             <a href={mediaSrc} download className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-fit">

@@ -217,6 +217,16 @@ export async function GET(request: NextRequest) {
     })
   }
 
+  logMediaEvent('media_inline_served', {
+    conversationId,
+    msgId: targetMsgId,
+    messageId: message?.id ?? null,
+    storagePath: recovered.storagePath,
+    resolvedMime: recovered.resolvedMime,
+    source: recovered.source,
+    reason: recovered.storagePath ? 'signed_url_failed_after_backfill' : 'storage_unavailable_after_recovery',
+  })
+
   return new NextResponse(new Uint8Array(recovered.buffer), {
     headers: {
       'Content-Type': recovered.resolvedMime,

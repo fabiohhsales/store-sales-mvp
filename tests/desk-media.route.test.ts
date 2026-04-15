@@ -271,6 +271,52 @@ describe('GET /api/desk/media', () => {
     )
   })
 
+  it('backfills inbound image msg_id with sniffed mime and redirects to the repaired signed URL', async () => {
+    const { admin, calls } = buildAdmin({
+      messageByMsgId: {
+        id: 'msg-img',
+        evolution_message_id: 'evo-img-1',
+        media_url: null,
+        media_mime_type: 'application/octet-stream',
+        sender_type: 'contact',
+        from_who: 'lead',
+      },
+      signedUrl: 'https://signed.example/recovered.jpeg',
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+    mocks.uploadMediaToStorage.mockResolvedValue({
+      storagePath: 'client-A/conv-1/evo-img-1.jpeg',
+      buffer: Buffer.from('recovered-image'),
+      resolvedMime: 'image/jpeg',
+      source: 'evolution',
+    })
+
+    const res = await GET(makeRequest('/api/desk/media?msg_id=evo-img-1&conversation_id=conv-1'))
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('https://signed.example/recovered.jpeg')
+    expect(mocks.uploadMediaToStorage).toHaveBeenCalledWith(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'evo-img-1',
+      'client-A',
+      'conv-1',
+      'application/octet-stream',
+      null,
+      expect.any(Function),
+      { fromMe: false }
+    )
+    expect(calls).toContainEqual({
+      table: 'messages',
+      op: 'update',
+      payload: {
+        media_url: 'client-A/conv-1/evo-img-1.jpeg',
+        media_mime_type: 'image/jpeg',
+        media_size_bytes: Buffer.from('recovered-image').length,
+      },
+    })
+  })
+
   it('returns raw recovered media when lazy repair can recover the buffer but not persist Storage', async () => {
     const { admin, calls } = buildAdmin({
       messageByMsgId: {
@@ -303,6 +349,44 @@ describe('GET /api/desk/media', () => {
         conversationId: 'conv-1',
         msgId: 'evo-2',
         error: 'storage_path_missing',
+      })
+    )
+  })
+
+  it('returns raw recovered image when lazy repair can recover the buffer but not persist Storage', async () => {
+    const { admin, calls } = buildAdmin({
+      messageByMsgId: {
+        id: 'msg-img',
+        evolution_message_id: 'evo-img-inline',
+        media_url: null,
+        media_mime_type: 'application/octet-stream',
+        sender_type: 'contact',
+        from_who: 'lead',
+      },
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+    mocks.uploadMediaToStorage.mockResolvedValue({
+      storagePath: null,
+      buffer: Buffer.from('inline-image'),
+      resolvedMime: 'image/jpeg',
+      source: 'evolution',
+    })
+
+    const res = await GET(makeRequest('/api/desk/media?msg_id=evo-img-inline&conversation_id=conv-1'))
+    const body = await res.arrayBuffer()
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/jpeg')
+    expect(body.byteLength).toBe(Buffer.from('inline-image').length)
+    expect(calls).toHaveLength(0)
+    expect(console.warn).toHaveBeenCalledWith(
+      '[desk/media] media_inline_served',
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        msgId: 'evo-img-inline',
+        resolvedMime: 'image/jpeg',
+        source: 'evolution',
+        reason: 'storage_unavailable_after_recovery',
       })
     )
   })
