@@ -126,6 +126,7 @@ function formatBytes(bytes: number): string {
 
 // --- Formata duração em mm:ss ---
 function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '--:--'
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
@@ -173,7 +174,7 @@ function AudioPlayer({
           src={src}
           preload="metadata"
           onCanPlay={() => onReady?.()}
-          onLoadedMetadata={(e) => setDuration((e.target as HTMLAudioElement).duration)}
+          onLoadedMetadata={(e) => { const d = (e.target as HTMLAudioElement).duration; setDuration(Number.isFinite(d) ? d : 0) }}
           onTimeUpdate={(e) => {
             const el = e.target as HTMLAudioElement
             setProgress(el.duration ? (el.currentTime / el.duration) * 100 : 0)
