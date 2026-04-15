@@ -266,8 +266,9 @@ describe('uploadMediaToStorage', () => {
     const { admin, uploads } = buildAdmin()
     mocks.createAdminClient.mockReturnValue(admin)
     const fetchMock = vi.mocked(fetch)
+    const pngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
     fetchMock.mockResolvedValue(
-      new Response(Buffer.from('image-bytes'), {
+      new Response(pngBuffer, {
         status: 200,
         headers: { 'content-type': 'image/png' },
       })
@@ -292,8 +293,112 @@ describe('uploadMediaToStorage', () => {
     expect(uploads).toContainEqual({
       path: 'client-A/conv-1/evo-1.png',
       contentType: 'image/png',
-      bytes: Buffer.from('image-bytes').length,
+      bytes: pngBuffer.length,
     })
+  })
+
+  it('falls back to Evolution when the direct image URL returns non-image bytes', async () => {
+    const { admin, uploads } = buildAdmin()
+    mocks.createAdminClient.mockReturnValue(admin)
+    const fetchMock = vi.mocked(fetch)
+    const logger = vi.fn()
+    const jpegBuffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46])
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(Buffer.from('not-an-image'), {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            base64: jpegBuffer.toString('base64'),
+            mimetype: 'image/jpeg',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }
+        )
+      )
+
+    const result = await uploadMediaToStorage(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'evo-direct-invalid',
+      'client-A',
+      'conv-1',
+      'image/jpeg',
+      'https://media.example/bad-image',
+      logger
+    )
+
+    expect(result).toMatchObject({
+      storagePath: 'client-A/conv-1/evo-direct-invalid.jpeg',
+      resolvedMime: 'image/jpeg',
+      source: 'evolution',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(uploads).toContainEqual({
+      path: 'client-A/conv-1/evo-direct-invalid.jpeg',
+      contentType: 'image/jpeg',
+      bytes: jpegBuffer.length,
+    })
+    expect(logger).toHaveBeenCalledWith(
+      'direct_media_url_invalid_image',
+      expect.objectContaining({
+        mediaUrl: 'https://media.example/bad-image',
+        previousMime: 'image/jpeg',
+      })
+    )
+  })
+
+  it('normalizes direct image MIME from valid bytes when the URL header is wrong', async () => {
+    const { admin, uploads } = buildAdmin()
+    mocks.createAdminClient.mockReturnValue(admin)
+    const fetchMock = vi.mocked(fetch)
+    const logger = vi.fn()
+    const jpegBuffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46])
+
+    fetchMock.mockResolvedValue(
+      new Response(jpegBuffer, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })
+    )
+
+    const result = await uploadMediaToStorage(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'evo-direct-normalized',
+      'client-A',
+      'conv-1',
+      'image/jpeg',
+      'https://media.example/mismatch-image',
+      logger
+    )
+
+    expect(result).toMatchObject({
+      storagePath: 'client-A/conv-1/evo-direct-normalized.jpeg',
+      resolvedMime: 'image/jpeg',
+      source: 'direct_url',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(uploads).toContainEqual({
+      path: 'client-A/conv-1/evo-direct-normalized.jpeg',
+      contentType: 'image/jpeg',
+      bytes: jpegBuffer.length,
+    })
+    expect(logger).toHaveBeenCalledWith(
+      'media_mime_sniffed',
+      expect.objectContaining({
+        source: 'direct_url',
+        previousMime: 'image/png',
+        sniffedMime: 'image/jpeg',
+      })
+    )
   })
 
   it('falls back to Evolution when the direct mediaUrl fails', async () => {

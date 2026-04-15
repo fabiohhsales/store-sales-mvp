@@ -11,6 +11,7 @@ type MediaLogger = (event: string, payload: Record<string, unknown>) => void
 
 interface MediaUploadOptions {
   fromMe?: boolean
+  upsert?: boolean
 }
 
 interface EvolutionMediaResponse {
@@ -25,7 +26,11 @@ function resolveExtension(mimetype: string): string {
   return mimetype.split('/')[1]?.split(';')[0] ?? 'bin'
 }
 
-function sniffMimeFromBuffer(buf: Buffer, fallback: string): string {
+export function isImageMime(mimetype: string | null | undefined): boolean {
+  return typeof mimetype === 'string' && mimetype.startsWith('image/')
+}
+
+export function sniffMimeFromBuffer(buf: Buffer, fallback: string): string {
   if (buf.length < 4) return fallback
   // JPEG: FF D8
   if (buf[0] === 0xFF && buf[1] === 0xD8) return 'image/jpeg'
@@ -44,6 +49,38 @@ function sniffMimeFromBuffer(buf: Buffer, fallback: string): string {
   // PDF: 25 50 44 46
   if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'application/pdf'
   return fallback
+}
+
+function resolveDirectImageMime(
+  buffer: Buffer,
+  resolvedMime: string,
+  fallbackMime: string,
+  logger?: MediaLogger,
+  meta: Record<string, unknown> = {}
+): string | null {
+  const expectsImage = isImageMime(resolvedMime) || isImageMime(fallbackMime)
+  if (!expectsImage) return resolvedMime
+
+  const sniffedMime = sniffMimeFromBuffer(buffer, 'application/octet-stream')
+  if (!isImageMime(sniffedMime)) {
+    logger?.('direct_media_url_invalid_image', {
+      ...meta,
+      previousMime: resolvedMime,
+      sniffedMime,
+    })
+    return null
+  }
+
+  if (sniffedMime !== resolvedMime) {
+    logger?.('media_mime_sniffed', {
+      ...meta,
+      source: 'direct_url',
+      previousMime: resolvedMime,
+      sniffedMime,
+    })
+  }
+
+  return sniffedMime
 }
 
 function sleep(ms: number): Promise<void> {
@@ -158,9 +195,18 @@ async function fetchMediaFromDirectUrl(
       return null
     }
 
+    const resolvedMime = pickResolvedMime(res.headers.get('content-type'), fallbackMime)
+    const normalizedMime = resolveDirectImageMime(buffer, resolvedMime, fallbackMime, logger, {
+      ...meta,
+      mediaUrl,
+    })
+    if (!normalizedMime) {
+      return null
+    }
+
     return {
       buffer,
-      resolvedMime: pickResolvedMime(res.headers.get('content-type'), fallbackMime),
+      resolvedMime: normalizedMime,
       source: 'direct_url',
     }
   } catch (error) {
@@ -358,7 +404,10 @@ export async function uploadMediaToStorage(
   const supabase = createAdminClient()
   const { error } = await supabase.storage
     .from('desk-media')
-    .upload(storagePath, downloaded.buffer, { contentType: downloaded.resolvedMime, upsert: false })
+    .upload(storagePath, downloaded.buffer, {
+      contentType: downloaded.resolvedMime,
+      upsert: options.upsert ?? false,
+    })
 
   if (error && !error.message.includes('already exists')) {
     logger?.('storage_upload_failed', {

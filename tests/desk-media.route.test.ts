@@ -15,14 +15,19 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: mocks.createAdminClient,
 }))
 
-vi.mock('@/lib/bot/media-storage', () => ({
-  uploadMediaToStorage: mocks.uploadMediaToStorage,
-}))
+vi.mock('@/lib/bot/media-storage', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/bot/media-storage')>('@/lib/bot/media-storage')
+  return {
+    ...actual,
+    uploadMediaToStorage: mocks.uploadMediaToStorage,
+  }
+})
 
 import { GET } from '@/app/api/desk/media/route'
 
 interface MediaMessageRow {
   id: string
+  content_type?: string
   evolution_message_id: string | null
   media_url: string | null
   media_mime_type: string | null
@@ -34,9 +39,12 @@ function buildAdmin(options?: {
   messageByDbId?: MediaMessageRow | null
   messageByMsgId?: MediaMessageRow | null
   signedUrl?: string | null
+  downloadByPath?: Record<string, Buffer | null>
   updateError?: { message: string } | null
 }) {
   const calls: Array<{ table: string; op: 'update'; payload: Record<string, unknown> }> = []
+  const signedUrlCalls: string[] = []
+  const downloadCalls: string[] = []
 
   const admin = {
     from(table: string) {
@@ -97,7 +105,8 @@ function buildAdmin(options?: {
     storage: {
       from() {
         return {
-          async createSignedUrl() {
+          async createSignedUrl(path: string) {
+            signedUrlCalls.push(path)
             if (!options || options.signedUrl === undefined) {
               return { data: { signedUrl: 'https://signed.example/file' }, error: null }
             }
@@ -106,12 +115,27 @@ function buildAdmin(options?: {
             }
             return { data: { signedUrl: options.signedUrl }, error: null }
           },
+          async download(path: string) {
+            downloadCalls.push(path)
+            const buffer = options?.downloadByPath?.[path]
+            if (!buffer) {
+              return { data: null, error: { message: 'object not found' } }
+            }
+            return {
+              data: {
+                async arrayBuffer() {
+                  return buffer
+                },
+              },
+              error: null,
+            }
+          },
         }
       },
     },
   }
 
-  return { admin, calls }
+  return { admin, calls, signedUrlCalls, downloadCalls }
 }
 
 function makeRequest(path: string) {
@@ -148,6 +172,98 @@ describe('GET /api/desk/media', () => {
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe('https://signed.example/outbound.webm')
     expect(mocks.uploadMediaToStorage).not.toHaveBeenCalled()
+  })
+
+  it('redirects a valid stored inbound image without attempting repair', async () => {
+    const mediaUrl = 'client-A/conv-1/inbound-valid.jpeg'
+    const jpegBuffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46])
+    const { admin, calls, signedUrlCalls, downloadCalls } = buildAdmin({
+      messageByMsgId: {
+        id: 'msg-img-valid',
+        content_type: 'image',
+        evolution_message_id: 'evo-img-valid',
+        media_url: mediaUrl,
+        media_mime_type: 'image/jpeg',
+        sender_type: 'contact',
+        from_who: 'lead',
+      },
+      signedUrl: 'https://signed.example/inbound-valid.jpeg',
+      downloadByPath: {
+        [mediaUrl]: jpegBuffer,
+      },
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+
+    const res = await GET(makeRequest('/api/desk/media?msg_id=evo-img-valid&conversation_id=conv-1'))
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('https://signed.example/inbound-valid.jpeg')
+    expect(downloadCalls).toEqual([mediaUrl])
+    expect(signedUrlCalls).toEqual([mediaUrl])
+    expect(calls).toHaveLength(0)
+    expect(mocks.uploadMediaToStorage).not.toHaveBeenCalled()
+  })
+
+  it('repairs a corrupted stored inbound image before redirecting', async () => {
+    const mediaUrl = 'client-A/conv-1/inbound-corrupted.jpeg'
+    const { admin, calls, signedUrlCalls, downloadCalls } = buildAdmin({
+      messageByMsgId: {
+        id: 'msg-img-bad',
+        content_type: 'image',
+        evolution_message_id: 'evo-img-bad',
+        media_url: mediaUrl,
+        media_mime_type: 'image/jpeg',
+        sender_type: 'contact',
+        from_who: 'lead',
+      },
+      signedUrl: 'https://signed.example/inbound-repaired.jpeg',
+      downloadByPath: {
+        [mediaUrl]: Buffer.from('not-an-image'),
+      },
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+    mocks.uploadMediaToStorage.mockResolvedValue({
+      storagePath: mediaUrl,
+      buffer: Buffer.from('recovered-image'),
+      resolvedMime: 'image/jpeg',
+      source: 'evolution',
+    })
+
+    const res = await GET(makeRequest('/api/desk/media?msg_id=evo-img-bad&conversation_id=conv-1'))
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('https://signed.example/inbound-repaired.jpeg')
+    expect(downloadCalls).toEqual([mediaUrl])
+    expect(signedUrlCalls).toEqual([mediaUrl])
+    expect(mocks.uploadMediaToStorage).toHaveBeenCalledWith(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'evo-img-bad',
+      'client-A',
+      'conv-1',
+      'image/jpeg',
+      null,
+      expect.any(Function),
+      { fromMe: false, upsert: true }
+    )
+    expect(calls).toContainEqual({
+      table: 'messages',
+      op: 'update',
+      payload: {
+        media_url: mediaUrl,
+        media_mime_type: 'image/jpeg',
+        media_size_bytes: Buffer.from('recovered-image').length,
+      },
+    })
+    expect(console.warn).toHaveBeenCalledWith(
+      '[desk/media] stored_image_invalid',
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        msgId: 'evo-img-bad',
+        mediaUrl,
+        error: 'invalid_image_bytes',
+      })
+    )
   })
 
   it('returns 404 for db_msg_id without media_url when there is no evolution_message_id to recover', async () => {
