@@ -25,6 +25,23 @@ function resolveExtension(mimetype: string): string {
   return mimetype.split('/')[1]?.split(';')[0] ?? 'bin'
 }
 
+function sniffMimeFromBuffer(buf: Buffer, fallback: string): string {
+  if (buf.length < 4) return fallback
+  // JPEG: FF D8
+  if (buf[0] === 0xFF && buf[1] === 0xD8) return 'image/jpeg'
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png'
+  // GIF: 47 49 46
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif'
+  // PDF: 25 50 44 46
+  if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'application/pdf'
+  // WebM: 1A 45 DF A3
+  if (buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3) return 'audio/webm'
+  // OGG: 4F 67 67 53
+  if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return 'audio/ogg'
+  return fallback
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -311,6 +328,14 @@ export async function uploadMediaToStorage(
 
   if (!downloaded) {
     return nil
+  }
+
+  // Normaliza MIME quando fallback genérico: detecta tipo real pelos magic bytes
+  if (downloaded.resolvedMime === 'application/octet-stream') {
+    downloaded = {
+      ...downloaded,
+      resolvedMime: sniffMimeFromBuffer(downloaded.buffer, 'application/octet-stream'),
+    }
   }
 
   const storagePath = `${clientId}/${conversationId}/${messageId}.${resolveExtension(downloaded.resolvedMime)}`
