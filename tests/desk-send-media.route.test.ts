@@ -157,6 +157,14 @@ describe('POST /api/desk/conversations/[id]/send-media', () => {
 
     expect(res.status).toBe(200)
     expect(mocks.sendAudioMessage).toHaveBeenCalledTimes(1)
+    expect(mocks.sendAudioMessage).toHaveBeenCalledWith(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'audio/webm;codecs=opus',
+      audioBuffer.toString('base64'),
+      undefined,
+      'voice-note.webm'
+    )
     expect(mocks.sendMediaMessage).not.toHaveBeenCalled()
     expect(uploads).toHaveLength(1)
     expect(uploads[0]).toMatchObject({

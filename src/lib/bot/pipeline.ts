@@ -17,68 +17,6 @@ import type {
 import type { PanelWhatsAppConfig, PanelBotConfig, PanelGoogleConfig } from '@/types/database'
 import { stageLabelSlugs } from './stage-labels'
 
-interface MediaUploadResult {
-  storagePath: string | null
-  buffer: Buffer | null
-  resolvedMime: string
-}
-
-// Baixa mídia da Evolution, faz upload para o Supabase Storage e retorna o buffer (para transcrição).
-async function uploadMediaToStorage(
-  instanceName: string,
-  remoteJid: string,
-  messageId: string,
-  clientId: string,
-  conversationId: string,
-  mimetype: string
-): Promise<MediaUploadResult> {
-  const nil: MediaUploadResult = { storagePath: null, buffer: null, resolvedMime: mimetype }
-  const evolutionUrl = process.env.EVOLUTION_API_URL?.replace(/\/$/, '')
-  const evolutionKey = process.env.EVOLUTION_API_KEY
-  if (!evolutionUrl || !evolutionKey) return nil
-
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10_000)
-
-    const res = await fetch(`${evolutionUrl}/message/getBase64FromMediaMessage/${instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
-      body: JSON.stringify({ message: { key: { remoteJid, fromMe: false, id: messageId } } }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout))
-
-    if (!res.ok) {
-      console.warn(`[Pipeline] Mídia não disponível na Evolution: msg=${messageId} status=${res.status}`)
-      return nil
-    }
-
-    const data = await res.json()
-    const base64 = data.base64 as string | undefined
-    const resolvedMime = (data.mimetype as string | undefined) ?? mimetype
-    if (!base64) return { ...nil, resolvedMime }
-
-    const ext = resolvedMime.split('/')[1]?.split(';')[0] ?? 'bin'
-    const storagePath = `${clientId}/${conversationId}/${messageId}.${ext}`
-    const buffer = Buffer.from(base64, 'base64')
-
-    const supabase = createAdminClient()
-    const { error } = await supabase.storage
-      .from('desk-media')
-      .upload(storagePath, buffer, { contentType: resolvedMime, upsert: false })
-
-    if (error && !error.message.includes('already exists')) {
-      console.error('[Pipeline] Erro ao fazer upload para Storage:', error.message)
-      return { storagePath: null, buffer, resolvedMime }
-    }
-
-    return { storagePath, buffer, resolvedMime }
-  } catch (err) {
-    console.warn('[Pipeline] Falha ao baixar/enviar mídia:', err)
-    return nil
-  }
-}
-
 // Transcreve áudio usando OpenAI Whisper (ou Groq whisper-large-v3).
 // Fire-and-forget: erros são logados e retornam null — nunca bloqueiam o pipeline.
 async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<string | null> {

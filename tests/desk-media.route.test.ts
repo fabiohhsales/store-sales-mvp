@@ -150,11 +150,11 @@ describe('GET /api/desk/media', () => {
     expect(mocks.uploadMediaToStorage).not.toHaveBeenCalled()
   })
 
-  it('keeps db_msg_id without Evolution fallback when media_url is missing', async () => {
+  it('returns 404 for db_msg_id without media_url when there is no evolution_message_id to recover', async () => {
     const { admin } = buildAdmin({
       messageByDbId: {
         id: 'msg-1',
-        evolution_message_id: 'evo-1',
+        evolution_message_id: null,
         media_url: null,
         media_mime_type: 'audio/webm;codecs=opus',
         sender_type: 'operator',
@@ -167,6 +167,53 @@ describe('GET /api/desk/media', () => {
 
     expect(res.status).toBe(404)
     expect(mocks.uploadMediaToStorage).not.toHaveBeenCalled()
+  })
+
+  it('backfills outbound db_msg_id without media_url when evolution_message_id is available', async () => {
+    const { admin, calls } = buildAdmin({
+      messageByDbId: {
+        id: 'msg-1',
+        evolution_message_id: 'evo-out-1',
+        media_url: null,
+        media_mime_type: 'audio/webm;codecs=opus',
+        sender_type: 'operator',
+        from_who: 'human',
+      },
+      signedUrl: 'https://signed.example/recovered-outbound.webm',
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+    mocks.uploadMediaToStorage.mockResolvedValue({
+      storagePath: 'client-A/conv-1/evo-out-1.webm',
+      buffer: Buffer.from('outbound-audio'),
+      resolvedMime: 'audio/webm;codecs=opus',
+      source: 'evolution',
+    })
+
+    const res = await GET(makeRequest('/api/desk/media?db_msg_id=msg-1&conversation_id=conv-1'))
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('https://signed.example/recovered-outbound.webm')
+    expect(mocks.uploadMediaToStorage).toHaveBeenCalledTimes(1)
+    expect(mocks.uploadMediaToStorage).toHaveBeenCalledWith(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'evo-out-1',
+      'client-A',
+      'conv-1',
+      'audio/webm;codecs=opus',
+      null,
+      expect.any(Function),
+      { fromMe: true }
+    )
+    expect(calls).toContainEqual({
+      table: 'messages',
+      op: 'update',
+      payload: {
+        media_url: 'client-A/conv-1/evo-out-1.webm',
+        media_mime_type: 'audio/webm;codecs=opus',
+        media_size_bytes: Buffer.from('outbound-audio').length,
+      },
+    })
   })
 
   it('backfills inbound msg_id into Storage and redirects to the repaired signed URL', async () => {
@@ -194,6 +241,17 @@ describe('GET /api/desk/media', () => {
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe('https://signed.example/recovered.ogg')
     expect(mocks.uploadMediaToStorage).toHaveBeenCalledTimes(1)
+    expect(mocks.uploadMediaToStorage).toHaveBeenCalledWith(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'evo-2',
+      'client-A',
+      'conv-1',
+      'audio/ogg',
+      null,
+      expect.any(Function),
+      { fromMe: false }
+    )
     expect(calls).toContainEqual({
       table: 'messages',
       op: 'update',
@@ -273,5 +331,41 @@ describe('GET /api/desk/media', () => {
 
     expect(res.status).toBe(404)
     expect(mocks.uploadMediaToStorage).toHaveBeenCalledTimes(1)
+  })
+
+  it('tries lazy repair for outbound db_msg_id and returns 404 when recovery also fails', async () => {
+    const { admin } = buildAdmin({
+      messageByDbId: {
+        id: 'msg-1',
+        evolution_message_id: 'evo-out-1',
+        media_url: null,
+        media_mime_type: 'audio/webm;codecs=opus',
+        sender_type: 'operator',
+        from_who: 'human',
+      },
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+    mocks.uploadMediaToStorage.mockResolvedValue({
+      storagePath: null,
+      buffer: null,
+      resolvedMime: 'audio/webm;codecs=opus',
+      source: null,
+    })
+
+    const res = await GET(makeRequest('/api/desk/media?db_msg_id=msg-1&conversation_id=conv-1'))
+
+    expect(res.status).toBe(404)
+    expect(mocks.uploadMediaToStorage).toHaveBeenCalledTimes(1)
+    expect(mocks.uploadMediaToStorage).toHaveBeenCalledWith(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'evo-out-1',
+      'client-A',
+      'conv-1',
+      'audio/webm;codecs=opus',
+      null,
+      expect.any(Function),
+      { fromMe: true }
+    )
   })
 })

@@ -1,6 +1,6 @@
 // GET /api/desk/media?msg_id=&conversation_id=&client_id=
-// Resolve media from Storage and, for inbound messages, lazily repairs rows
-// that were saved without media_url when the binary can still be recovered.
+// Resolve media from Storage and lazily repair rows that were saved without
+// media_url when the binary can still be recovered from Evolution.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -87,30 +87,6 @@ export async function GET(request: NextRequest) {
       })
       return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
     }
-
-    if (!message.media_url) {
-      logMediaEvent('db_msg_without_media_url', {
-        conversationId,
-        dbMsgId,
-        senderType: message.sender_type,
-        fromWho: message.from_who,
-        mimetype: message.media_mime_type,
-      })
-      return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
-    }
-
-    const signedUrl = await createMediaSignedUrl(admin, message.media_url)
-    if (!signedUrl) {
-      logMediaEvent('signed_url_failed', {
-        conversationId,
-        dbMsgId,
-        mediaUrl: message.media_url,
-        senderType: message.sender_type,
-      })
-      return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
-    }
-
-    return NextResponse.redirect(signedUrl, { status: 302 })
   }
 
   if (message?.media_url) {
@@ -121,10 +97,19 @@ export async function GET(request: NextRequest) {
 
     logMediaEvent('signed_url_failed', {
       conversationId,
-      msgId,
+      msgId: message.evolution_message_id ?? msgId ?? dbMsgId,
       mediaUrl: message.media_url,
       senderType: message.sender_type,
       fromWho: message.from_who,
+    })
+  } else if (dbMsgId && message) {
+    logMediaEvent('db_msg_without_media_url', {
+      conversationId,
+      dbMsgId,
+      evolutionMessageId: message.evolution_message_id,
+      senderType: message.sender_type,
+      fromWho: message.from_who,
+      mimetype: message.media_mime_type,
     })
   } else {
     logMediaEvent('storage_missing_for_msg_id', {
@@ -134,12 +119,17 @@ export async function GET(request: NextRequest) {
     })
   }
 
+  const targetMsgId = message?.evolution_message_id ?? msgId
+  if (!targetMsgId) {
+    return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
+  }
+
   const contact = extractFirstContact(conv)
   const instanceName = extractEvolutionInstanceName(conv)
   if (!instanceName) {
     logMediaEvent('instance_missing', {
       conversationId,
-      msgId,
+      msgId: targetMsgId,
     })
     return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
   }
@@ -148,7 +138,7 @@ export async function GET(request: NextRequest) {
   if (!remoteJid) {
     logMediaEvent('remote_jid_missing', {
       conversationId,
-      msgId,
+      msgId: targetMsgId,
       hasIdentifier: Boolean(contact?.identifier),
       hasPhone: Boolean(contact?.phone_number),
     })
@@ -158,16 +148,19 @@ export async function GET(request: NextRequest) {
   const recovered = await uploadMediaToStorage(
     instanceName,
     remoteJid,
-    msgId!,
+    targetMsgId,
     conv.client_id,
     conversationId,
     message?.media_mime_type ?? 'application/octet-stream',
     null,
     (event, payload) => logMediaEvent(event, {
       conversationId,
-      msgId,
+      msgId: targetMsgId,
       ...payload,
-    })
+    }),
+    {
+      fromMe: Boolean(message && message.sender_type !== 'contact'),
+    }
   )
 
   if (!recovered.buffer) {
@@ -187,7 +180,7 @@ export async function GET(request: NextRequest) {
     if (updateError) {
       logMediaEvent('media_backfill_failed', {
         conversationId,
-        msgId,
+        msgId: targetMsgId,
         messageId: message.id,
         storagePath: recovered.storagePath,
         error: updateError.message,
@@ -195,7 +188,7 @@ export async function GET(request: NextRequest) {
     } else {
       logMediaEvent('media_backfill_succeeded', {
         conversationId,
-        msgId,
+        msgId: targetMsgId,
         messageId: message.id,
         storagePath: recovered.storagePath,
         source: recovered.source,
@@ -208,7 +201,7 @@ export async function GET(request: NextRequest) {
 
       logMediaEvent('media_backfill_failed', {
         conversationId,
-        msgId,
+        msgId: targetMsgId,
         messageId: message.id,
         storagePath: recovered.storagePath,
         error: 'signed_url_failed_after_backfill',
@@ -217,7 +210,7 @@ export async function GET(request: NextRequest) {
   } else {
     logMediaEvent('media_backfill_failed', {
       conversationId,
-      msgId,
+      msgId: targetMsgId,
       hasMessageRow: Boolean(message?.id),
       storagePath: recovered.storagePath,
       error: recovered.storagePath ? 'message_row_missing' : 'storage_path_missing',

@@ -116,8 +116,71 @@ describe('uploadMediaToStorage', () => {
       source: 'evolution',
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://evolution.example/chat/getBase64FromMediaMessage/inst-a')
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      message: {
+        key: {
+          id: 'evo-2',
+        },
+      },
+      convertToMp4: false,
+    })
     expect(uploads[0]).toMatchObject({
       path: 'client-A/conv-1/evo-2.ogg',
+      contentType: 'audio/ogg',
+    })
+  })
+
+  it('falls back to the legacy Evolution contract when the documented chat endpoint fails', async () => {
+    const { admin, uploads } = buildAdmin()
+    mocks.createAdminClient.mockReturnValue(admin)
+    const fetchMock = vi.mocked(fetch)
+    fetchMock
+      .mockResolvedValueOnce(new Response('missing', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            base64: Buffer.from('legacy-audio').toString('base64'),
+            mimetype: 'audio/ogg',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }
+        )
+      )
+
+    const result = await uploadMediaToStorage(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'evo-legacy',
+      'client-A',
+      'conv-1',
+      'audio/webm',
+      null,
+      undefined,
+      { fromMe: true }
+    )
+
+    expect(result).toMatchObject({
+      storagePath: 'client-A/conv-1/evo-legacy.ogg',
+      resolvedMime: 'audio/ogg',
+      source: 'evolution',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://evolution.example/chat/getBase64FromMediaMessage/inst-a')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://evolution.example/message/getBase64FromMediaMessage/inst-a')
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      message: {
+        key: {
+          remoteJid: '5511999999999@s.whatsapp.net',
+          fromMe: true,
+          id: 'evo-legacy',
+        },
+      },
+    })
+    expect(uploads[0]).toMatchObject({
+      path: 'client-A/conv-1/evo-legacy.ogg',
       contentType: 'audio/ogg',
     })
   })
@@ -161,5 +224,8 @@ describe('uploadMediaToStorage', () => {
       source: 'evolution',
     })
     expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://evolution.example/chat/getBase64FromMediaMessage/inst-a')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://evolution.example/message/getBase64FromMediaMessage/inst-a')
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('https://evolution.example/chat/getBase64FromMediaMessage/inst-a')
   })
 })

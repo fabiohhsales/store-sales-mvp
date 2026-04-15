@@ -9,6 +9,15 @@ export interface MediaUploadResult {
 
 type MediaLogger = (event: string, payload: Record<string, unknown>) => void
 
+interface MediaUploadOptions {
+  fromMe?: boolean
+}
+
+interface EvolutionMediaResponse {
+  base64: string | null
+  mimetype: string | null
+}
+
 const DEFAULT_MEDIA_TIMEOUT_MS = 10_000
 const DEFAULT_RETRY_DELAYS_MS = [0, 300, 900]
 
@@ -25,6 +34,74 @@ function pickResolvedMime(headerMime: string | null, fallbackMime: string): stri
     return fallbackMime
   }
   return headerMime
+}
+
+function findFirstStringByKeys(value: unknown, keys: string[]): string | null {
+  const queue: unknown[] = [value]
+  const seen = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || typeof current !== 'object' || seen.has(current)) {
+      continue
+    }
+    seen.add(current)
+
+    if (Array.isArray(current)) {
+      queue.push(...current)
+      continue
+    }
+
+    const record = current as Record<string, unknown>
+    for (const key of keys) {
+      const candidate = record[key]
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        return candidate.trim()
+      }
+    }
+
+    queue.push(...Object.values(record))
+  }
+
+  return null
+}
+
+async function parseEvolutionMediaResponse(
+  res: Response,
+  fallbackMime: string
+): Promise<EvolutionMediaResponse> {
+  const text = await res.text()
+  const trimmed = text.trim()
+
+  if (!trimmed) {
+    return { base64: null, mimetype: fallbackMime }
+  }
+
+  let payload: unknown = null
+  try {
+    payload = JSON.parse(trimmed)
+  } catch {
+    payload = null
+  }
+
+  if (!payload) {
+    return {
+      base64: trimmed,
+      mimetype: fallbackMime,
+    }
+  }
+
+  if (typeof payload === 'string' && payload.trim().length > 0) {
+    return {
+      base64: payload.trim(),
+      mimetype: fallbackMime,
+    }
+  }
+
+  return {
+    base64: findFirstStringByKeys(payload, ['base64']),
+    mimetype: findFirstStringByKeys(payload, ['mimetype', 'mime_type']) ?? fallbackMime,
+  }
 }
 
 async function fetchMediaFromDirectUrl(
@@ -80,6 +157,7 @@ async function fetchMediaFromEvolution(
   remoteJid: string,
   messageId: string,
   fallbackMime: string,
+  fromMe = false,
   logger?: MediaLogger,
   meta: Record<string, unknown> = {}
 ): Promise<{ buffer: Buffer; resolvedMime: string; source: 'evolution' } | null> {
@@ -96,52 +174,91 @@ async function fetchMediaFromEvolution(
     return null
   }
 
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), DEFAULT_MEDIA_TIMEOUT_MS)
-    const res = await fetch(`${evolutionUrl}/message/getBase64FromMediaMessage/${instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
-      body: JSON.stringify({ message: { key: { remoteJid, fromMe: false, id: messageId } } }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout))
+  const candidates = [
+    {
+      endpoint: `/chat/getBase64FromMediaMessage/${instanceName}`,
+      body: {
+        message: {
+          key: {
+            id: messageId,
+          },
+        },
+        convertToMp4: false,
+      },
+      contract: 'chat_v2',
+    },
+    {
+      endpoint: `/message/getBase64FromMediaMessage/${instanceName}`,
+      body: {
+        message: {
+          key: {
+            remoteJid,
+            fromMe,
+            id: messageId,
+          },
+        },
+      },
+      contract: 'message_legacy',
+    },
+  ] as const
 
-    if (!res.ok) {
+  for (const candidate of candidates) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), DEFAULT_MEDIA_TIMEOUT_MS)
+      const res = await fetch(`${evolutionUrl}${candidate.endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
+        body: JSON.stringify(candidate.body),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout))
+
+      if (!res.ok) {
+        logger?.('evolution_media_fetch_failed', {
+          ...meta,
+          status: res.status,
+          instanceName,
+          remoteJid,
+          endpoint: candidate.endpoint,
+          contract: candidate.contract,
+          fromMe,
+        })
+        continue
+      }
+
+      const parsed = await parseEvolutionMediaResponse(res, fallbackMime)
+      if (!parsed.base64) {
+        logger?.('evolution_media_fetch_failed', {
+          ...meta,
+          reason: 'missing_base64',
+          instanceName,
+          remoteJid,
+          endpoint: candidate.endpoint,
+          contract: candidate.contract,
+          fromMe,
+        })
+        continue
+      }
+
+      return {
+        buffer: Buffer.from(parsed.base64, 'base64'),
+        resolvedMime: parsed.mimetype ?? fallbackMime,
+        source: 'evolution',
+      }
+    } catch (error) {
       logger?.('evolution_media_fetch_failed', {
         ...meta,
-        status: res.status,
         instanceName,
         remoteJid,
+        endpoint: candidate.endpoint,
+        contract: candidate.contract,
+        fromMe,
+        reason: error instanceof Error ? error.message : 'unknown_error',
       })
-      return null
     }
-
-    const data = await res.json()
-    const base64 = data.base64 as string | undefined
-    if (!base64) {
-      logger?.('evolution_media_fetch_failed', {
-        ...meta,
-        reason: 'missing_base64',
-        instanceName,
-        remoteJid,
-      })
-      return null
-    }
-
-    return {
-      buffer: Buffer.from(base64, 'base64'),
-      resolvedMime: (data.mimetype as string | undefined) ?? fallbackMime,
-      source: 'evolution',
-    }
-  } catch (error) {
-    logger?.('evolution_media_fetch_failed', {
-      ...meta,
-      instanceName,
-      remoteJid,
-      reason: error instanceof Error ? error.message : 'unknown_error',
-    })
-    return null
   }
+
+  return null
 }
 
 export async function uploadMediaToStorage(
@@ -152,7 +269,8 @@ export async function uploadMediaToStorage(
   conversationId: string,
   mimetype: string,
   mediaUrl: string | null = null,
-  logger?: MediaLogger
+  logger?: MediaLogger,
+  options: MediaUploadOptions = {}
 ): Promise<MediaUploadResult> {
   const nil: MediaUploadResult = {
     storagePath: null,
@@ -180,6 +298,7 @@ export async function uploadMediaToStorage(
         remoteJid,
         messageId,
         mimetype,
+        options.fromMe ?? false,
         logger,
         meta
       )

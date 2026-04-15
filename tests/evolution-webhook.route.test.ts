@@ -144,4 +144,52 @@ describe('POST /api/webhooks/evolution', () => {
 
     expect(mocks.runConversationBotTurn).toHaveBeenCalledWith(pipelineResult)
   })
+
+  it('atualiza whatsapp_status quando a Evolution envia ack de audio outbound', async () => {
+    const updateEq = vi.fn().mockResolvedValue({ data: null, error: null })
+    mocks.createAdminClient.mockReturnValue({
+      from(table: string) {
+        if (table !== 'messages') {
+          throw new Error(`Unexpected table: ${table}`)
+        }
+        return {
+          update(payload: Record<string, unknown>) {
+            return {
+              eq(field: string, value: string) {
+                updateEq(field, value, payload)
+                return Promise.resolve({ data: null, error: null })
+              },
+            }
+          },
+        }
+      },
+    })
+
+    const { POST } = await import('@/app/api/webhooks/evolution/route')
+    const response = await POST({
+      json: async () => ({
+        event: 'messages.update',
+        instance: 'inst-1',
+        data: [
+          {
+            key: {
+              remoteJid: '5511999999999@s.whatsapp.net',
+              fromMe: true,
+              id: 'evo-audio-1',
+            },
+            update: {
+              status: 5,
+            },
+          },
+        ],
+      }),
+    } as never)
+
+    expect(response.status).toBe(200)
+    expect(updateEq).toHaveBeenCalledWith(
+      'evolution_message_id',
+      'evo-audio-1',
+      { whatsapp_status: 'played' }
+    )
+  })
 })
