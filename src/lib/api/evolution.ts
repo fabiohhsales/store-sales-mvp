@@ -176,9 +176,7 @@ export async function sendAudioMessage(
     method: 'POST',
     body: JSON.stringify({
       number: remoteJid,
-      audioMessage: {
-        audio: base64,
-      },
+      audio: base64,
     }),
   })
   return res.key?.id ?? null
