@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendTextMessage, sendMediaByUrl } from '@/lib/api/evolution'
 import { handleAgendaCheck, handleAgendaCreate } from './calendar-agent'
 import { clearAiPause } from './agent'
+import { resolveAgentInputText } from './multimodal'
 import { normalizeStageSlug } from './stage-labels'
 import { emitConversationEvent } from '@/lib/desk/emit-conversation-event'
 import { handoffReasonLabel } from '@/lib/desk/conduction'
@@ -325,7 +326,10 @@ async function generateTriageSummary(messages: import('@/types/bot').BotMessage[
     const openai = createAiClient()
 
     const history = messages
-      .map((m) => `${m.sender_type === 'contact' ? 'Paciente' : 'Bot'}: ${m.content ?? ''}`)
+      .map((m) => {
+        const content = m.from_who === 'lead' ? resolveAgentInputText(m) ?? m.content ?? '' : m.content ?? ''
+        return `${m.sender_type === 'contact' ? 'Paciente' : 'Bot'}: ${content}`
+      })
       .join('\n')
 
     const response = await openai.chat.completions.create({

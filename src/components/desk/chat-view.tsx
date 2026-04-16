@@ -41,6 +41,12 @@ interface Message {
   media_duration_seconds?: number | null
   media_transcript?: string | null
   whatsapp_status?: string | null
+  derived_text?: string | null
+  derived_kind?: string | null
+  processing_status?: string | null
+  processing_error?: string | null
+  ai_input_text?: string | null
+  sent_to_agent_at?: string | null
 }
 
 interface ConversationDetail {
@@ -130,6 +136,69 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function getDerivedText(message: Message): string | null {
+  const derived = message.derived_text?.trim()
+  if (derived) return derived
+  const transcript = message.media_transcript?.trim()
+  if (transcript) return transcript
+  return null
+}
+
+function processingStatusLabel(status: string | null | undefined): string | null {
+  switch (status) {
+    case 'received':
+      return 'Recebido'
+    case 'downloaded':
+      return 'Baixado'
+    case 'processed':
+      return 'Processado'
+    case 'failed':
+      return 'Falhou'
+    case 'not_required':
+      return 'Sem processamento'
+    default:
+      return null
+  }
+}
+
+function processingStatusClasses(status: string | null | undefined): string {
+  switch (status) {
+    case 'processed':
+      return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600'
+    case 'failed':
+      return 'border-amber-500/20 bg-amber-500/10 text-amber-600'
+    case 'downloaded':
+      return 'border-sky-500/20 bg-sky-500/10 text-sky-600'
+    case 'received':
+      return 'border-muted-foreground/20 bg-muted-foreground/10 text-muted-foreground'
+    default:
+      return 'border-muted-foreground/20 bg-muted-foreground/10 text-muted-foreground'
+  }
+}
+
+function processingErrorLabel(error: string | null | undefined): string | null {
+  switch (error) {
+    case 'media_download_failed':
+      return 'Falha ao baixar a mídia recebida.'
+    case 'transcription_provider_unavailable':
+      return 'Não há provedor de transcrição configurado.'
+    case 'transcription_empty':
+      return 'A transcrição retornou vazia.'
+    case 'transcription_processing_failed':
+      return 'Falha ao transcrever o áudio.'
+    case 'vision_provider_unavailable':
+      return 'Não há provedor de visão configurado.'
+    case 'vision_empty':
+      return 'A descrição da imagem retornou vazia.'
+    case 'vision_processing_failed':
+      return 'Falha ao analisar a imagem.'
+    case 'message_update_failed':
+      return 'Falha ao salvar o resultado do processamento.'
+    default:
+      return error?.trim() ? error.replaceAll('_', ' ') : null
+  }
 }
 
 // --- Sub-renderer: Audio Player WhatsApp-style ---
@@ -222,6 +291,12 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
   const isBot = message.sender_type === 'agent_bot'
   const isOperator = message.sender_type === 'operator'
   const isFollowup = message.from_who === 'followup'
+  const derivedText = getDerivedText(message)
+  const multimodalStatus = processingStatusLabel(message.processing_status)
+  const multimodalError = processingErrorLabel(message.processing_error)
+  const showProcessingState = !isOutgoing && (message.content_type === 'audio' || message.content_type === 'image')
+  const showDerivedImageBlock = message.content_type === 'image' && Boolean(derivedText)
+  const showProcessingFailure = showProcessingState && message.processing_status === 'failed'
 
   const baseMediaSrc = mediaProxyUrl(message, conversationId)
   // Add cache-bust suffix to retry expired signed URLs
@@ -240,9 +315,12 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
     const nextToken = Date.now()
     latestMediaTokenRef.current = nextToken
     imageAutoRetryRef.current = false
-    setMediaFailed(false)
-    setMediaRetrying(false)
-    setMediaBust(nextToken)
+    const resetTimer = window.setTimeout(() => {
+      setMediaFailed(false)
+      setMediaRetrying(false)
+      setMediaBust(nextToken)
+    }, 0)
+    return () => window.clearTimeout(resetTimer)
   }, [baseMediaSrc, message.id, message.media_mime_type, message.media_url])
 
   const markMediaFailed = useCallback((token: number) => {
@@ -323,7 +401,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
         return (
           <AudioPlayer
             src={mediaSrc}
-            transcript={message.media_transcript}
+            transcript={derivedText}
             onReady={() => markMediaReady(renderToken)}
             onError={() => markMediaFailed(renderToken)}
           />
@@ -431,6 +509,46 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
                 : 'bg-secondary text-foreground rounded-tl-sm'
         }`}>
           {renderContent()}
+          {showProcessingState && (
+            <div className="mt-2 flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {multimodalStatus && (
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${processingStatusClasses(message.processing_status)}`}>
+                    {multimodalStatus}
+                  </span>
+                )}
+                {message.sent_to_agent_at && (
+                  <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                    Enviado ao agente
+                  </span>
+                )}
+              </div>
+
+              {showDerivedImageBlock && (
+                <div className="rounded-lg border border-border/50 bg-background/40 px-2.5 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {message.derived_kind === 'vision_analysis' ? 'Descrição interpretada' : 'Texto derivado'}
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {derivedText}
+                  </p>
+                </div>
+              )}
+
+              {showProcessingFailure && (
+                <div className="space-y-1">
+                  <p className="text-[11px] leading-relaxed text-amber-600">
+                    A mídia foi recebida, mas a interpretação automática não foi concluída.
+                  </p>
+                  {multimodalError && (
+                    <p className="text-[10px] leading-relaxed text-amber-700/90">
+                      Motivo: {multimodalError}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1 px-1">
           <span className="text-[10px] text-muted-foreground">{relativeTime(message.created_at)}</span>
@@ -1495,15 +1613,38 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                         <div className="grid grid-cols-3 gap-1.5">
                           {images.map((m) => {
                             const src = mediaProxyUrl(m, conversationId)
+                            const derived = getDerivedText(m)
+                            const status = processingStatusLabel(m.processing_status)
+                            const errorLabel = processingErrorLabel(m.processing_error)
                             if (!src) return null
                             return (
-                              <button
-                                key={m.id}
-                                onClick={() => { setLightboxUrl(src); setLightboxAlt(m.content || 'Imagem') }}
-                                className="relative aspect-square rounded-md overflow-hidden border border-border bg-muted/40 hover:opacity-80 transition-opacity"
-                              >
-                                <Image src={src} alt={m.content || 'Imagem'} fill unoptimized className="object-cover" />
-                              </button>
+                              <div key={m.id} className="space-y-1">
+                                <button
+                                  onClick={() => { setLightboxUrl(src); setLightboxAlt(m.content || 'Imagem') }}
+                                  className="relative aspect-square w-full rounded-md overflow-hidden border border-border bg-muted/40 hover:opacity-80 transition-opacity"
+                                >
+                                  <Image src={src} alt={m.content || 'Imagem'} fill unoptimized className="object-cover" />
+                                </button>
+                                {(status || derived) && (
+                                  <div className="space-y-1">
+                                    {status && (
+                                      <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${processingStatusClasses(m.processing_status)}`}>
+                                        {status}
+                                      </span>
+                                    )}
+                                    {derived && (
+                                      <p className="truncate text-[10px] text-muted-foreground">
+                                        {derived}
+                                      </p>
+                                    )}
+                                    {m.processing_status === 'failed' && errorLabel && (
+                                      <p className="truncate text-[10px] text-amber-600">
+                                        {errorLabel}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             )
                           })}
                         </div>
@@ -1518,6 +1659,9 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                             const isAudio = m.content_type === 'audio'
                             const isVideo = m.content_type === 'video'
                             const isPdf = m.media_mime_type?.includes('pdf')
+                            const derived = getDerivedText(m)
+                            const status = processingStatusLabel(m.processing_status)
+                            const errorLabel = processingErrorLabel(m.processing_error)
                             const displayName = (m.media_filename || m.content || 'Arquivo')
                               .replace(/^\[Documento: /, '').replace(/^\[Vídeo: /, '').replace(/\]$/, '')
                             const label = isAudio ? 'Áudio' : isVideo ? 'Vídeo' : isPdf ? 'PDF' : 'Documento'
@@ -1533,8 +1677,24 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                                   <span className="text-[10px] text-muted-foreground">
                                     {label}{m.media_size_bytes ? ` · ${formatBytes(m.media_size_bytes)}` : ''}{m.media_duration_seconds ? ` · ${formatDuration(m.media_duration_seconds)}` : ''} · {relativeTime(m.created_at)}
                                   </span>
-                                  {isAudio && m.media_transcript && (
-                                    <span className="text-[10px] text-muted-foreground italic truncate max-w-[200px]">"{m.media_transcript}"</span>
+                                  {(status || derived) && (
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      {status && (
+                                        <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${processingStatusClasses(m.processing_status)}`}>
+                                          {status}
+                                        </span>
+                                      )}
+                                      {derived && (
+                                        <span className="text-[10px] text-muted-foreground italic truncate max-w-[200px]">
+                                          &ldquo;{derived}&rdquo;
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {m.processing_status === 'failed' && errorLabel && (
+                                    <span className="text-[10px] leading-relaxed text-amber-600">
+                                      {errorLabel}
+                                    </span>
                                   )}
                                 </div>
                                 {src && (
