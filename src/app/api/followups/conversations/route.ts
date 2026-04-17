@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getSuppressedConversations, resolveLeadSteps, resolveAtendimentoSteps, resolveAgendadoSteps } from '@/lib/followup/shared';
 import { sanitizeStageLabels } from '@/lib/bot/stage-labels';
-import type { FollowupConversationsResponse, FollowupConversation, CadenceType } from '@/types/followup';
+import type { FollowupConversationsResponse, FollowupConversation, FollowupTreeNode, CadenceType } from '@/types/followup';
 import type { PanelBotConfig } from '@/types/database';
 
 /**
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   const botConfig = botConfigRaw as PanelBotConfig | null;
 
   // Build tree (cadence > step)
-  const tree = [
+  const tree: FollowupTreeNode[] = [
     { cadence: 'lead', steps: resolveLeadSteps(botConfig ?? ({} as PanelBotConfig)).map(s => ({ step_key: s.step_key, label: s.label })) },
     { cadence: 'atendimento', steps: resolveAtendimentoSteps(botConfig ?? ({} as PanelBotConfig)).map(s => ({ step_key: s.step_key, label: s.label })) },
     { cadence: 'agendado', steps: resolveAgendadoSteps(botConfig ?? ({} as PanelBotConfig)).map(s => ({ step_key: s.step_key, label: s.label })) },
