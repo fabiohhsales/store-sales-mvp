@@ -89,8 +89,9 @@ async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<Mu
       ? new OpenAI({ apiKey })
       : new OpenAI({ apiKey: groqKey!, baseURL: 'https://api.groq.com/openai/v1' })
     const model = apiKey ? 'whisper-1' : 'whisper-large-v3'
-    const ext = resolvedMime.split('/')[1]?.split(';')[0] ?? 'ogg'
-    const file = await toFile(buffer, `audio.${ext}`, { type: resolvedMime })
+    const cleanMime = resolvedMime.split(';')[0].trim()
+    const ext = cleanMime.split('/')[1] ?? 'ogg'
+    const file = await toFile(buffer, `audio.${ext}`, { type: cleanMime })
     const result = await client.audio.transcriptions.create({ file, model, language: 'pt' })
     const transcript = trimText(result.text)
 
@@ -115,7 +116,13 @@ async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<Mu
       processingStatus: 'processed',
       processingError: null,
     }
-  } catch {
+  } catch (e: unknown) {
+    const errorMsg = e instanceof Error ? e.message : String(e)
+    logMultimodalEvent('transcription_error', {
+      error: errorMsg,
+      mime: resolvedMime,
+      provider: apiKey ? 'openai' : 'groq',
+    }, 'warn')
     return {
       provider: apiKey ? 'openai' : 'groq',
       derivedText: null,
@@ -149,7 +156,8 @@ async function analyzeImage(
 
   try {
     const client = new OpenAI({ apiKey })
-    const dataUrl = `data:${resolvedMime};base64,${buffer.toString('base64')}`
+    const cleanMime = resolvedMime.split(';')[0].trim()
+    const dataUrl = `data:${cleanMime};base64,${buffer.toString('base64')}`
     const caption = trimText(content)
     const captionContext = caption && caption !== '[Imagem]'
       ? `Contexto adicional enviado com a imagem: ${caption}.`
@@ -198,7 +206,13 @@ async function analyzeImage(
       processingStatus: 'processed',
       processingError: null,
     }
-  } catch {
+  } catch (e: unknown) {
+    const errorMsg = e instanceof Error ? e.message : String(e)
+    logMultimodalEvent('vision_error', {
+      error: errorMsg,
+      mime: resolvedMime,
+      provider: 'openai',
+    }, 'warn')
     return {
       provider: 'openai',
       derivedText: null,

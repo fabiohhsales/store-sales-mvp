@@ -22,6 +22,10 @@ interface EvolutionMediaResponse {
 const DEFAULT_MEDIA_TIMEOUT_MS = 10_000
 const DEFAULT_RETRY_DELAYS_MS = [0, 300, 900]
 
+function normalizeMimeType(raw: string): string {
+  return raw.split(';')[0].trim().toLowerCase()
+}
+
 function resolveExtension(mimetype: string): string {
   return mimetype.split('/')[1]?.split(';')[0] ?? 'bin'
 }
@@ -339,10 +343,11 @@ export async function uploadMediaToStorage(
   logger?: MediaLogger,
   options: MediaUploadOptions = {}
 ): Promise<MediaUploadResult> {
+  const normalizedInputMime = normalizeMimeType(mimetype)
   const nil: MediaUploadResult = {
     storagePath: null,
     buffer: null,
-    resolvedMime: mimetype,
+    resolvedMime: normalizedInputMime,
     source: null,
   }
 
@@ -356,7 +361,7 @@ export async function uploadMediaToStorage(
     const meta = { attempt: attempt + 1, messageId, clientId, conversationId }
 
     if (mediaUrl) {
-      downloaded = await fetchMediaFromDirectUrl(mediaUrl, mimetype, logger, meta)
+      downloaded = await fetchMediaFromDirectUrl(mediaUrl, normalizedInputMime, logger, meta)
     }
 
     if (!downloaded) {
@@ -364,7 +369,7 @@ export async function uploadMediaToStorage(
         instanceName,
         remoteJid,
         messageId,
-        mimetype,
+        normalizedInputMime,
         options.fromMe ?? false,
         logger,
         meta
@@ -379,6 +384,8 @@ export async function uploadMediaToStorage(
   if (!downloaded) {
     return nil
   }
+
+  downloaded = { ...downloaded, resolvedMime: normalizeMimeType(downloaded.resolvedMime) }
 
   // Quando o provider retorna MIME genérico, tenta inferir apenas tipos seguros
   // ligados ao bug atual de imagem/documento.
