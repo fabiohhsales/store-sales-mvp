@@ -48,7 +48,7 @@ export async function GET(
 
   // Inclui mensagens com client_id null para não esconder históricos antigos/bugados.
   // A segurança já está garantida pelo filtro de conversation_id + validação de acesso acima.
-  const msgSelect = 'id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url, media_mime_type, media_filename, media_size_bytes, media_duration_seconds, media_transcript, whatsapp_status'
+  const msgSelect = 'id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url, media_mime_type, media_filename, media_size_bytes, media_duration_seconds, media_transcript, whatsapp_status, derived_text, derived_kind, processing_status, processing_error, ai_input_text, sent_to_agent_at'
 
   let msgQuery = admin
     .from('messages')

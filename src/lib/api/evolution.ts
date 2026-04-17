@@ -144,7 +144,7 @@ export async function sendTextMessage(
 export async function sendMediaMessage(
   instanceName: string,
   remoteJid: string,
-  mediatype: 'image' | 'document' | 'audio' | 'video',
+  mediatype: 'image' | 'document' | 'video',
   mimetype: string,
   base64: string,
   caption?: string,
@@ -167,20 +167,16 @@ export async function sendMediaMessage(
 export async function sendAudioMessage(
   instanceName: string,
   remoteJid: string,
-  mimetype: string,
+  _mimetype: string,
   base64: string,
-  caption?: string,
-  fileName?: string
+  _caption?: string,
+  _fileName?: string
 ): Promise<string | null> {
-  const res = await evolutionFetch<EvolutionSendResponse>(`/message/sendMedia/${instanceName}`, {
+  const res = await evolutionFetch<EvolutionSendResponse>(`/message/sendWhatsAppAudio/${instanceName}`, {
     method: 'POST',
     body: JSON.stringify({
       number: remoteJid,
-      mediatype: 'audio',
-      mimetype,
-      media: base64,
-      caption: caption ?? undefined,
-      fileName: fileName ?? undefined,
+      audio: base64,
     }),
   })
   return res.key?.id ?? null
@@ -189,7 +185,7 @@ export async function sendAudioMessage(
 export async function sendMediaByUrl(
   instanceName: string,
   remoteJid: string,
-  mediatype: 'image' | 'document' | 'audio' | 'video',
+  mediatype: 'image' | 'document' | 'video',
   mimetype: string,
   mediaUrl: string,
   caption?: string,

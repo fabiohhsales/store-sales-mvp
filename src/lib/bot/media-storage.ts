@@ -9,11 +9,78 @@ export interface MediaUploadResult {
 
 type MediaLogger = (event: string, payload: Record<string, unknown>) => void
 
+interface MediaUploadOptions {
+  fromMe?: boolean
+  upsert?: boolean
+}
+
+interface EvolutionMediaResponse {
+  base64: string | null
+  mimetype: string | null
+}
+
 const DEFAULT_MEDIA_TIMEOUT_MS = 10_000
 const DEFAULT_RETRY_DELAYS_MS = [0, 300, 900]
 
 function resolveExtension(mimetype: string): string {
   return mimetype.split('/')[1]?.split(';')[0] ?? 'bin'
+}
+
+export function isImageMime(mimetype: string | null | undefined): boolean {
+  return typeof mimetype === 'string' && mimetype.startsWith('image/')
+}
+
+export function sniffMimeFromBuffer(buf: Buffer, fallback: string): string {
+  if (buf.length < 4) return fallback
+  // JPEG: FF D8
+  if (buf[0] === 0xFF && buf[1] === 0xD8) return 'image/jpeg'
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png'
+  // GIF: 47 49 46
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif'
+  // WebP: RIFF....WEBP
+  if (
+    buf.length >= 12 &&
+    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+  // PDF: 25 50 44 46
+  if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'application/pdf'
+  return fallback
+}
+
+function resolveDirectImageMime(
+  buffer: Buffer,
+  resolvedMime: string,
+  fallbackMime: string,
+  logger?: MediaLogger,
+  meta: Record<string, unknown> = {}
+): string | null {
+  const expectsImage = isImageMime(resolvedMime) || isImageMime(fallbackMime)
+  if (!expectsImage) return resolvedMime
+
+  const sniffedMime = sniffMimeFromBuffer(buffer, 'application/octet-stream')
+  if (!isImageMime(sniffedMime)) {
+    logger?.('direct_media_url_invalid_image', {
+      ...meta,
+      previousMime: resolvedMime,
+      sniffedMime,
+    })
+    return null
+  }
+
+  if (sniffedMime !== resolvedMime) {
+    logger?.('media_mime_sniffed', {
+      ...meta,
+      source: 'direct_url',
+      previousMime: resolvedMime,
+      sniffedMime,
+    })
+  }
+
+  return sniffedMime
 }
 
 function sleep(ms: number): Promise<void> {
@@ -25,6 +92,74 @@ function pickResolvedMime(headerMime: string | null, fallbackMime: string): stri
     return fallbackMime
   }
   return headerMime
+}
+
+function findFirstStringByKeys(value: unknown, keys: string[]): string | null {
+  const queue: unknown[] = [value]
+  const seen = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || typeof current !== 'object' || seen.has(current)) {
+      continue
+    }
+    seen.add(current)
+
+    if (Array.isArray(current)) {
+      queue.push(...current)
+      continue
+    }
+
+    const record = current as Record<string, unknown>
+    for (const key of keys) {
+      const candidate = record[key]
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        return candidate.trim()
+      }
+    }
+
+    queue.push(...Object.values(record))
+  }
+
+  return null
+}
+
+async function parseEvolutionMediaResponse(
+  res: Response,
+  fallbackMime: string
+): Promise<EvolutionMediaResponse> {
+  const text = await res.text()
+  const trimmed = text.trim()
+
+  if (!trimmed) {
+    return { base64: null, mimetype: fallbackMime }
+  }
+
+  let payload: unknown = null
+  try {
+    payload = JSON.parse(trimmed)
+  } catch {
+    payload = null
+  }
+
+  if (!payload) {
+    return {
+      base64: trimmed,
+      mimetype: fallbackMime,
+    }
+  }
+
+  if (typeof payload === 'string' && payload.trim().length > 0) {
+    return {
+      base64: payload.trim(),
+      mimetype: fallbackMime,
+    }
+  }
+
+  return {
+    base64: findFirstStringByKeys(payload, ['base64']),
+    mimetype: findFirstStringByKeys(payload, ['mimetype', 'mime_type']) ?? fallbackMime,
+  }
 }
 
 async function fetchMediaFromDirectUrl(
@@ -60,9 +195,18 @@ async function fetchMediaFromDirectUrl(
       return null
     }
 
+    const resolvedMime = pickResolvedMime(res.headers.get('content-type'), fallbackMime)
+    const normalizedMime = resolveDirectImageMime(buffer, resolvedMime, fallbackMime, logger, {
+      ...meta,
+      mediaUrl,
+    })
+    if (!normalizedMime) {
+      return null
+    }
+
     return {
       buffer,
-      resolvedMime: pickResolvedMime(res.headers.get('content-type'), fallbackMime),
+      resolvedMime: normalizedMime,
       source: 'direct_url',
     }
   } catch (error) {
@@ -80,6 +224,7 @@ async function fetchMediaFromEvolution(
   remoteJid: string,
   messageId: string,
   fallbackMime: string,
+  fromMe = false,
   logger?: MediaLogger,
   meta: Record<string, unknown> = {}
 ): Promise<{ buffer: Buffer; resolvedMime: string; source: 'evolution' } | null> {
@@ -96,52 +241,91 @@ async function fetchMediaFromEvolution(
     return null
   }
 
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), DEFAULT_MEDIA_TIMEOUT_MS)
-    const res = await fetch(`${evolutionUrl}/message/getBase64FromMediaMessage/${instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
-      body: JSON.stringify({ message: { key: { remoteJid, fromMe: false, id: messageId } } }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout))
+  const candidates = [
+    {
+      endpoint: `/chat/getBase64FromMediaMessage/${instanceName}`,
+      body: {
+        message: {
+          key: {
+            id: messageId,
+          },
+        },
+        convertToMp4: false,
+      },
+      contract: 'chat_v2',
+    },
+    {
+      endpoint: `/message/getBase64FromMediaMessage/${instanceName}`,
+      body: {
+        message: {
+          key: {
+            remoteJid,
+            fromMe,
+            id: messageId,
+          },
+        },
+      },
+      contract: 'message_legacy',
+    },
+  ] as const
 
-    if (!res.ok) {
+  for (const candidate of candidates) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), DEFAULT_MEDIA_TIMEOUT_MS)
+      const res = await fetch(`${evolutionUrl}${candidate.endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
+        body: JSON.stringify(candidate.body),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout))
+
+      if (!res.ok) {
+        logger?.('evolution_media_fetch_failed', {
+          ...meta,
+          status: res.status,
+          instanceName,
+          remoteJid,
+          endpoint: candidate.endpoint,
+          contract: candidate.contract,
+          fromMe,
+        })
+        continue
+      }
+
+      const parsed = await parseEvolutionMediaResponse(res, fallbackMime)
+      if (!parsed.base64) {
+        logger?.('evolution_media_fetch_failed', {
+          ...meta,
+          reason: 'missing_base64',
+          instanceName,
+          remoteJid,
+          endpoint: candidate.endpoint,
+          contract: candidate.contract,
+          fromMe,
+        })
+        continue
+      }
+
+      return {
+        buffer: Buffer.from(parsed.base64, 'base64'),
+        resolvedMime: parsed.mimetype ?? fallbackMime,
+        source: 'evolution',
+      }
+    } catch (error) {
       logger?.('evolution_media_fetch_failed', {
         ...meta,
-        status: res.status,
         instanceName,
         remoteJid,
+        endpoint: candidate.endpoint,
+        contract: candidate.contract,
+        fromMe,
+        reason: error instanceof Error ? error.message : 'unknown_error',
       })
-      return null
     }
-
-    const data = await res.json()
-    const base64 = data.base64 as string | undefined
-    if (!base64) {
-      logger?.('evolution_media_fetch_failed', {
-        ...meta,
-        reason: 'missing_base64',
-        instanceName,
-        remoteJid,
-      })
-      return null
-    }
-
-    return {
-      buffer: Buffer.from(base64, 'base64'),
-      resolvedMime: (data.mimetype as string | undefined) ?? fallbackMime,
-      source: 'evolution',
-    }
-  } catch (error) {
-    logger?.('evolution_media_fetch_failed', {
-      ...meta,
-      instanceName,
-      remoteJid,
-      reason: error instanceof Error ? error.message : 'unknown_error',
-    })
-    return null
   }
+
+  return null
 }
 
 export async function uploadMediaToStorage(
@@ -152,7 +336,8 @@ export async function uploadMediaToStorage(
   conversationId: string,
   mimetype: string,
   mediaUrl: string | null = null,
-  logger?: MediaLogger
+  logger?: MediaLogger,
+  options: MediaUploadOptions = {}
 ): Promise<MediaUploadResult> {
   const nil: MediaUploadResult = {
     storagePath: null,
@@ -180,6 +365,7 @@ export async function uploadMediaToStorage(
         remoteJid,
         messageId,
         mimetype,
+        options.fromMe ?? false,
         logger,
         meta
       )
@@ -194,11 +380,34 @@ export async function uploadMediaToStorage(
     return nil
   }
 
+  // Quando o provider retorna MIME genérico, tenta inferir apenas tipos seguros
+  // ligados ao bug atual de imagem/documento.
+  if (!downloaded.resolvedMime || downloaded.resolvedMime.trim().length === 0 || downloaded.resolvedMime === 'application/octet-stream') {
+    const sniffedMime = sniffMimeFromBuffer(downloaded.buffer, 'application/octet-stream')
+    if (sniffedMime !== downloaded.resolvedMime) {
+      logger?.('media_mime_sniffed', {
+        clientId,
+        conversationId,
+        messageId,
+        source: downloaded.source,
+        previousMime: downloaded.resolvedMime,
+        sniffedMime,
+      })
+    }
+    downloaded = {
+      ...downloaded,
+      resolvedMime: sniffedMime,
+    }
+  }
+
   const storagePath = `${clientId}/${conversationId}/${messageId}.${resolveExtension(downloaded.resolvedMime)}`
   const supabase = createAdminClient()
   const { error } = await supabase.storage
     .from('desk-media')
-    .upload(storagePath, downloaded.buffer, { contentType: downloaded.resolvedMime, upsert: false })
+    .upload(storagePath, downloaded.buffer, {
+      contentType: downloaded.resolvedMime,
+      upsert: options.upsert ?? false,
+    })
 
   if (error && !error.message.includes('already exists')) {
     logger?.('storage_upload_failed', {

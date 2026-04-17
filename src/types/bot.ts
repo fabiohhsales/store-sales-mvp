@@ -60,6 +60,13 @@ export interface BotMessage {
   media_height: number | null
   media_transcript: string | null
   whatsapp_status: string | null
+  raw_payload: unknown | null
+  derived_text: string | null
+  derived_kind: string | null
+  processing_status: string | null
+  processing_error: string | null
+  ai_input_text: string | null
+  sent_to_agent_at: string | null
 }
 
 export interface BotAppointment {
@@ -204,4 +211,5 @@ export interface NormalizedEvolutionMessage {
   mediaWidth: number | null
   mediaHeight: number | null
   mediaFilename: string | null
+  rawPayload: EvolutionWebhookPayload
 }

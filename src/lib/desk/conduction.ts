@@ -99,6 +99,7 @@ const HANDOFF_REASON_LABELS: Record<string, string> = {
   photo_handoff: 'Fotos recebidas para análise',
   explicit_request: 'Paciente pediu atendente',
   intake_photos_complete: 'Fotos do intake recebidas',
+  multimodal_processing_failed: 'Falha ao interpretar mídia recebida',
   fallback: 'Motivo não classificado',
 }
 

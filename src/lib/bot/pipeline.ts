@@ -4,9 +4,13 @@
 // runBasePipeline   — pipeline legado (Chatwoot). Mantido para compatibilidade.
 // runEvolutionPipeline — novo pipeline direto da Evolution API (sem Chatwoot).
 
-import OpenAI, { toFile } from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { uploadMediaToStorage as uploadMediaToStorageShared } from './media-storage'
+import {
+  buildAiInputText,
+  logMultimodalEvent,
+  processDownloadedMultimodalMessage,
+} from './multimodal'
 import type {
   NormalizedWebhookMessage,
   NormalizedEvolutionMessage,
@@ -16,89 +20,6 @@ import type {
 } from '@/types/bot'
 import type { PanelWhatsAppConfig, PanelBotConfig, PanelGoogleConfig } from '@/types/database'
 import { stageLabelSlugs } from './stage-labels'
-
-interface MediaUploadResult {
-  storagePath: string | null
-  buffer: Buffer | null
-  resolvedMime: string
-}
-
-// Baixa mídia da Evolution, faz upload para o Supabase Storage e retorna o buffer (para transcrição).
-async function uploadMediaToStorage(
-  instanceName: string,
-  remoteJid: string,
-  messageId: string,
-  clientId: string,
-  conversationId: string,
-  mimetype: string
-): Promise<MediaUploadResult> {
-  const nil: MediaUploadResult = { storagePath: null, buffer: null, resolvedMime: mimetype }
-  const evolutionUrl = process.env.EVOLUTION_API_URL?.replace(/\/$/, '')
-  const evolutionKey = process.env.EVOLUTION_API_KEY
-  if (!evolutionUrl || !evolutionKey) return nil
-
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10_000)
-
-    const res = await fetch(`${evolutionUrl}/message/getBase64FromMediaMessage/${instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
-      body: JSON.stringify({ message: { key: { remoteJid, fromMe: false, id: messageId } } }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout))
-
-    if (!res.ok) {
-      console.warn(`[Pipeline] Mídia não disponível na Evolution: msg=${messageId} status=${res.status}`)
-      return nil
-    }
-
-    const data = await res.json()
-    const base64 = data.base64 as string | undefined
-    const resolvedMime = (data.mimetype as string | undefined) ?? mimetype
-    if (!base64) return { ...nil, resolvedMime }
-
-    const ext = resolvedMime.split('/')[1]?.split(';')[0] ?? 'bin'
-    const storagePath = `${clientId}/${conversationId}/${messageId}.${ext}`
-    const buffer = Buffer.from(base64, 'base64')
-
-    const supabase = createAdminClient()
-    const { error } = await supabase.storage
-      .from('desk-media')
-      .upload(storagePath, buffer, { contentType: resolvedMime, upsert: false })
-
-    if (error && !error.message.includes('already exists')) {
-      console.error('[Pipeline] Erro ao fazer upload para Storage:', error.message)
-      return { storagePath: null, buffer, resolvedMime }
-    }
-
-    return { storagePath, buffer, resolvedMime }
-  } catch (err) {
-    console.warn('[Pipeline] Falha ao baixar/enviar mídia:', err)
-    return nil
-  }
-}
-
-// Transcreve áudio usando OpenAI Whisper (ou Groq whisper-large-v3).
-// Fire-and-forget: erros são logados e retornam null — nunca bloqueiam o pipeline.
-async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<string | null> {
-  const apiKey = process.env.OPENAI_API_KEY
-  const groqKey = process.env.GROQ_API_KEY
-  if (!apiKey && !groqKey) return null
-  try {
-    const client = apiKey
-      ? new OpenAI({ apiKey })
-      : new OpenAI({ apiKey: groqKey!, baseURL: 'https://api.groq.com/openai/v1' })
-    const model = apiKey ? 'whisper-1' : 'whisper-large-v3'
-    const ext = resolvedMime.split('/')[1]?.split(';')[0] ?? 'ogg'
-    const file = await toFile(buffer, `audio.${ext}`, { type: resolvedMime })
-    const result = await client.audio.transcriptions.create({ file, model, language: 'pt' })
-    return result.text?.trim() || null
-  } catch (err) {
-    console.warn('[Pipeline] Transcrição de áudio falhou (não crítico):', err)
-    return null
-  }
-}
 
 // --- Contexto do cliente resolvido a partir do chatwoot_account_id ---
 
@@ -542,6 +463,8 @@ export async function saveEvolutionMessage(
     return migrated as BotMessage
   }
 
+  const processingRequired = msg.contentType === 'audio' || msg.contentType === 'image'
+  const baseAiInputText = buildAiInputText(msg.contentType, msg.content, null)
   const { data: saved, error } = await supabase
     .from('messages')
     .insert({
@@ -554,6 +477,13 @@ export async function saveEvolutionMessage(
       sender_type: 'contact',
       from_who: 'lead',
       created_at: msg.timestamp.toISOString(),
+      raw_payload: msg.rawPayload,
+      derived_text: null,
+      derived_kind: null,
+      processing_status: processingRequired ? 'received' : 'not_required',
+      processing_error: null,
+      ai_input_text: baseAiInputText,
+      sent_to_agent_at: null,
     })
     .select()
     .single()
@@ -573,6 +503,15 @@ export async function saveEvolutionMessage(
 
   const message = saved as BotMessage
 
+  if (processingRequired) {
+    logMultimodalEvent('multimodal_received', {
+      conversationId: conversation.id,
+      messageId: msg.messageId,
+      contentType: msg.contentType,
+      processing_status: 'received',
+    })
+  }
+
   // Para imagens, áudios, vídeos e documentos, faz upload para o Supabase Storage
   if (msg.contentType === 'image' || msg.contentType === 'document' || msg.contentType === 'audio' || msg.contentType === 'video') {
     const mimetype = msg.mediaMimetype ?? (
@@ -581,6 +520,9 @@ export async function saveEvolutionMessage(
       msg.contentType === 'video' ? 'video/mp4' :
       'application/octet-stream'
     )
+    let multimodalProvider: 'openai' | 'groq' | null = null
+    let processedLogPayload: Record<string, unknown> | null = null
+
     const { storagePath, buffer: mediaBuffer, resolvedMime } = await uploadMediaToStorageShared(
       msg.instanceName,
       msg.remoteJid,
@@ -592,12 +534,6 @@ export async function saveEvolutionMessage(
       (event, payload) => console.warn(`[Pipeline] ${event}`, payload)
     )
 
-    // Transcrição de áudio via Whisper (não bloqueia nem falha o pipeline)
-    let transcript: string | null = null
-    if (msg.contentType === 'audio' && mediaBuffer) {
-      transcript = await transcribeAudio(mediaBuffer, resolvedMime)
-    }
-
     // Metadados de mídia para persistir no banco
     const mediaUpdate: Record<string, unknown> = {}
     if (storagePath) mediaUpdate.media_url = storagePath
@@ -607,11 +543,114 @@ export async function saveEvolutionMessage(
     if (msg.mediaWidth != null) mediaUpdate.media_width = msg.mediaWidth
     if (msg.mediaHeight != null) mediaUpdate.media_height = msg.mediaHeight
     if (mediaBuffer) mediaUpdate.media_size_bytes = mediaBuffer.length
-    if (transcript) mediaUpdate.media_transcript = transcript
+
+    if (processingRequired) {
+      if (!mediaBuffer) {
+        mediaUpdate.processing_status = 'failed'
+        mediaUpdate.processing_error = 'media_download_failed'
+        mediaUpdate.ai_input_text = null
+        logMultimodalEvent(
+          'multimodal_failed',
+          {
+            conversationId: conversation.id,
+            messageId: msg.messageId,
+            contentType: msg.contentType,
+            provider: null,
+            processing_status: 'failed',
+            processing_error: 'media_download_failed',
+          },
+          'warn'
+        )
+      } else {
+        mediaUpdate.processing_status = 'downloaded'
+        mediaUpdate.processing_error = null
+
+        logMultimodalEvent('multimodal_downloaded', {
+          conversationId: conversation.id,
+          messageId: msg.messageId,
+          contentType: msg.contentType,
+          provider: null,
+          processing_status: 'downloaded',
+        })
+
+        const processed = await processDownloadedMultimodalMessage({
+          contentType: msg.contentType,
+          content: msg.content,
+          buffer: mediaBuffer,
+          resolvedMime,
+        })
+        multimodalProvider = processed.provider
+
+        mediaUpdate.processing_status = processed.processingStatus
+        mediaUpdate.processing_error = processed.processingError
+        mediaUpdate.derived_text = processed.derivedText
+        mediaUpdate.derived_kind = processed.derivedKind
+        mediaUpdate.ai_input_text = processed.aiInputText
+
+        if (processed.mediaTranscript) {
+          mediaUpdate.media_transcript = processed.mediaTranscript
+        }
+
+        if (processed.processingStatus === 'processed') {
+          processedLogPayload = {
+            conversationId: conversation.id,
+            messageId: msg.messageId,
+            contentType: msg.contentType,
+            provider: processed.provider,
+            processing_status: processed.processingStatus,
+            processing_error: null,
+          }
+        } else if (processed.processingStatus === 'failed') {
+          logMultimodalEvent(
+            'multimodal_failed',
+            {
+              conversationId: conversation.id,
+              messageId: msg.messageId,
+              contentType: msg.contentType,
+              provider: processed.provider,
+              processing_status: processed.processingStatus,
+              processing_error: processed.processingError,
+            },
+            'warn'
+          )
+        }
+      }
+    }
 
     if (Object.keys(mediaUpdate).length > 0) {
-      await supabase.from('messages').update(mediaUpdate).eq('id', message.id)
-      if (storagePath) message.media_url = storagePath
+      const { error: updateError } = await supabase
+        .from('messages')
+        .update(mediaUpdate)
+        .eq('id', message.id)
+
+      if (updateError) {
+        if (processingRequired) {
+          logMultimodalEvent(
+            'multimodal_failed',
+            {
+              conversationId: conversation.id,
+              messageId: msg.messageId,
+              contentType: msg.contentType,
+              provider: multimodalProvider,
+              processing_status: 'failed',
+              processing_error: 'message_update_failed',
+              last_processing_status: mediaUpdate.processing_status ?? null,
+              update_error: updateError.message,
+            },
+            'warn'
+          )
+        } else {
+          console.warn(
+            `[Pipeline] Falha ao persistir metadados de mídia para msg=${msg.messageId}: ${updateError.message}`
+          )
+        }
+      } else {
+        Object.assign(message, mediaUpdate)
+        if (storagePath) message.media_url = storagePath
+        if (processedLogPayload) {
+          logMultimodalEvent('multimodal_processed', processedLogPayload)
+        }
+      }
     }
   }
 
