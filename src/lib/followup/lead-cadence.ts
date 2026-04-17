@@ -55,9 +55,13 @@ async function queryLeadConversations(clientId: string): Promise<LeadConversatio
 
   if (error) throw error
 
+  // Filtrar conversas suprimidas para lead
+  const suppressed = await import('./shared').then(m => m.getSuppressedConversations(clientId, 'lead'));
+
   return ((data ?? []) as LeadConversation[]).filter((c) => {
-    if (!c.last_outgoing_at || !c.last_incoming_at) return false
-    return new Date(c.last_incoming_at).getTime() < new Date(c.last_outgoing_at).getTime()
+    if (suppressed.has(c.id)) return false;
+    if (!c.last_outgoing_at || !c.last_incoming_at) return false;
+    return new Date(c.last_incoming_at).getTime() < new Date(c.last_outgoing_at).getTime();
   })
 }
 

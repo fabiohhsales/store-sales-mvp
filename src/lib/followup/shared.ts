@@ -1,3 +1,21 @@
+// ---------------------------------------------------------------------------
+// Supressão de cadência: conversas bloqueadas para follow-up
+// ---------------------------------------------------------------------------
+
+/**
+ * Retorna um Set de conversation_id com supressão ativa para a cadência e client_id informados.
+ */
+export async function getSuppressedConversations(clientId: string, cadenceType: CadenceType): Promise<Set<string>> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from('followup_cadence_suppressions')
+    .select('conversation_id')
+    .eq('client_id', clientId)
+    .eq('cadence_type', cadenceType)
+    .is('released_at', null);
+  if (error) throw error;
+  return new Set((data ?? []).map((row: { conversation_id: string }) => row.conversation_id));
+}
 // Shared follow-up utilities: dynamic step config resolution, unified message
 // dispatch (with Desk visibility + delivery tracking), circuit breaker, and
 // structured logging.

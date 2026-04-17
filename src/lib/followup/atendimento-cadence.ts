@@ -111,11 +111,15 @@ async function queryAtendimentoConversations(
 
   if (error) throw error
 
+  // Filtrar conversas suprimidas para atendimento
+  const suppressed = await import('./shared').then(m => m.getSuppressedConversations(clientId, 'atendimento'));
+
   return ((data ?? []) as AtendimentoConversation[]).filter((conversation) => {
-    if (!isAtendimentoStage(conversation, botConfig)) return false
-    if (!conversation.last_incoming_at) return false
-    if (!conversation.last_outgoing_at) return true
-    return new Date(conversation.last_incoming_at).getTime() > new Date(conversation.last_outgoing_at).getTime()
+    if (suppressed.has(conversation.id)) return false;
+    if (!isAtendimentoStage(conversation, botConfig)) return false;
+    if (!conversation.last_incoming_at) return false;
+    if (!conversation.last_outgoing_at) return true;
+    return new Date(conversation.last_incoming_at).getTime() > new Date(conversation.last_outgoing_at).getTime();
   })
 }
 

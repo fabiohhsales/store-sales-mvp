@@ -77,7 +77,10 @@ async function queryUpcomingAppointments(clientId: string): Promise<AppointmentR
 
   if (error) throw error
 
-  const scheduledAppointments = (appts ?? []).filter((a) => normalizeAgendaStatus(a.status) === 'scheduled')
+  // Filtrar appointments cujas conversas estão suprimidas para agendado
+  const suppressed = await import('./shared').then(m => m.getSuppressedConversations(clientId, 'agendado'));
+
+  const scheduledAppointments = (appts ?? []).filter((a) => normalizeAgendaStatus(a.status) === 'scheduled' && !suppressed.has(a.conversation_id))
   if (!scheduledAppointments.length) return []
 
   const contactIds = [...new Set(scheduledAppointments.map((a: { contact_id: string }) => a.contact_id))]

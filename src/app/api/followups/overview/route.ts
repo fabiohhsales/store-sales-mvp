@@ -90,7 +90,19 @@ export async function GET(request: NextRequest) {
 
     if (convError) throw convError
 
-    const conversations = (conversationsRaw ?? []) as ConversationRow[]
+
+    let conversations = (conversationsRaw ?? []) as ConversationRow[]
+    // Filtrar conversas suprimidas por cadência
+    const { getSuppressedConversations } = await import('@/lib/followup/shared')
+    const suppressedLead = await getSuppressedConversations(auth.client_id, 'lead')
+    const suppressedAtendimento = await getSuppressedConversations(auth.client_id, 'atendimento')
+    const suppressedAgendado = await getSuppressedConversations(auth.client_id, 'agendado')
+    conversations = conversations.filter((c) => {
+      if (c.followup_cadence === 'lead' && suppressedLead.has(c.id)) return false
+      if (c.followup_cadence === 'atendimento' && suppressedAtendimento.has(c.id)) return false
+      if (c.followup_cadence === 'agendado' && suppressedAgendado.has(c.id)) return false
+      return true
+    })
     const conversationIds = conversations.map((c) => c.id)
 
     if (!conversationIds.length) {
