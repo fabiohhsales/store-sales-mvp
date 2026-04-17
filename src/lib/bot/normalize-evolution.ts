@@ -89,5 +89,6 @@ export function normalizeEvolutionPayload(
     mediaWidth,
     mediaHeight,
     mediaFilename,
+    rawPayload: payload,
   }
 }

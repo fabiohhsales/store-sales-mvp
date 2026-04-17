@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createAiClient, AI_MODEL } from '@/lib/ai/client'
 import { buildSystemPrompt } from './system-prompt'
 import { safeParseAgentOutput, fallbackOutput } from './output-schema'
+import { resolveAgentInputText } from './multimodal'
 
 import { stageLabelSlugs } from './stage-labels'
 import type { AgentOutput } from './output-schema'
@@ -62,17 +63,13 @@ function buildChatMessages(
   ]
 
   for (const msg of history) {
-    if (!msg.content) continue
-
     if (msg.from_who === 'lead') {
-      // Se for áudio com transcrição, substitui o placeholder pelo texto real
-      let userContent = msg.content
-      if (msg.content_type === 'audio' && msg.media_transcript) {
-        userContent = `[Áudio transcrito]: "${msg.media_transcript}"`
-      }
+      const userContent = resolveAgentInputText(msg)
+      if (!userContent) continue
       messages.push({ role: 'user', content: userContent })
     } else if (msg.from_who === 'ai') {
       // Armazena só o texto da resposta, não o JSON completo
+      if (!msg.content) continue
       messages.push({ role: 'assistant', content: msg.content })
     }
     // Mensagens de agente humano (from_who='human') são ignoradas no contexto da IA
