@@ -343,11 +343,10 @@ export async function uploadMediaToStorage(
   logger?: MediaLogger,
   options: MediaUploadOptions = {}
 ): Promise<MediaUploadResult> {
-  const normalizedInputMime = normalizeMimeType(mimetype)
   const nil: MediaUploadResult = {
     storagePath: null,
     buffer: null,
-    resolvedMime: normalizedInputMime,
+    resolvedMime: mimetype,
     source: null,
   }
 
@@ -361,7 +360,7 @@ export async function uploadMediaToStorage(
     const meta = { attempt: attempt + 1, messageId, clientId, conversationId }
 
     if (mediaUrl) {
-      downloaded = await fetchMediaFromDirectUrl(mediaUrl, normalizedInputMime, logger, meta)
+      downloaded = await fetchMediaFromDirectUrl(mediaUrl, mimetype, logger, meta)
     }
 
     if (!downloaded) {
@@ -369,7 +368,7 @@ export async function uploadMediaToStorage(
         instanceName,
         remoteJid,
         messageId,
-        normalizedInputMime,
+        mimetype,
         options.fromMe ?? false,
         logger,
         meta
@@ -384,8 +383,6 @@ export async function uploadMediaToStorage(
   if (!downloaded) {
     return nil
   }
-
-  downloaded = { ...downloaded, resolvedMime: normalizeMimeType(downloaded.resolvedMime) }
 
   // Quando o provider retorna MIME genérico, tenta inferir apenas tipos seguros
   // ligados ao bug atual de imagem/documento.
