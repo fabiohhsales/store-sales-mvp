@@ -22,6 +22,13 @@ function logMediaEvent(event: string, payload: Record<string, unknown>) {
   console.warn(`[desk/media] ${event}`, payload)
 }
 
+function isAudioContent(
+  contentType: string | undefined | null,
+  mimeType: string | undefined | null
+): boolean {
+  return contentType === 'audio' || (typeof mimeType === 'string' && mimeType.startsWith('audio/'))
+}
+
 async function createMediaSignedUrl(
   admin: ReturnType<typeof createAdminClient>,
   mediaUrl: string
@@ -158,8 +165,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!forceStorageRepair) {
-      // Áudio é servido inline para garantir que o Content-Type com codec chegue ao browser
-      if (message.content_type === 'audio') {
+      if (isAudioContent(message.content_type, message.media_mime_type)) {
         const { data: audioData, error: audioError } = await admin.storage
           .from('desk-media')
           .download(message.media_url)
@@ -284,6 +290,27 @@ export async function GET(request: NextRequest) {
         storagePath: recovered.storagePath,
         source: recovered.source,
       })
+
+      // Audio must always be served inline so the browser receives the exact
+      // Content-Type (including codec hints). Signed-URL redirects let Supabase
+      // serve the stored Content-Type which may lose the codec parameter.
+      if (isAudioContent(message.content_type, message.media_mime_type ?? recovered.resolvedMime)) {
+        logMediaEvent('audio_inline_served', {
+          conversationId,
+          msgId: targetMsgId,
+          messageId: message.id,
+          storagePath: recovered.storagePath,
+          resolvedMime: recovered.resolvedMime,
+          source: recovered.source,
+          reason: 'backfill',
+        })
+        return new NextResponse(new Uint8Array(recovered.buffer), {
+          headers: {
+            'Content-Type': recovered.resolvedMime,
+            'Cache-Control': 'private, max-age=3600',
+          },
+        })
+      }
 
       const signedUrl = await createMediaSignedUrl(admin, recovered.storagePath)
       if (signedUrl) {

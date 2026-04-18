@@ -92,7 +92,31 @@ describe('multimodal helpers', () => {
     })).toBe('Transcrição do áudio do contato: Paciente quer remarcar a consulta')
   })
 
-  it('processes audio with the configured transcription provider', async () => {
+  it('uses Groq (native OGG support) when available for audio/ogg', async () => {
+    vi.stubEnv('GROQ_API_KEY', 'test-groq-key')
+    mocks.transcriptionsCreate.mockResolvedValue({ text: 'Quero marcar para amanhã' })
+
+    const result = await processDownloadedMultimodalMessage({
+      contentType: 'audio',
+      content: '[Áudio]',
+      buffer: Buffer.from('audio-binary'),
+      resolvedMime: 'audio/ogg',
+    })
+
+    expect(mocks.toFile).toHaveBeenCalledTimes(1)
+    expect(mocks.toFile).toHaveBeenCalledWith(expect.anything(), 'audio.ogg', { type: 'audio/ogg' })
+    expect(result).toMatchObject({
+      provider: 'groq',
+      derivedKind: 'transcription',
+      derivedText: 'Quero marcar para amanhã',
+      aiInputText: 'Transcrição do áudio do contato: Quero marcar para amanhã',
+      mediaTranscript: 'Quero marcar para amanhã',
+      processingStatus: 'processed',
+      processingError: null,
+    })
+  })
+
+  it('uses OpenAI with webm relabeling for audio/ogg when only OpenAI is available', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
     mocks.transcriptionsCreate.mockResolvedValue({ text: 'Quero marcar para amanhã' })
 
@@ -104,14 +128,55 @@ describe('multimodal helpers', () => {
     })
 
     expect(mocks.toFile).toHaveBeenCalledTimes(1)
+    expect(mocks.toFile).toHaveBeenCalledWith(expect.anything(), 'audio.webm', { type: 'audio/webm' })
     expect(result).toMatchObject({
       provider: 'openai',
       derivedKind: 'transcription',
-      derivedText: 'Quero marcar para amanhã',
-      aiInputText: 'Transcrição do áudio do contato: Quero marcar para amanhã',
-      mediaTranscript: 'Quero marcar para amanhã',
       processingStatus: 'processed',
-      processingError: null,
+    })
+  })
+
+  it('falls back to OpenAI webm when Groq OGG returns a format error', async () => {
+    vi.stubEnv('GROQ_API_KEY', 'test-groq-key')
+    vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
+
+    const formatError = Object.assign(new Error('400 Invalid file format'), { status: 400 })
+    mocks.transcriptionsCreate
+      .mockRejectedValueOnce(formatError)
+      .mockResolvedValueOnce({ text: 'Transcrição via fallback OpenAI' })
+
+    const result = await processDownloadedMultimodalMessage({
+      contentType: 'audio',
+      content: '[Áudio]',
+      buffer: Buffer.from('audio-binary'),
+      resolvedMime: 'audio/ogg',
+    })
+
+    expect(mocks.toFile).toHaveBeenCalledTimes(2)
+    expect(mocks.toFile).toHaveBeenNthCalledWith(1, expect.anything(), 'audio.ogg', { type: 'audio/ogg' })
+    expect(mocks.toFile).toHaveBeenNthCalledWith(2, expect.anything(), 'audio.webm', { type: 'audio/webm' })
+    expect(result).toMatchObject({
+      provider: 'openai',
+      processingStatus: 'processed',
+      derivedText: 'Transcrição via fallback OpenAI',
+    })
+  })
+
+  it('marks processing failed when all transcription attempts fail', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
+    const formatError = Object.assign(new Error('BadRequestError [400]: Invalid file format'), { status: 400 })
+    mocks.transcriptionsCreate.mockRejectedValue(formatError)
+
+    const result = await processDownloadedMultimodalMessage({
+      contentType: 'audio',
+      content: '[Áudio]',
+      buffer: Buffer.from('audio-binary'),
+      resolvedMime: 'audio/ogg',
+    })
+
+    expect(result).toMatchObject({
+      processingStatus: 'failed',
+      processingError: 'transcription_processing_failed',
     })
   })
 

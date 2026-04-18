@@ -67,7 +67,62 @@ export function resolveAgentInputText(
   return buildAiInputText(message.content_type, message.content, null)
 }
 
-async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<MultimodalProcessingResult> {
+interface TranscriptionAttempt {
+  provider: 'openai' | 'groq'
+  client: OpenAI
+  model: string
+  mime: string
+}
+
+function buildTranscriptionAttempts(rawMime: string): TranscriptionAttempt[] {
+  const apiKey = process.env.OPENAI_API_KEY
+  const groqKey = process.env.GROQ_API_KEY
+  const baseMime = rawMime.split(';')[0].trim()
+  const attempts: TranscriptionAttempt[] = []
+
+  if (baseMime === 'audio/ogg') {
+    // Groq explicitly supports OGG+Opus (WhatsApp format). OpenAI Whisper does not;
+    // webm relabeling uses the same bytes with a different container hint — unreliable
+    // but attempted as a last resort when only OpenAI is available.
+    if (groqKey) {
+      attempts.push({
+        provider: 'groq',
+        client: new OpenAI({ apiKey: groqKey, baseURL: 'https://api.groq.com/openai/v1' }),
+        model: 'whisper-large-v3',
+        mime: 'audio/ogg',
+      })
+    }
+    if (apiKey) {
+      attempts.push({
+        provider: 'openai',
+        client: new OpenAI({ apiKey }),
+        model: 'whisper-1',
+        mime: 'audio/webm',
+      })
+    }
+  } else {
+    if (apiKey) {
+      attempts.push({
+        provider: 'openai',
+        client: new OpenAI({ apiKey }),
+        model: 'whisper-1',
+        mime: baseMime,
+      })
+    }
+    if (groqKey) {
+      attempts.push({
+        provider: 'groq',
+        client: new OpenAI({ apiKey: groqKey, baseURL: 'https://api.groq.com/openai/v1' }),
+        model: 'whisper-large-v3',
+        mime: baseMime,
+      })
+    }
+  }
+
+  return attempts
+}
+
+async function transcribeAudio(buffer: Buffer, rawMime: string): Promise<MultimodalProcessingResult> {
   const apiKey = process.env.OPENAI_API_KEY
   const groqKey = process.env.GROQ_API_KEY
 
@@ -83,65 +138,67 @@ async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<Mu
     }
   }
 
-  const provider = apiKey ? 'openai' : 'groq'
-    const client = apiKey
-      ? new OpenAI({ apiKey })
-      : new OpenAI({ apiKey: groqKey!, baseURL: 'https://api.groq.com/openai/v1' })
-    const model = apiKey ? 'whisper-1' : 'whisper-large-v3'
+  const attempts = buildTranscriptionAttempts(rawMime)
+  let lastProvider: 'openai' | 'groq' | null = null
 
-    // WhatsApp envia OGG+Opus; o Whisper pode rejeitar dependendo do container.
-    // Tentamos ogg primeiro e, se retornar 400, fazemos retry como webm
-    // (mesmo buffer — Opus funciona em ambos os containers).
-    const baseMime = resolvedMime.split(';')[0].trim()
-    const mimeVariants = baseMime === 'audio/ogg' ? ['audio/ogg', 'audio/webm'] : [baseMime]
+  for (const attempt of attempts) {
+    lastProvider = attempt.provider
+    try {
+      const ext = attempt.mime.split('/')[1] ?? 'ogg'
+      const file = await toFile(buffer, `audio.${ext}`, { type: attempt.mime })
+      const result = await attempt.client.audio.transcriptions.create({
+        file,
+        model: attempt.model,
+        language: 'pt',
+      })
+      const transcript = trimText(result.text)
 
-    let lastError = ''
-    for (const mime of mimeVariants) {
-      try {
-        const ext = mime.split('/')[1] ?? 'ogg'
-        const file = await toFile(buffer, `audio.${ext}`, { type: mime })
-        const result = await client.audio.transcriptions.create({ file, model, language: 'pt' })
-        const transcript = trimText(result.text)
-
-        if (!transcript) {
-          return {
-            provider,
-            derivedText: null,
-            derivedKind: null,
-            aiInputText: null,
-            mediaTranscript: null,
-            processingStatus: 'failed',
-            processingError: 'transcription_empty',
-          }
-        }
-
+      if (!transcript) {
         return {
-          provider,
-          derivedText: transcript,
-          derivedKind: 'transcription',
-          aiInputText: buildAiInputText('audio', '[Áudio]', transcript),
-          mediaTranscript: transcript,
-          processingStatus: 'processed',
-          processingError: null,
+          provider: attempt.provider,
+          derivedText: null,
+          derivedKind: null,
+          aiInputText: null,
+          mediaTranscript: null,
+          processingStatus: 'failed',
+          processingError: 'transcription_empty',
         }
-      } catch (e: unknown) {
-        lastError = String(e)
-        const httpStatus = (e as Record<string, unknown>).status
-        const is400 = lastError.includes('400') || httpStatus === 400
-        logMultimodalEvent('transcription_error', { error: lastError, mime, provider }, 'warn')
-        if (!is400) break
       }
-    }
 
-    return {
-      provider,
-      derivedText: null,
-      derivedKind: null,
-      aiInputText: null,
-      mediaTranscript: null,
-      processingStatus: 'failed',
-      processingError: 'transcription_processing_failed',
+      return {
+        provider: attempt.provider,
+        derivedText: transcript,
+        derivedKind: 'transcription',
+        aiInputText: buildAiInputText('audio', '[Áudio]', transcript),
+        mediaTranscript: transcript,
+        processingStatus: 'processed',
+        processingError: null,
+      }
+    } catch (e: unknown) {
+      const errorMsg = String(e)
+      const httpStatus = (e as Record<string, unknown>).status
+      const isFormatError = errorMsg.includes('400') || errorMsg.includes('415')
+        || httpStatus === 400 || httpStatus === 415
+      logMultimodalEvent('transcription_error', {
+        error: errorMsg,
+        mime: attempt.mime,
+        provider: attempt.provider,
+        model: attempt.model,
+        rawMime,
+      }, 'warn')
+      if (!isFormatError) break
     }
+  }
+
+  return {
+    provider: lastProvider,
+    derivedText: null,
+    derivedKind: null,
+    aiInputText: null,
+    mediaTranscript: null,
+    processingStatus: 'failed',
+    processingError: 'transcription_processing_failed',
+  }
 }
 
 async function analyzeImage(

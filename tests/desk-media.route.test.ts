@@ -153,24 +153,30 @@ afterEach(() => {
 })
 
 describe('GET /api/desk/media', () => {
-  it('redirects outbound operator media by db_msg_id when Storage is available', async () => {
-    const { admin } = buildAdmin({
+  it('serves stored outbound audio inline by db_msg_id (never redirects audio)', async () => {
+    const audioPath = 'client-A/conv-1/out-msg-1.webm'
+    const audioBuffer = Buffer.from('outbound-audio-bytes')
+    const { admin, signedUrlCalls } = buildAdmin({
       messageByDbId: {
         id: 'msg-1',
+        content_type: 'audio',
         evolution_message_id: 'evo-1',
-        media_url: 'client-A/conv-1/out-msg-1.webm',
+        media_url: audioPath,
         media_mime_type: 'audio/webm;codecs=opus',
         sender_type: 'operator',
         from_who: 'human',
       },
-      signedUrl: 'https://signed.example/outbound.webm',
+      downloadByPath: { [audioPath]: audioBuffer },
     })
     mocks.createAdminClient.mockReturnValue(admin)
 
     const res = await GET(makeRequest('/api/desk/media?db_msg_id=msg-1&conversation_id=conv-1'))
+    const body = await res.arrayBuffer()
 
-    expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toBe('https://signed.example/outbound.webm')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('audio/webm;codecs=opus')
+    expect(Buffer.from(body).length).toBe(audioBuffer.length)
+    expect(signedUrlCalls).toHaveLength(0)
     expect(mocks.uploadMediaToStorage).not.toHaveBeenCalled()
   })
 
@@ -285,30 +291,34 @@ describe('GET /api/desk/media', () => {
     expect(mocks.uploadMediaToStorage).not.toHaveBeenCalled()
   })
 
-  it('backfills outbound db_msg_id without media_url when evolution_message_id is available', async () => {
-    const { admin, calls } = buildAdmin({
+  it('backfills outbound audio db_msg_id and serves inline (never redirects audio)', async () => {
+    const recoveredBuffer = Buffer.from('outbound-audio')
+    const { admin, calls, signedUrlCalls } = buildAdmin({
       messageByDbId: {
         id: 'msg-1',
+        content_type: 'audio',
         evolution_message_id: 'evo-out-1',
         media_url: null,
         media_mime_type: 'audio/webm;codecs=opus',
         sender_type: 'operator',
         from_who: 'human',
       },
-      signedUrl: 'https://signed.example/recovered-outbound.webm',
     })
     mocks.createAdminClient.mockReturnValue(admin)
     mocks.uploadMediaToStorage.mockResolvedValue({
       storagePath: 'client-A/conv-1/evo-out-1.webm',
-      buffer: Buffer.from('outbound-audio'),
+      buffer: recoveredBuffer,
       resolvedMime: 'audio/webm;codecs=opus',
       source: 'evolution',
     })
 
     const res = await GET(makeRequest('/api/desk/media?db_msg_id=msg-1&conversation_id=conv-1'))
+    const body = await res.arrayBuffer()
 
-    expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toBe('https://signed.example/recovered-outbound.webm')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('audio/webm;codecs=opus')
+    expect(Buffer.from(body).length).toBe(recoveredBuffer.length)
+    expect(signedUrlCalls).toHaveLength(0)
     expect(mocks.uploadMediaToStorage).toHaveBeenCalledTimes(1)
     expect(mocks.uploadMediaToStorage).toHaveBeenCalledWith(
       'inst-a',
@@ -327,35 +337,39 @@ describe('GET /api/desk/media', () => {
       payload: {
         media_url: 'client-A/conv-1/evo-out-1.webm',
         media_mime_type: 'audio/webm;codecs=opus',
-        media_size_bytes: Buffer.from('outbound-audio').length,
+        media_size_bytes: recoveredBuffer.length,
       },
     })
   })
 
-  it('backfills inbound msg_id into Storage and redirects to the repaired signed URL', async () => {
-    const { admin, calls } = buildAdmin({
+  it('backfills inbound audio msg_id into Storage and serves inline (never redirects audio)', async () => {
+    const recoveredBuffer = Buffer.from('recovered-audio')
+    const { admin, calls, signedUrlCalls } = buildAdmin({
       messageByMsgId: {
         id: 'msg-2',
+        content_type: 'audio',
         evolution_message_id: 'evo-2',
         media_url: null,
         media_mime_type: 'audio/ogg',
         sender_type: 'contact',
         from_who: 'lead',
       },
-      signedUrl: 'https://signed.example/recovered.ogg',
     })
     mocks.createAdminClient.mockReturnValue(admin)
     mocks.uploadMediaToStorage.mockResolvedValue({
       storagePath: 'client-A/conv-1/evo-2.ogg',
-      buffer: Buffer.from('recovered-audio'),
+      buffer: recoveredBuffer,
       resolvedMime: 'audio/ogg',
       source: 'evolution',
     })
 
     const res = await GET(makeRequest('/api/desk/media?msg_id=evo-2&conversation_id=conv-1'))
+    const body = await res.arrayBuffer()
 
-    expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toBe('https://signed.example/recovered.ogg')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('audio/ogg')
+    expect(Buffer.from(body).length).toBe(recoveredBuffer.length)
+    expect(signedUrlCalls).toHaveLength(0)
     expect(mocks.uploadMediaToStorage).toHaveBeenCalledTimes(1)
     expect(mocks.uploadMediaToStorage).toHaveBeenCalledWith(
       'inst-a',
@@ -374,7 +388,7 @@ describe('GET /api/desk/media', () => {
       payload: {
         media_url: 'client-A/conv-1/evo-2.ogg',
         media_mime_type: 'audio/ogg',
-        media_size_bytes: Buffer.from('recovered-audio').length,
+        media_size_bytes: recoveredBuffer.length,
       },
     })
     expect(console.warn).toHaveBeenCalledWith(
@@ -383,6 +397,13 @@ describe('GET /api/desk/media', () => {
         conversationId: 'conv-1',
         msgId: 'evo-2',
         storagePath: 'client-A/conv-1/evo-2.ogg',
+      })
+    )
+    expect(console.warn).toHaveBeenCalledWith(
+      '[desk/media] audio_inline_served',
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        reason: 'backfill',
       })
     )
   })
@@ -507,17 +528,45 @@ describe('GET /api/desk/media', () => {
     )
   })
 
-  it('tries lazy repair after signed URL failure for inbound msg_id and returns 404 when recovery also fails', async () => {
+  it('stored inbound audio with signed URL never called — always inline', async () => {
+    const audioPath = 'client-A/conv-1/in-evo-stored.ogg'
+    const audioBuffer = Buffer.from('stored-inbound-audio')
+    const { admin, signedUrlCalls } = buildAdmin({
+      messageByMsgId: {
+        id: 'msg-stored',
+        content_type: 'audio',
+        evolution_message_id: 'evo-stored',
+        media_url: audioPath,
+        media_mime_type: 'audio/ogg; codecs=opus',
+        sender_type: 'contact',
+        from_who: 'lead',
+      },
+      downloadByPath: { [audioPath]: audioBuffer },
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+
+    const res = await GET(makeRequest('/api/desk/media?msg_id=evo-stored&conversation_id=conv-1'))
+    const body = await res.arrayBuffer()
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('audio/ogg; codecs=opus')
+    expect(Buffer.from(body).length).toBe(audioBuffer.length)
+    expect(signedUrlCalls).toHaveLength(0)
+    expect(mocks.uploadMediaToStorage).not.toHaveBeenCalled()
+  })
+
+  it('tries lazy repair after storage download failure for inbound audio and returns 404 when recovery also fails', async () => {
     const { admin } = buildAdmin({
       messageByMsgId: {
         id: 'msg-2',
+        content_type: 'audio',
         evolution_message_id: 'evo-2',
         media_url: 'client-A/conv-1/in-evo-2.ogg',
         media_mime_type: 'audio/ogg',
         sender_type: 'contact',
         from_who: 'lead',
       },
-      signedUrl: null,
+      // downloadByPath not set → download returns error
     })
     mocks.createAdminClient.mockReturnValue(admin)
     mocks.uploadMediaToStorage.mockResolvedValue({
