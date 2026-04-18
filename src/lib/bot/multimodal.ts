@@ -89,42 +89,52 @@ async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<Mu
       ? new OpenAI({ apiKey })
       : new OpenAI({ apiKey: groqKey!, baseURL: 'https://api.groq.com/openai/v1' })
     const model = apiKey ? 'whisper-1' : 'whisper-large-v3'
-    const cleanMime = resolvedMime.split(';')[0].trim()
-    const ext = cleanMime.split('/')[1] ?? 'ogg'
-    const file = await toFile(buffer, `audio.${ext}`, { type: cleanMime })
-    const result = await client.audio.transcriptions.create({ file, model, language: 'pt' })
-    const transcript = trimText(result.text)
 
-    if (!transcript) {
-      return {
-        provider,
-        derivedText: null,
-        derivedKind: null,
-        aiInputText: null,
-        mediaTranscript: null,
-        processingStatus: 'failed',
-        processingError: 'transcription_empty',
+    // WhatsApp envia OGG+Opus; o Whisper pode rejeitar dependendo do container.
+    // Tentamos ogg primeiro e, se retornar 400, fazemos retry como webm
+    // (mesmo buffer — Opus funciona em ambos os containers).
+    const baseMime = resolvedMime.split(';')[0].trim()
+    const mimeVariants = baseMime === 'audio/ogg' ? ['audio/ogg', 'audio/webm'] : [baseMime]
+
+    let lastError = ''
+    for (const mime of mimeVariants) {
+      try {
+        const ext = mime.split('/')[1] ?? 'ogg'
+        const file = await toFile(buffer, `audio.${ext}`, { type: mime })
+        const result = await client.audio.transcriptions.create({ file, model, language: 'pt' })
+        const transcript = trimText(result.text)
+
+        if (!transcript) {
+          return {
+            provider,
+            derivedText: null,
+            derivedKind: null,
+            aiInputText: null,
+            mediaTranscript: null,
+            processingStatus: 'failed',
+            processingError: 'transcription_empty',
+          }
+        }
+
+        return {
+          provider,
+          derivedText: transcript,
+          derivedKind: 'transcription',
+          aiInputText: buildAiInputText('audio', '[Áudio]', transcript),
+          mediaTranscript: transcript,
+          processingStatus: 'processed',
+          processingError: null,
+        }
+      } catch (e: unknown) {
+        lastError = e instanceof Error ? e.message : String(e)
+        const is400 = lastError.includes('400')
+        logMultimodalEvent('transcription_error', { error: lastError, mime, provider }, 'warn')
+        if (!is400) break
       }
     }
 
     return {
       provider,
-      derivedText: transcript,
-      derivedKind: 'transcription',
-      aiInputText: buildAiInputText('audio', '[Áudio]', transcript),
-      mediaTranscript: transcript,
-      processingStatus: 'processed',
-      processingError: null,
-    }
-  } catch (e: unknown) {
-    const errorMsg = e instanceof Error ? e.message : String(e)
-    logMultimodalEvent('transcription_error', {
-      error: errorMsg,
-      mime: resolvedMime,
-      provider: apiKey ? 'openai' : 'groq',
-    }, 'warn')
-    return {
-      provider: apiKey ? 'openai' : 'groq',
       derivedText: null,
       derivedKind: null,
       aiInputText: null,

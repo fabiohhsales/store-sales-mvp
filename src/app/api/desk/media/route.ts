@@ -158,18 +158,35 @@ export async function GET(request: NextRequest) {
     }
 
     if (!forceStorageRepair) {
-      const signedUrl = await createMediaSignedUrl(admin, message.media_url)
-      if (signedUrl) {
-        return NextResponse.redirect(signedUrl, { status: 302 })
-      }
+      // Áudio é servido inline para garantir que o Content-Type com codec chegue ao browser
+      if (message.content_type === 'audio') {
+        const { data: audioData, error: audioError } = await admin.storage
+          .from('desk-media')
+          .download(message.media_url)
+        if (!audioError && audioData) {
+          const buf = Buffer.from(await audioData.arrayBuffer())
+          return new NextResponse(new Uint8Array(buf), {
+            headers: {
+              'Content-Type': message.media_mime_type ?? 'audio/ogg',
+              'Cache-Control': 'private, max-age=3600',
+            },
+          })
+        }
+        // storage falhou — continua para recovery via Evolution
+      } else {
+        const signedUrl = await createMediaSignedUrl(admin, message.media_url)
+        if (signedUrl) {
+          return NextResponse.redirect(signedUrl, { status: 302 })
+        }
 
-      logMediaEvent('signed_url_failed', {
-        conversationId,
-        msgId: message.evolution_message_id ?? msgId ?? dbMsgId,
-        mediaUrl: message.media_url,
-        senderType: message.sender_type,
-        fromWho: message.from_who,
-      })
+        logMediaEvent('signed_url_failed', {
+          conversationId,
+          msgId: message.evolution_message_id ?? msgId ?? dbMsgId,
+          mediaUrl: message.media_url,
+          senderType: message.sender_type,
+          fromWho: message.from_who,
+        })
+      }
     }
   } else if (dbMsgId && message) {
     logMediaEvent('db_msg_without_media_url', {
