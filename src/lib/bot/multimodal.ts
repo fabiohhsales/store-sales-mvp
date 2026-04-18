@@ -125,8 +125,9 @@ async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<Mu
           processingError: null,
         }
       } catch (e: unknown) {
-        lastError = e instanceof Error ? e.message : String(e)
-        const is400 = lastError.includes('400')
+        lastError = String(e)
+        const httpStatus = (e as Record<string, unknown>).status
+        const is400 = lastError.includes('400') || httpStatus === 400
         logMultimodalEvent('transcription_error', { error: lastError, mime, provider }, 'warn')
         if (!is400) break
       }
