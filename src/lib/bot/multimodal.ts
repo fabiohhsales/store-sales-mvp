@@ -83,8 +83,7 @@ async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<Mu
     }
   }
 
-  try {
-    const provider = apiKey ? 'openai' : 'groq'
+  const provider = apiKey ? 'openai' : 'groq'
     const client = apiKey
       ? new OpenAI({ apiKey })
       : new OpenAI({ apiKey: groqKey!, baseURL: 'https://api.groq.com/openai/v1' })
@@ -142,7 +141,6 @@ async function transcribeAudio(buffer: Buffer, resolvedMime: string): Promise<Mu
       processingStatus: 'failed',
       processingError: 'transcription_processing_failed',
     }
-  }
 }
 
 async function analyzeImage(
