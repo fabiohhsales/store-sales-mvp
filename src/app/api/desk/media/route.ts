@@ -29,6 +29,66 @@ function isAudioContent(
   return contentType === 'audio' || (typeof mimeType === 'string' && mimeType.startsWith('audio/'))
 }
 
+function resolveAudioContentType(
+  resolvedMime: string,
+  contentType: string | undefined | null,
+  logger?: (event: string, payload: Record<string, unknown>) => void,
+  meta: Record<string, unknown> = {}
+): string {
+  if (resolvedMime.startsWith('audio/')) return resolvedMime
+  if (contentType === 'audio') {
+    logger?.('audio_mime_fallback_applied', { ...meta, resolvedMime, fallback: 'audio/ogg' })
+    return 'audio/ogg'
+  }
+  return resolvedMime
+}
+
+/**
+ * Serve an audio buffer inline with proper Range support.
+ *
+ * The browser's <audio> element always sends a Range request before playing
+ * (especially Safari, which REQUIRES a 206 response — 200 causes silence).
+ * Without Content-Length + Accept-Ranges + 206 handling, audio plays on no browser reliably.
+ */
+function serveAudioInline(
+  buf: Buffer,
+  contentType: string,
+  request: NextRequest
+): NextResponse {
+  const rangeHeader = request.headers.get('range')
+  const total = buf.length
+
+  if (rangeHeader) {
+    const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader)
+    if (match) {
+      const start = match[1] ? parseInt(match[1], 10) : 0
+      const end = match[2] ? Math.min(parseInt(match[2], 10), total - 1) : total - 1
+      const chunkLength = end - start + 1
+      const slice = buf.subarray(start, end + 1)
+      return new NextResponse(new Uint8Array(slice), {
+        status: 206,
+        headers: {
+          'Content-Type': contentType,
+          'Content-Range': `bytes ${start}-${end}/${total}`,
+          'Content-Length': String(chunkLength),
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'private, max-age=3600',
+        },
+      })
+    }
+  }
+
+  return new NextResponse(new Uint8Array(buf), {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Length': String(total),
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'private, max-age=3600',
+    },
+  })
+}
+
 async function createMediaSignedUrl(
   admin: ReturnType<typeof createAdminClient>,
   mediaUrl: string
@@ -171,13 +231,25 @@ export async function GET(request: NextRequest) {
           .download(message.media_url)
         if (!audioError && audioData) {
           const buf = Buffer.from(await audioData.arrayBuffer())
-          return new NextResponse(new Uint8Array(buf), {
-            headers: {
-              'Content-Type': message.media_mime_type ?? 'audio/ogg',
-              'Cache-Control': 'private, max-age=3600',
-            },
+          const contentType = resolveAudioContentType(
+            message.media_mime_type ?? 'application/octet-stream',
+            message.content_type,
+            logMediaEvent,
+            { conversationId, msgId: message.evolution_message_id ?? msgId ?? dbMsgId }
+          )
+          logMediaEvent('audio_stored_inline', {
+            conversationId,
+            msgId: message.evolution_message_id ?? msgId ?? dbMsgId,
+            contentType,
+            bytes: buf.length,
           })
+          return serveAudioInline(buf, contentType, request)
         }
+        logMediaEvent('audio_storage_download_failed', {
+          conversationId,
+          msgId: message.evolution_message_id ?? msgId ?? dbMsgId,
+          mediaUrl: message.media_url,
+        })
         // storage falhou — continua para recovery via Evolution
       } else {
         const signedUrl = await createMediaSignedUrl(admin, message.media_url)
@@ -295,21 +367,22 @@ export async function GET(request: NextRequest) {
       // Content-Type (including codec hints). Signed-URL redirects let Supabase
       // serve the stored Content-Type which may lose the codec parameter.
       if (isAudioContent(message.content_type, message.media_mime_type ?? recovered.resolvedMime)) {
-        logMediaEvent('audio_inline_served', {
+        const audioContentType = resolveAudioContentType(
+          recovered.resolvedMime,
+          message.content_type,
+          logMediaEvent,
+          { conversationId, msgId: targetMsgId }
+        )
+        logMediaEvent('audio_backfill_inline', {
           conversationId,
           msgId: targetMsgId,
           messageId: message.id,
           storagePath: recovered.storagePath,
           resolvedMime: recovered.resolvedMime,
+          contentType: audioContentType,
           source: recovered.source,
-          reason: 'backfill',
         })
-        return new NextResponse(new Uint8Array(recovered.buffer), {
-          headers: {
-            'Content-Type': recovered.resolvedMime,
-            'Cache-Control': 'private, max-age=3600',
-          },
-        })
+        return serveAudioInline(recovered.buffer, audioContentType, request)
       }
 
       const signedUrl = await createMediaSignedUrl(admin, recovered.storagePath)
@@ -326,7 +399,7 @@ export async function GET(request: NextRequest) {
       })
     }
   } else {
-    logMediaEvent('media_backfill_failed', {
+    logMediaEvent('audio_backfill_no_storagepath', {
       conversationId,
       msgId: targetMsgId,
       hasMessageRow: Boolean(message?.id),
@@ -335,19 +408,35 @@ export async function GET(request: NextRequest) {
     })
   }
 
+  const fallbackContentType = isAudioContent(message?.content_type, recovered.resolvedMime)
+    ? resolveAudioContentType(
+        recovered.resolvedMime,
+        message?.content_type,
+        logMediaEvent,
+        { conversationId, msgId: targetMsgId }
+      )
+    : recovered.resolvedMime
+
   logMediaEvent('media_inline_served', {
     conversationId,
     msgId: targetMsgId,
     messageId: message?.id ?? null,
     storagePath: recovered.storagePath,
     resolvedMime: recovered.resolvedMime,
+    contentType: fallbackContentType,
     source: recovered.source,
     reason: recovered.storagePath ? 'signed_url_failed_after_backfill' : 'storage_unavailable_after_recovery',
   })
 
+  if (isAudioContent(message?.content_type, fallbackContentType)) {
+    return serveAudioInline(recovered.buffer, fallbackContentType, request)
+  }
+
   return new NextResponse(new Uint8Array(recovered.buffer), {
+    status: 200,
     headers: {
-      'Content-Type': recovered.resolvedMime,
+      'Content-Type': fallbackContentType,
+      'Content-Length': String(recovered.buffer.length),
       'Cache-Control': 'private, max-age=3600',
     },
   })

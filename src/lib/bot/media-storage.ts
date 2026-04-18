@@ -52,6 +52,8 @@ export function sniffMimeFromBuffer(buf: Buffer, fallback: string): string {
   }
   // PDF: 25 50 44 46
   if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'application/pdf'
+  // OGG: OggS
+  if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return 'audio/ogg'
   return fallback
 }
 

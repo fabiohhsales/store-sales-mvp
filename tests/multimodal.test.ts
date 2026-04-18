@@ -116,7 +116,7 @@ describe('multimodal helpers', () => {
     })
   })
 
-  it('uses OpenAI with webm relabeling for audio/ogg when only OpenAI is available', async () => {
+  it('sends audio/ogg directly to OpenAI (no webm relabeling) when only OpenAI is available', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
     mocks.transcriptionsCreate.mockResolvedValue({ text: 'Quero marcar para amanhã' })
 
@@ -127,8 +127,8 @@ describe('multimodal helpers', () => {
       resolvedMime: 'audio/ogg',
     })
 
-    expect(mocks.toFile).toHaveBeenCalledTimes(1)
-    expect(mocks.toFile).toHaveBeenCalledWith(expect.anything(), 'audio.webm', { type: 'audio/webm' })
+    // Should send audio/ogg directly — no more webm relabeling
+    expect(mocks.toFile).toHaveBeenCalledWith(expect.anything(), 'audio.ogg', { type: 'audio/ogg' })
     expect(result).toMatchObject({
       provider: 'openai',
       derivedKind: 'transcription',
@@ -136,7 +136,7 @@ describe('multimodal helpers', () => {
     })
   })
 
-  it('falls back to OpenAI webm when Groq OGG returns a format error', async () => {
+  it('falls back to OpenAI ogg when Groq OGG returns a format error', async () => {
     vi.stubEnv('GROQ_API_KEY', 'test-groq-key')
     vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
 
@@ -152,9 +152,12 @@ describe('multimodal helpers', () => {
       resolvedMime: 'audio/ogg',
     })
 
+    // Primary WAV path fails (no ffmpeg in test env), falls back:
+    // attempt 1 = Groq with audio/ogg → 400 format error → try next
+    // attempt 2 = OpenAI with audio/ogg (no longer webm relabeling) → success
     expect(mocks.toFile).toHaveBeenCalledTimes(2)
     expect(mocks.toFile).toHaveBeenNthCalledWith(1, expect.anything(), 'audio.ogg', { type: 'audio/ogg' })
-    expect(mocks.toFile).toHaveBeenNthCalledWith(2, expect.anything(), 'audio.webm', { type: 'audio/webm' })
+    expect(mocks.toFile).toHaveBeenNthCalledWith(2, expect.anything(), 'audio.ogg', { type: 'audio/ogg' })
     expect(result).toMatchObject({
       provider: 'openai',
       processingStatus: 'processed',

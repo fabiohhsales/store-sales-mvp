@@ -400,10 +400,11 @@ describe('GET /api/desk/media', () => {
       })
     )
     expect(console.warn).toHaveBeenCalledWith(
-      '[desk/media] audio_inline_served',
+      '[desk/media] audio_backfill_inline',
       expect.objectContaining({
         conversationId: 'conv-1',
-        reason: 'backfill',
+        msgId: 'evo-2',
+        storagePath: 'client-A/conv-1/evo-2.ogg',
       })
     )
   })
@@ -481,7 +482,7 @@ describe('GET /api/desk/media', () => {
     expect(body.byteLength).toBeGreaterThan(0)
     expect(calls).toHaveLength(0)
     expect(console.warn).toHaveBeenCalledWith(
-      '[desk/media] media_backfill_failed',
+      '[desk/media] audio_backfill_no_storagepath',
       expect.objectContaining({
         conversationId: 'conv-1',
         msgId: 'evo-2',
@@ -580,6 +581,57 @@ describe('GET /api/desk/media', () => {
 
     expect(res.status).toBe(404)
     expect(mocks.uploadMediaToStorage).toHaveBeenCalledTimes(1)
+  })
+
+  it('serves audio inline with audio/ogg fallback when resolvedMime is application/octet-stream', async () => {
+    // Simulates Evolution not returning MIME and OGG bytes not sniffed (edge case)
+    const { admin } = buildAdmin({
+      messageByMsgId: {
+        id: 'msg-ogg-unknown',
+        content_type: 'audio',
+        evolution_message_id: 'evo-ogg-unknown',
+        media_url: null,
+        media_mime_type: null,
+        sender_type: 'contact',
+        from_who: 'lead',
+      },
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+    mocks.uploadMediaToStorage.mockResolvedValue({
+      storagePath: 'client-A/conv-1/evo-ogg-unknown.bin',
+      buffer: Buffer.from('fake-ogg-bytes'),
+      resolvedMime: 'application/octet-stream',
+      source: 'evolution',
+    })
+
+    const res = await GET(makeRequest('/api/desk/media?msg_id=evo-ogg-unknown&conversation_id=conv-1'))
+    const body = await res.arrayBuffer()
+
+    expect(res.status).toBe(200)
+    // Must be an audio MIME — fallback to audio/ogg when resolvedMime is octet-stream
+    expect(res.headers.get('content-type')).toBe('audio/ogg')
+    expect(Buffer.from(body).length).toBeGreaterThan(0)
+  })
+
+  it('serves audio inline after backfill when no message row exists (msg_id path)', async () => {
+    // Message row not in DB — accessed via msg_id, recovered from Evolution
+    const { admin } = buildAdmin({
+      messageByMsgId: null,
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+    mocks.uploadMediaToStorage.mockResolvedValue({
+      storagePath: null,
+      buffer: Buffer.from('ogg-audio-bytes'),
+      resolvedMime: 'audio/ogg',
+      source: 'evolution',
+    })
+
+    const res = await GET(makeRequest('/api/desk/media?msg_id=evo-no-row&conversation_id=conv-1'))
+    const body = await res.arrayBuffer()
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('audio/ogg')
+    expect(Buffer.from(body).length).toBeGreaterThan(0)
   })
 
   it('tries lazy repair for outbound db_msg_id and returns 404 when recovery also fails', async () => {

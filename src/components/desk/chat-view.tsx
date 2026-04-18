@@ -223,8 +223,17 @@ function AudioPlayer({
   const togglePlay = () => {
     const el = audioRef.current
     if (!el) return
-    if (playing) { el.pause() } else { el.play() }
-    setPlaying(!playing)
+    if (playing) {
+      el.pause()
+      setPlaying(false)
+    } else {
+      el.play().then(() => {
+        setPlaying(true)
+      }).catch(() => {
+        // play() rejected — fire onError so the component transitions to failed state
+        onError?.()
+      })
+    }
   }
 
   const toggleSpeed = () => {

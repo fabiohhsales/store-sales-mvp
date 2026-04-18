@@ -1,5 +1,6 @@
 import OpenAI, { toFile } from 'openai'
 import { AI_MODEL_MINI } from '@/lib/ai/client'
+import { convertAudioForTranscription } from '@/lib/media/audio-conversion'
 import type { BotMessage } from '@/types/bot'
 
 export type MultimodalDerivedKind = 'transcription' | 'vision_analysis'
@@ -81,9 +82,9 @@ function buildTranscriptionAttempts(rawMime: string): TranscriptionAttempt[] {
   const attempts: TranscriptionAttempt[] = []
 
   if (baseMime === 'audio/ogg') {
-    // Groq explicitly supports OGG+Opus (WhatsApp format). OpenAI Whisper does not;
-    // webm relabeling uses the same bytes with a different container hint — unreliable
-    // but attempted as a last resort when only OpenAI is available.
+    // Groq explicitly supports OGG+Opus (WhatsApp format).
+    // OpenAI Whisper also supports audio/ogg directly (listed in supported formats).
+    // Sending OGG bytes labelled as audio/webm was the old unreliable workaround — removed.
     if (groqKey) {
       attempts.push({
         provider: 'groq',
@@ -97,7 +98,7 @@ function buildTranscriptionAttempts(rawMime: string): TranscriptionAttempt[] {
         provider: 'openai',
         client: new OpenAI({ apiKey }),
         model: 'whisper-1',
-        mime: 'audio/webm',
+        mime: 'audio/ogg',
       })
     }
   } else {
@@ -122,6 +123,53 @@ function buildTranscriptionAttempts(rawMime: string): TranscriptionAttempt[] {
   return attempts
 }
 
+async function sendToWhisper(
+  buffer: Buffer,
+  mime: string,
+  provider: 'openai' | 'groq',
+  client: OpenAI,
+  model: string,
+  rawMime: string
+): Promise<MultimodalProcessingResult | null> {
+  try {
+    const ext = mime.split('/')[1] ?? 'ogg'
+    logMultimodalEvent('transcription_format_sent', { provider, model, mime, rawMime })
+    const file = await toFile(buffer, `audio.${ext}`, { type: mime })
+    const result = await client.audio.transcriptions.create({ file, model, language: 'pt' })
+    const transcript = trimText(result.text)
+
+    if (!transcript) {
+      return {
+        provider,
+        derivedText: null,
+        derivedKind: null,
+        aiInputText: null,
+        mediaTranscript: null,
+        processingStatus: 'failed',
+        processingError: 'transcription_empty',
+      }
+    }
+
+    return {
+      provider,
+      derivedText: transcript,
+      derivedKind: 'transcription',
+      aiInputText: buildAiInputText('audio', '[Áudio]', transcript),
+      mediaTranscript: transcript,
+      processingStatus: 'processed',
+      processingError: null,
+    }
+  } catch (e: unknown) {
+    const errorMsg = String(e)
+    const httpStatus = (e as Record<string, unknown>).status
+    const isFormatError = errorMsg.includes('400') || errorMsg.includes('415')
+      || httpStatus === 400 || httpStatus === 415
+    logMultimodalEvent('transcription_error', { error: errorMsg, mime, provider, model, rawMime }, 'warn')
+    // Return null only on format errors (should try fallback); throw-like signal on other errors
+    return isFormatError ? null : { provider, derivedText: null, derivedKind: null, aiInputText: null, mediaTranscript: null, processingStatus: 'failed', processingError: 'transcription_processing_failed' }
+  }
+}
+
 async function transcribeAudio(buffer: Buffer, rawMime: string): Promise<MultimodalProcessingResult> {
   const apiKey = process.env.OPENAI_API_KEY
   const groqKey = process.env.GROQ_API_KEY
@@ -138,56 +186,45 @@ async function transcribeAudio(buffer: Buffer, rawMime: string): Promise<Multimo
     }
   }
 
+  // Primary path: convert to WAV and send to OpenAI Whisper.
+  // This avoids relying on GROQ_API_KEY and works around OGG/Opus
+  // incompatibility with OpenAI's Whisper endpoint.
+  if (apiKey) {
+    logMultimodalEvent('audio_conversion_started', { rawMime })
+    const t0 = Date.now()
+    const wavBuffer = await convertAudioForTranscription(buffer, rawMime)
+
+    if (wavBuffer) {
+      logMultimodalEvent('audio_conversion_succeeded', {
+        rawMime,
+        wavBytes: wavBuffer.length,
+        durationMs: Date.now() - t0,
+      })
+      const client = new OpenAI({ apiKey })
+      const result = await sendToWhisper(wavBuffer, 'audio/wav', 'openai', client, 'whisper-1', rawMime)
+      if (result) return result
+    } else {
+      logMultimodalEvent('audio_conversion_failed', { rawMime, durationMs: Date.now() - t0 }, 'warn')
+    }
+  }
+
+  // Fallback: attempt providers in order per MIME (Groq with OGG, OpenAI with WebM relabeling).
+  // Kept as a safety net when ffmpeg is unavailable or conversion fails.
   const attempts = buildTranscriptionAttempts(rawMime)
   let lastProvider: 'openai' | 'groq' | null = null
 
   for (const attempt of attempts) {
     lastProvider = attempt.provider
-    try {
-      const ext = attempt.mime.split('/')[1] ?? 'ogg'
-      const file = await toFile(buffer, `audio.${ext}`, { type: attempt.mime })
-      const result = await attempt.client.audio.transcriptions.create({
-        file,
-        model: attempt.model,
-        language: 'pt',
-      })
-      const transcript = trimText(result.text)
-
-      if (!transcript) {
-        return {
-          provider: attempt.provider,
-          derivedText: null,
-          derivedKind: null,
-          aiInputText: null,
-          mediaTranscript: null,
-          processingStatus: 'failed',
-          processingError: 'transcription_empty',
-        }
-      }
-
-      return {
-        provider: attempt.provider,
-        derivedText: transcript,
-        derivedKind: 'transcription',
-        aiInputText: buildAiInputText('audio', '[Áudio]', transcript),
-        mediaTranscript: transcript,
-        processingStatus: 'processed',
-        processingError: null,
-      }
-    } catch (e: unknown) {
-      const errorMsg = String(e)
-      const httpStatus = (e as Record<string, unknown>).status
-      const isFormatError = errorMsg.includes('400') || errorMsg.includes('415')
-        || httpStatus === 400 || httpStatus === 415
-      logMultimodalEvent('transcription_error', {
-        error: errorMsg,
-        mime: attempt.mime,
-        provider: attempt.provider,
-        model: attempt.model,
-        rawMime,
-      }, 'warn')
-      if (!isFormatError) break
-    }
+    const result = await sendToWhisper(
+      buffer,
+      attempt.mime,
+      attempt.provider,
+      attempt.client,
+      attempt.model,
+      rawMime
+    )
+    // null = format error, try next attempt; non-null = definitive result
+    if (result !== null) return result
   }
 
   return {
