@@ -330,7 +330,7 @@ function MessageBubble({ message, conversationId, onImageClick }: { message: Mes
       setMediaBust(nextToken)
     }, 0)
     return () => window.clearTimeout(resetTimer)
-  }, [baseMediaSrc, message.id, message.media_mime_type, message.media_url])
+  }, [baseMediaSrc, message.id])
 
   const markMediaFailed = useCallback((token: number) => {
     if (latestMediaTokenRef.current !== token) return
