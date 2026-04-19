@@ -1,3 +1,4 @@
+import ffmpegStatic from 'ffmpeg-static'
 import { spawn } from 'child_process'
 import { randomUUID } from 'crypto'
 import { promises as fs } from 'fs'
@@ -55,7 +56,7 @@ function runFfmpeg(inputFile: string, outputFile: string): Promise<boolean> {
     let proc: ReturnType<typeof spawn>
 
     try {
-      proc = spawn('ffmpeg', [
+      proc = spawn(ffmpegStatic ?? 'ffmpeg', [
         '-y',
         '-i', inputFile,
         '-ar', '16000',
