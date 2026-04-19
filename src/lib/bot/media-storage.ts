@@ -150,22 +150,33 @@ async function parseEvolutionMediaResponse(
 
   if (!payload) {
     return {
-      base64: trimmed,
+      base64: sanitizeBase64(trimmed),
       mimetype: fallbackMime,
     }
   }
 
   if (typeof payload === 'string' && payload.trim().length > 0) {
     return {
-      base64: payload.trim(),
+      base64: sanitizeBase64(payload),
       mimetype: fallbackMime,
     }
   }
 
+  const rawBase64 = findFirstStringByKeys(payload, ['base64'])
+  const sanitized = sanitizeBase64(rawBase64)
+
   return {
-    base64: findFirstStringByKeys(payload, ['base64']),
+    base64: sanitized,
     mimetype: findFirstStringByKeys(payload, ['mimetype', 'mime_type']) ?? fallbackMime,
   }
+}
+
+function sanitizeBase64(raw: string | null): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (trimmed.length < 4) return null
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(trimmed)) return null
+  return trimmed
 }
 
 async function fetchMediaFromDirectUrl(
@@ -313,8 +324,22 @@ async function fetchMediaFromEvolution(
         continue
       }
 
+      const buffer = Buffer.from(parsed.base64, 'base64')
+      if (buffer.byteLength === 0) {
+        logger?.('evolution_media_empty_buffer', {
+          ...meta,
+          instanceName,
+          remoteJid,
+          endpoint: candidate.endpoint,
+          contract: candidate.contract,
+          fromMe,
+          base64Length: parsed.base64.length,
+        })
+        continue
+      }
+
       return {
-        buffer: Buffer.from(parsed.base64, 'base64'),
+        buffer,
         resolvedMime: parsed.mimetype ?? fallbackMime,
         source: 'evolution',
       }

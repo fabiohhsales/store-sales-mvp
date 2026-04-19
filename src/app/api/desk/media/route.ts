@@ -231,19 +231,27 @@ export async function GET(request: NextRequest) {
           .download(message.media_url)
         if (!audioError && audioData) {
           const buf = Buffer.from(await audioData.arrayBuffer())
-          const contentType = resolveAudioContentType(
-            message.media_mime_type ?? 'application/octet-stream',
-            message.content_type,
-            logMediaEvent,
-            { conversationId, msgId: message.evolution_message_id ?? msgId ?? dbMsgId }
-          )
-          logMediaEvent('audio_stored_inline', {
-            conversationId,
-            msgId: message.evolution_message_id ?? msgId ?? dbMsgId,
-            contentType,
-            bytes: buf.length,
-          })
-          return serveAudioInline(buf, contentType, request)
+          if (buf.length === 0) {
+            logMediaEvent('audio_stored_empty', {
+              conversationId,
+              msgId: message.evolution_message_id ?? msgId ?? dbMsgId,
+              storagePath: message.media_url,
+            })
+          } else {
+            const contentType = resolveAudioContentType(
+              message.media_mime_type ?? 'application/octet-stream',
+              message.content_type,
+              logMediaEvent,
+              { conversationId, msgId: message.evolution_message_id ?? msgId ?? dbMsgId }
+            )
+            logMediaEvent('audio_stored_inline', {
+              conversationId,
+              msgId: message.evolution_message_id ?? msgId ?? dbMsgId,
+              contentType,
+              bytes: buf.length,
+            })
+            return serveAudioInline(buf, contentType, request)
+          }
         }
         logMediaEvent('audio_storage_download_failed', {
           conversationId,
@@ -332,7 +340,14 @@ export async function GET(request: NextRequest) {
     uploadOptions
   )
 
-  if (!recovered.buffer) {
+  if (!recovered.buffer || recovered.buffer.length === 0) {
+    logMediaEvent('media_recovered_empty', {
+      conversationId,
+      msgId: targetMsgId,
+      hasBuffer: Boolean(recovered.buffer),
+      byteLength: recovered.buffer?.length ?? 0,
+      source: recovered.source,
+    })
     return new NextResponse('M\u00eddia n\u00e3o dispon\u00edvel', { status: 404 })
   }
 

@@ -505,6 +505,58 @@ describe('uploadMediaToStorage', () => {
     })
   })
 
+  it('skips candidates that return base64 which decodes to an empty buffer', async () => {
+    const { admin } = buildAdmin()
+    mocks.createAdminClient.mockReturnValue(admin)
+    const fetchMock = vi.mocked(fetch)
+    const logger = vi.fn()
+    const jpegBuffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46])
+
+    // First candidate: base64 that decodes to 0 bytes (non-base64 chars get stripped → empty).
+    // Second candidate (legacy): valid image bytes.
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ base64: '!!!!', mimetype: 'audio/ogg' }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ base64: jpegBuffer.toString('base64'), mimetype: 'image/jpeg' }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      )
+
+    const result = await uploadMediaToStorage(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'evo-empty-first',
+      'client-A',
+      'conv-1',
+      'image/jpeg',
+      null,
+      logger
+    )
+
+    expect(result).toMatchObject({
+      storagePath: 'client-A/conv-1/evo-empty-first.jpeg',
+      resolvedMime: 'image/jpeg',
+      source: 'evolution',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // Either the sanitizer rejected the base64 (missing_base64) OR Buffer decoded to 0 bytes
+    // (evolution_media_empty_buffer). Both outcomes prove the empty-buffer path is blocked.
+    const loggedEvents = logger.mock.calls.map(([evt]) => evt)
+    const blockedFirstCandidate =
+      loggedEvents.includes('evolution_media_empty_buffer') ||
+      loggedEvents.some((evt, i) =>
+        evt === 'evolution_media_fetch_failed' &&
+        (logger.mock.calls[i]?.[1] as { reason?: string })?.reason === 'missing_base64'
+      )
+    expect(blockedFirstCandidate).toBe(true)
+  })
+
   it('retries recovery with short backoff before succeeding', async () => {
     vi.useFakeTimers()
     const { admin } = buildAdmin()

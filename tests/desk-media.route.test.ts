@@ -634,6 +634,41 @@ describe('GET /api/desk/media', () => {
     expect(Buffer.from(body).length).toBeGreaterThan(0)
   })
 
+  it('returns 404 and logs media_recovered_empty when recovery yields a zero-byte buffer', async () => {
+    const { admin } = buildAdmin({
+      messageByMsgId: {
+        id: 'msg-empty',
+        content_type: 'audio',
+        evolution_message_id: 'evo-empty',
+        media_url: null,
+        media_mime_type: 'audio/ogg',
+        sender_type: 'contact',
+        from_who: 'lead',
+      },
+    })
+    mocks.createAdminClient.mockReturnValue(admin)
+    mocks.uploadMediaToStorage.mockResolvedValue({
+      storagePath: null,
+      buffer: Buffer.alloc(0),
+      resolvedMime: 'audio/ogg',
+      source: 'evolution',
+    })
+
+    const res = await GET(makeRequest('/api/desk/media?msg_id=evo-empty&conversation_id=conv-1'))
+
+    expect(res.status).toBe(404)
+    expect(console.warn).toHaveBeenCalledWith(
+      '[desk/media] media_recovered_empty',
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        msgId: 'evo-empty',
+        hasBuffer: true,
+        byteLength: 0,
+        source: 'evolution',
+      })
+    )
+  })
+
   it('tries lazy repair for outbound db_msg_id and returns 404 when recovery also fails', async () => {
     const { admin } = buildAdmin({
       messageByDbId: {

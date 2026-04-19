@@ -82,9 +82,11 @@ function buildTranscriptionAttempts(rawMime: string): TranscriptionAttempt[] {
   const attempts: TranscriptionAttempt[] = []
 
   if (baseMime === 'audio/ogg') {
-    // Groq explicitly supports OGG+Opus (WhatsApp format).
-    // OpenAI Whisper also supports audio/ogg directly (listed in supported formats).
-    // Sending OGG bytes labelled as audio/webm was the old unreliable workaround — removed.
+    // WhatsApp sends OGG/Opus. Attempt order:
+    // 1. Groq — natively supports OGG+Opus (WhatsApp format).
+    // 2. OpenAI as audio/ogg — listed as supported but rejects Opus in practice → 400.
+    // 3. OpenAI as audio/oga — OGA is the official OGG Opus extension; may be accepted.
+    // 4. OpenAI as audio/webm — last-resort relabeling; Whisper may fall back to OGG parser.
     if (groqKey) {
       attempts.push({
         provider: 'groq',
@@ -94,12 +96,12 @@ function buildTranscriptionAttempts(rawMime: string): TranscriptionAttempt[] {
       })
     }
     if (apiKey) {
-      attempts.push({
-        provider: 'openai',
-        client: new OpenAI({ apiKey }),
-        model: 'whisper-1',
-        mime: 'audio/ogg',
-      })
+      const openaiClient = new OpenAI({ apiKey })
+      attempts.push(
+        { provider: 'openai', client: openaiClient, model: 'whisper-1', mime: 'audio/ogg' },
+        { provider: 'openai', client: openaiClient, model: 'whisper-1', mime: 'audio/oga' },
+        { provider: 'openai', client: openaiClient, model: 'whisper-1', mime: 'audio/webm' },
+      )
     }
   } else {
     if (apiKey) {
