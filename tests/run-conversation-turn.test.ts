@@ -127,6 +127,49 @@ describe('runConversationBotTurn', () => {
     })
   })
 
+  it('short-circuits to safe handoff when audio transcription failed', async () => {
+    const result = buildResult({
+      message: {
+        id: 'msg-audio-failed',
+        evolution_message_id: 'evo-audio-failed',
+        content: '[Áudio]',
+        content_type: 'audio',
+        ai_input_text: null,
+        processing_status: 'failed',
+        processing_error: 'transcription_processing_failed',
+      },
+    })
+
+    mocks.refreshMessageHistory.mockResolvedValue([result.message])
+    mocks.createAdminClient.mockReturnValue({
+      from() {
+        return {
+          update() {
+            return {
+              eq: vi.fn().mockResolvedValue({ data: null, error: null }),
+            }
+          },
+        }
+      },
+    })
+
+    const report = await runConversationBotTurn(result)
+
+    expect(mocks.runAgent).not.toHaveBeenCalled()
+    expect(mocks.dispatch).toHaveBeenCalledTimes(1)
+    expect(mocks.dispatch.mock.calls[0][1]).toMatchObject({
+      handoff: {
+        needs_human: true,
+        reason: 'multimodal_processing_failed',
+      },
+    })
+    expect(report).toMatchObject({
+      attempted: true,
+      sent: false,
+      reason: 'multimodal_processing_failed',
+    })
+  })
+
   it('marks the triggering message as sent_to_agent_at before calling the LLM when ai_input_text is ready', async () => {
     const updateEq = vi.fn().mockResolvedValue({ data: null, error: null })
     const result = buildResult({

@@ -2,6 +2,11 @@ import { Separator } from '@/components/ui/separator'
 import { EmbedTokensSection } from '@/components/settings/embed-tokens-section'
 
 export default function SettingsPage() {
+  const aiEngineProvider = process.env.OPENAI_API_KEY ? 'OpenAI' : process.env.GROQ_API_KEY ? 'Groq' : 'Não configurado'
+  const aiEngineConfigured = Boolean(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY)
+  const transcriptionModel = process.env.OPENAI_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe'
+  const transcriptionConfigured = Boolean(process.env.OPENAI_API_KEY)
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold tracking-tight text-foreground">Configurações</h1>
@@ -71,13 +76,27 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium text-foreground">AI Engine</p>
               <p className="text-xs text-muted-foreground">
-                {process.env.OPENAI_API_KEY ? 'OpenAI' : process.env.GROQ_API_KEY ? 'Groq' : 'Não configurado'}
+                {aiEngineProvider}
                 {' · '}
                 {process.env.OPENAI_MODEL ?? 'gpt-4o'}
               </p>
             </div>
-            <span className={`text-xs font-medium ${(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY) ? 'text-success' : 'text-warning'}`}>
-              {(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY) ? 'Configurado' : 'API Key pendente'}
+            <span className={`text-xs font-medium ${aiEngineConfigured ? 'text-success' : 'text-warning'}`}>
+              {aiEngineConfigured ? 'Configurado' : 'API Key pendente'}
+            </span>
+          </div>
+          <Separator className="bg-border" />
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">Speech-to-text</p>
+              <p className="text-xs text-muted-foreground">
+                OpenAI
+                {' · '}
+                {transcriptionModel}
+              </p>
+            </div>
+            <span className={`text-xs font-medium ${transcriptionConfigured ? 'text-success' : 'text-warning'}`}>
+              {transcriptionConfigured ? 'Configurado' : 'OPENAI_API_KEY pendente'}
             </span>
           </div>
         </div>

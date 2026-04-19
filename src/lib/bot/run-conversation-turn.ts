@@ -92,7 +92,7 @@ async function markMessageSentToAgent(message: BotMessage): Promise<void> {
       conversationId: message.conversation_id,
       messageId: message.evolution_message_id ?? message.id,
       contentType: message.content_type,
-      provider: message.derived_kind === 'vision_analysis' ? 'openai' : message.derived_kind === 'transcription' ? 'openai_or_groq' : null,
+      provider: message.derived_kind === 'vision_analysis' ? 'openai' : message.derived_kind === 'transcription' ? 'openai' : null,
       processing_status: message.processing_status,
       processing_error: message.processing_error,
     })
@@ -118,7 +118,7 @@ export async function runConversationBotTurn(result: PipelineResult): Promise<Bo
           conversationId: freshResult.conversation.id,
           messageId: latestLeadMessage.evolution_message_id ?? latestLeadMessage.id,
           contentType: latestLeadMessage.content_type,
-          provider: latestLeadMessage.derived_kind === 'vision_analysis' ? 'openai' : latestLeadMessage.derived_kind === 'transcription' ? 'openai_or_groq' : null,
+          provider: latestLeadMessage.derived_kind === 'vision_analysis' ? 'openai' : latestLeadMessage.derived_kind === 'transcription' ? 'openai' : null,
           processing_status: latestLeadMessage.processing_status,
           processing_error: latestLeadMessage.processing_error ?? 'missing_ai_input_text',
         },

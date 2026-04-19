@@ -66,11 +66,10 @@ describe('convertAudioForTranscription', () => {
 
     expect(result).toBeInstanceOf(Buffer)
     expect(result?.toString()).toBe('fake-wav-bytes')
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      'ffmpeg',
-      expect.arrayContaining(['-i', expect.stringContaining('.ogg'), expect.stringContaining('.wav')]),
-      expect.any(Object)
-    )
+    const [binary, args, options] = mocks.spawn.mock.calls[0]
+    expect(binary).toMatch(/ffmpeg(?:\.exe)?$/)
+    expect(args).toEqual(expect.arrayContaining(['-i', expect.stringContaining('.ogg'), expect.stringContaining('.wav')]))
+    expect(options).toEqual(expect.objectContaining({ stdio: 'pipe' }))
   })
 
   it('returns null when ffmpeg exits with non-zero code', async () => {
