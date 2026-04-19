@@ -215,6 +215,31 @@ describe('multimodal helpers', () => {
     })
   })
 
+  it('skips ffmpeg and OpenAI entirely when the source OGG was already flagged as truncated', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
+
+    const result = await processDownloadedMultimodalMessage({
+      contentType: 'audio',
+      content: '[ÃƒÂudio]',
+      buffer: Buffer.from('audio-binary'),
+      resolvedMime: 'audio/ogg',
+      oggTruncated: true,
+    })
+
+    expect(mocks.convertAudioForTranscription).not.toHaveBeenCalled()
+    expect(mocks.toFile).not.toHaveBeenCalled()
+    expect(mocks.transcriptionsCreate).not.toHaveBeenCalled()
+    expect(result).toMatchObject({
+      provider: null,
+      derivedText: null,
+      derivedKind: null,
+      aiInputText: null,
+      mediaTranscript: null,
+      processingStatus: 'failed',
+      processingError: 'audio_source_truncated',
+    })
+  })
+
   it('falls back to a single raw OpenAI attempt when wav conversion fails for a supported mime', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
     mocks.transcriptionsCreate.mockResolvedValue({ text: 'Paciente quer reagendar' })

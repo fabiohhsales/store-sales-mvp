@@ -214,6 +214,7 @@ describe('saveEvolutionMessage — multimodal persistence', () => {
       storagePath: 'client-1/conv-1/evo-img-1.jpeg',
       buffer: Buffer.from('image-bytes'),
       resolvedMime: 'image/jpeg',
+      oggTruncated: false,
     })
     mocks.processDownloadedMultimodalMessage.mockResolvedValue({
       provider: 'openai',
@@ -286,6 +287,7 @@ describe('saveEvolutionMessage — multimodal persistence', () => {
       storagePath: 'client-1/conv-1/evo-img-1.jpeg',
       buffer: Buffer.from('image-bytes'),
       resolvedMime: 'image/jpeg',
+      oggTruncated: false,
     })
     mocks.processDownloadedMultimodalMessage.mockResolvedValue({
       provider: 'openai',
@@ -326,22 +328,23 @@ describe('saveEvolutionMessage — multimodal persistence', () => {
     )
   })
 
-  it('preserves playback media fields when audio transcription fails', async () => {
+  it('preserves playback media fields when the source audio is truncated upstream', async () => {
     const { supabase, updateCalls } = buildSupabase()
 
     mocks.uploadMediaToStorage.mockResolvedValue({
       storagePath: 'client-1/conv-1/evo-audio-1.ogg',
       buffer: Buffer.from('audio-bytes'),
       resolvedMime: 'audio/ogg',
+      oggTruncated: true,
     })
     mocks.processDownloadedMultimodalMessage.mockResolvedValue({
-      provider: 'openai',
+      provider: null,
       derivedText: null,
       derivedKind: null,
       aiInputText: null,
       mediaTranscript: null,
       processingStatus: 'failed',
-      processingError: 'audio_conversion_binary_unavailable',
+      processingError: 'audio_source_truncated',
     })
 
     const result = await saveEvolutionMessage(
@@ -352,6 +355,11 @@ describe('saveEvolutionMessage — multimodal persistence', () => {
     )
 
     expect(updateCalls).toHaveLength(1)
+    expect(mocks.processDownloadedMultimodalMessage).toHaveBeenCalledWith(expect.objectContaining({
+      contentType: 'audio',
+      resolvedMime: 'audio/ogg',
+      oggTruncated: true,
+    }))
     expect(updateCalls[0]?.payload).toMatchObject({
       media_url: 'client-1/conv-1/evo-audio-1.ogg',
       media_mime_type: 'audio/ogg',
@@ -359,7 +367,7 @@ describe('saveEvolutionMessage — multimodal persistence', () => {
       media_duration_seconds: 14,
       media_size_bytes: 11,
       processing_status: 'failed',
-      processing_error: 'audio_conversion_binary_unavailable',
+      processing_error: 'audio_source_truncated',
       derived_text: null,
       derived_kind: null,
       ai_input_text: null,
@@ -371,7 +379,7 @@ describe('saveEvolutionMessage — multimodal persistence', () => {
       media_duration_seconds: 14,
       media_size_bytes: 11,
       processing_status: 'failed',
-      processing_error: 'audio_conversion_binary_unavailable',
+      processing_error: 'audio_source_truncated',
       derived_text: null,
       derived_kind: null,
       ai_input_text: null,

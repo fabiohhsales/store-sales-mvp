@@ -155,7 +155,11 @@ async function sendToWhisper(
   }
 }
 
-async function transcribeAudio(buffer: Buffer, rawMime: string): Promise<MultimodalProcessingResult> {
+async function transcribeAudio(
+  buffer: Buffer,
+  rawMime: string,
+  oggTruncated: boolean
+): Promise<MultimodalProcessingResult> {
   const apiKey = process.env.OPENAI_API_KEY
 
   if (!apiKey) {
@@ -167,6 +171,26 @@ async function transcribeAudio(buffer: Buffer, rawMime: string): Promise<Multimo
       mediaTranscript: null,
       processingStatus: 'failed',
       processingError: 'transcription_provider_unavailable',
+    }
+  }
+
+  // Buffer OGG/Opus sinalizado como truncado pela media-storage: ffmpeg vai
+  // falhar com "End of file" e o endpoint bruto da OpenAI rejeita OGG parcial.
+  // Pular cedo, com razão específica, preserva logs e evita gastar quota.
+  if (oggTruncated) {
+    logMultimodalEvent('audio_transcription_skipped', {
+      rawMime,
+      reason: 'audio_source_truncated',
+      inputBytes: buffer.length,
+    }, 'warn')
+    return {
+      provider: null,
+      derivedText: null,
+      derivedKind: null,
+      aiInputText: null,
+      mediaTranscript: null,
+      processingStatus: 'failed',
+      processingError: 'audio_source_truncated',
     }
   }
 
@@ -359,11 +383,12 @@ export async function processDownloadedMultimodalMessage(args: {
   content: string | null
   buffer: Buffer
   resolvedMime: string
+  oggTruncated?: boolean
 }): Promise<MultimodalProcessingResult> {
-  const { contentType, content, buffer, resolvedMime } = args
+  const { contentType, content, buffer, resolvedMime, oggTruncated } = args
 
   if (contentType === 'audio') {
-    return transcribeAudio(buffer, resolvedMime)
+    return transcribeAudio(buffer, resolvedMime, oggTruncated ?? false)
   }
 
   if (contentType === 'image') {

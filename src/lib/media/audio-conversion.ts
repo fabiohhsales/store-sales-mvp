@@ -16,6 +16,7 @@ export type AudioConversionFailureReason =
   | 'audio_conversion_nonzero_exit'
   | 'audio_conversion_output_missing'
   | 'audio_conversion_output_empty'
+  | 'audio_source_truncated'
 
 export type AudioConversionBinarySource = 'env' | 'ffmpeg-static' | 'path'
 
@@ -346,12 +347,21 @@ async function runFfmpeg(args: {
     })
   }
 
+  const isOgg = inputMime.includes('ogg') || inputMime.includes('opus')
   const commandArgs = [
     '-hide_banner',
     '-loglevel',
     'error',
     '-nostdin',
     '-y',
+    // Tolera páginas OGG corrompidas (WhatsApp às vezes entrega stream parcial).
+    '-err_detect',
+    'ignore_err',
+    // Gera timestamps quando faltam; defesa contra streams sem DTS/PTS.
+    '-fflags',
+    '+genpts+igndts',
+    // Demuxer de input explícito para OGG/Opus — evita auto-probe sensível a EOF.
+    ...(isOgg ? ['-f', 'ogg'] : []),
     '-i',
     inputFile,
     '-vn',
@@ -645,6 +655,13 @@ export async function convertAudioForTranscription(
 
   try {
     await fs.writeFile(inputFile, buffer)
+    // Loga os primeiros bytes para distinguir corrupção total (header ausente)
+    // de truncamento (header ok, fim do arquivo incompleto) em diagnósticos.
+    console.log('[audio-conversion] input_head_bytes', {
+      hex: buffer.subarray(0, 8).toString('hex'),
+      inputBytes: buffer.length,
+      inputMime: normalizeAudioMime(inputMime),
+    })
     return await runFfmpeg({
       inputFile,
       outputFile,

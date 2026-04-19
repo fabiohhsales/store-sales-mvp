@@ -194,6 +194,8 @@ function processingErrorLabel(error: string | null | undefined): string | null {
       return 'A conversÃ£o terminou sem gerar um arquivo de saÃ­da.'
     case 'audio_conversion_output_empty':
       return 'A conversÃ£o gerou um arquivo de saÃ­da vazio.'
+    case 'audio_source_truncated':
+      return 'Áudio incompleto — WhatsApp não entregou o arquivo inteiro.'
     case 'media_download_failed':
       return 'Falha ao baixar a mídia recebida.'
     case 'transcription_provider_unavailable':

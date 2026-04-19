@@ -109,4 +109,32 @@ describe('MessageBubble audio playback regressions', () => {
     expect(audioAfter).toHaveAttribute('src', '/api/desk/media?msg_id=evo-audio-1&conversation_id=conv-1')
     expect(container.textContent).toContain('Ver transcri')
   })
+
+  it('shows the truncated-source bubble label without unmounting the player', () => {
+    const { container, rerender } = render(
+      <MessageBubble
+        message={makeAudioMessage()}
+        conversationId="conv-1"
+      />
+    )
+
+    const audioBefore = container.querySelector('audio')
+    expect(audioBefore).toBeInTheDocument()
+
+    rerender(
+      <MessageBubble
+        message={makeAudioMessage({
+          processing_status: 'failed',
+          processing_error: 'audio_source_truncated',
+        })}
+        conversationId="conv-1"
+      />
+    )
+
+    const audioAfter = container.querySelector('audio')
+    expect(audioAfter).toBe(audioBefore)
+    expect(audioAfter).toHaveAttribute('src', '/api/desk/media?msg_id=evo-audio-1&conversation_id=conv-1')
+    expect(container.textContent).toContain('Áudio incompleto')
+    expect(container.textContent).toContain('WhatsApp não entregou o arquivo inteiro')
+  })
 })

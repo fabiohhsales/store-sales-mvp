@@ -523,7 +523,7 @@ export async function saveEvolutionMessage(
     let multimodalProvider: 'openai' | 'groq' | null = null
     let processedLogPayload: Record<string, unknown> | null = null
 
-    const { storagePath, buffer: mediaBuffer, resolvedMime } = await uploadMediaToStorageShared(
+    const { storagePath, buffer: mediaBuffer, resolvedMime, oggTruncated } = await uploadMediaToStorageShared(
       msg.instanceName,
       msg.remoteJid,
       msg.messageId,
@@ -578,6 +578,7 @@ export async function saveEvolutionMessage(
           content: msg.content,
           buffer: mediaBuffer,
           resolvedMime,
+          oggTruncated,
         })
         multimodalProvider = processed.provider
 

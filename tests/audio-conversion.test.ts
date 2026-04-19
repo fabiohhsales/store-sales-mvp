@@ -126,8 +126,26 @@ describe('convertAudioForTranscription', () => {
     expect(result.ok && result.buffer.toString()).toBe('fake-wav-bytes')
     expect(mocks.spawn).toHaveBeenCalledWith(
       STATIC_BINARY_PATH,
-      expect.arrayContaining(['-i', expect.stringContaining('.ogg'), expect.stringContaining('.wav')]),
+      expect.arrayContaining([
+        '-err_detect',
+        'ignore_err',
+        '-fflags',
+        '+genpts+igndts',
+        '-f',
+        'ogg',
+        '-i',
+        expect.stringContaining('.ogg'),
+        expect.stringContaining('.wav'),
+      ]),
       expect.objectContaining({ stdio: ['ignore', 'ignore', 'pipe'] })
+    )
+    expect(console.log).toHaveBeenCalledWith(
+      '[audio-conversion] input_head_bytes',
+      expect.objectContaining({
+        hex: input.subarray(0, 8).toString('hex'),
+        inputBytes: input.length,
+        inputMime: 'audio/ogg',
+      })
     )
     expect(console.log).toHaveBeenCalledWith(
       '[audio-conversion] ffmpeg_spawn_start',

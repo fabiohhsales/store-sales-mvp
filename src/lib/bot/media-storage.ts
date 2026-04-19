@@ -5,6 +5,7 @@ export interface MediaUploadResult {
   buffer: Buffer | null
   resolvedMime: string
   source: 'direct_url' | 'evolution' | null
+  oggTruncated: boolean
 }
 
 type MediaLogger = (event: string, payload: Record<string, unknown>) => void
@@ -55,6 +56,49 @@ export function sniffMimeFromBuffer(buf: Buffer, fallback: string): string {
   // OGG: OggS
   if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return 'audio/ogg'
   return fallback
+}
+
+// Valida a integridade estrutural de um buffer OGG: header "OggS" no início
+// e uma última página com o bit end-of-stream (0x04) setado.
+//
+// Layout de página OGG (RFC 3533 §6):
+//   byte 0–3: capture pattern "OggS" (0x4F 0x67 0x67 0x53)
+//   byte 4:   stream_structure_version — FIXO em 0x00
+//   byte 5:   header_type_flag (bit 0x04 = end-of-stream)
+//
+// A busca exige o par (capture pattern + version = 0x00) para reduzir ao máximo
+// matches espúrios dentro de payload Opus — ~1 em 2^40 vs ~1 em 2^32 com só a
+// capture pattern. O loop pára em tail.length - 6 porque precisamos ler até o
+// byte 5 da página sem sair dos limites do subarray.
+function validateOggStructure(buffer: Buffer): { ok: boolean; reason?: string } {
+  if (buffer.length < 4) return { ok: false, reason: 'too_short' }
+  const hasHeader =
+    buffer[0] === 0x4f && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53
+  if (!hasHeader) return { ok: false, reason: 'missing_oggs_header' }
+
+  const tail = buffer.subarray(Math.max(0, buffer.length - 8192))
+  let lastOggS = -1
+  for (let i = tail.length - 6; i >= 0; i--) {
+    if (
+      tail[i] === 0x4f &&
+      tail[i + 1] === 0x67 &&
+      tail[i + 2] === 0x67 &&
+      tail[i + 3] === 0x53 &&
+      tail[i + 4] === 0x00
+    ) {
+      lastOggS = i
+      break
+    }
+  }
+  if (lastOggS < 0) return { ok: false, reason: 'no_trailing_page' }
+  const headerType = tail[lastOggS + 5]
+  if ((headerType & 0x04) === 0) return { ok: false, reason: 'missing_eos_flag' }
+  return { ok: true }
+}
+
+function isOggLikeMime(mime: string | null | undefined): boolean {
+  if (!mime) return false
+  return /ogg|opus/i.test(mime)
 }
 
 function resolveDirectImageMime(
@@ -375,6 +419,7 @@ export async function uploadMediaToStorage(
     buffer: null,
     resolvedMime: mimetype,
     source: null,
+    oggTruncated: false,
   }
 
   let downloaded: { buffer: Buffer; resolvedMime: string; source: 'direct_url' | 'evolution' } | null = null
@@ -440,6 +485,27 @@ export async function uploadMediaToStorage(
       upsert: options.upsert ?? false,
     })
 
+  // Detecta OGG truncado ANTES de devolver para o caller, para permitir que
+  // a pipeline pule a transcrição cedo. O upload continua sendo feito: browsers
+  // toleram OGG incompleto, então o player do Desk ainda consegue reproduzir.
+  let oggTruncated = false
+  if (isOggLikeMime(downloaded.resolvedMime)) {
+    const oggCheck = validateOggStructure(downloaded.buffer)
+    if (!oggCheck.ok) {
+      oggTruncated = true
+      logger?.('ogg_truncated', {
+        clientId,
+        conversationId,
+        messageId,
+        source: downloaded.source,
+        reason: oggCheck.reason,
+        bytes: downloaded.buffer.byteLength,
+        firstBytesHex: downloaded.buffer.subarray(0, 8).toString('hex'),
+        lastBytesHex: downloaded.buffer.subarray(-8).toString('hex'),
+      })
+    }
+  }
+
   if (error && !error.message.includes('already exists')) {
     logger?.('storage_upload_failed', {
       clientId,
@@ -454,6 +520,7 @@ export async function uploadMediaToStorage(
       buffer: downloaded.buffer,
       resolvedMime: downloaded.resolvedMime,
       source: downloaded.source,
+      oggTruncated,
     }
   }
 
@@ -462,5 +529,6 @@ export async function uploadMediaToStorage(
     buffer: downloaded.buffer,
     resolvedMime: downloaded.resolvedMime,
     source: downloaded.source,
+    oggTruncated,
   }
 }

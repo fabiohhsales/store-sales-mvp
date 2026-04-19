@@ -31,6 +31,16 @@ function buildAdmin(options?: { uploadErrorMessage?: string | null }) {
   return { admin, uploads }
 }
 
+function makeOggBuffer(options?: { eos?: boolean }): Buffer {
+  const eos = options?.eos ?? true
+  return Buffer.from([
+    0x4f, 0x67, 0x67, 0x53, 0x00, 0x02,
+    0x11, 0x22, 0x33, 0x44,
+    0x4f, 0x67, 0x67, 0x53, 0x00, eos ? 0x04 : 0x00,
+    0x55, 0x66, 0x77, 0x88,
+  ])
+}
+
 beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -503,6 +513,156 @@ describe('uploadMediaToStorage', () => {
       path: 'client-A/conv-1/evo-legacy.ogg',
       contentType: 'audio/ogg',
     })
+  })
+
+  it('marks oggTruncated=false when the Evolution buffer contains a trailing OGG EOS page', async () => {
+    const { admin, uploads } = buildAdmin()
+    mocks.createAdminClient.mockReturnValue(admin)
+    const fetchMock = vi.mocked(fetch)
+    const logger = vi.fn()
+    const oggBuffer = makeOggBuffer({ eos: true })
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          base64: oggBuffer.toString('base64'),
+          mimetype: 'audio/ogg',
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      )
+    )
+
+    const result = await uploadMediaToStorage(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'ogg-ok',
+      'client-A',
+      'conv-1',
+      'audio/ogg',
+      null,
+      logger
+    )
+
+    expect(result).toMatchObject({
+      storagePath: 'client-A/conv-1/ogg-ok.ogg',
+      resolvedMime: 'audio/ogg',
+      source: 'evolution',
+      oggTruncated: false,
+    })
+    expect(uploads).toContainEqual({
+      path: 'client-A/conv-1/ogg-ok.ogg',
+      contentType: 'audio/ogg',
+      bytes: oggBuffer.length,
+    })
+    expect(logger).not.toHaveBeenCalledWith(
+      'ogg_truncated',
+      expect.anything()
+    )
+  })
+
+  it('marks oggTruncated=true and still uploads playback media when the OGG EOS page is missing', async () => {
+    const { admin, uploads } = buildAdmin()
+    mocks.createAdminClient.mockReturnValue(admin)
+    const fetchMock = vi.mocked(fetch)
+    const logger = vi.fn()
+    const oggBuffer = makeOggBuffer({ eos: false })
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          base64: oggBuffer.toString('base64'),
+          mimetype: 'audio/ogg',
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      )
+    )
+
+    const result = await uploadMediaToStorage(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'ogg-truncated',
+      'client-A',
+      'conv-1',
+      'audio/ogg',
+      null,
+      logger
+    )
+
+    expect(result).toMatchObject({
+      storagePath: 'client-A/conv-1/ogg-truncated.ogg',
+      resolvedMime: 'audio/ogg',
+      source: 'evolution',
+      oggTruncated: true,
+    })
+    expect(uploads).toContainEqual({
+      path: 'client-A/conv-1/ogg-truncated.ogg',
+      contentType: 'audio/ogg',
+      bytes: oggBuffer.length,
+    })
+    expect(logger).toHaveBeenCalledWith(
+      'ogg_truncated',
+      expect.objectContaining({
+        messageId: 'ogg-truncated',
+        reason: 'missing_eos_flag',
+        bytes: oggBuffer.length,
+        firstBytesHex: oggBuffer.subarray(0, 8).toString('hex'),
+        lastBytesHex: oggBuffer.subarray(-8).toString('hex'),
+      })
+    )
+  })
+
+  it('does not run OGG truncation validation for non-ogg media types', async () => {
+    const { admin, uploads } = buildAdmin()
+    mocks.createAdminClient.mockReturnValue(admin)
+    const fetchMock = vi.mocked(fetch)
+    const logger = vi.fn()
+    const webmBuffer = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x93, 0x42, 0x82, 0x88])
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          base64: webmBuffer.toString('base64'),
+          mimetype: 'audio/webm',
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      )
+    )
+
+    const result = await uploadMediaToStorage(
+      'inst-a',
+      '5511999999999@s.whatsapp.net',
+      'audio-webm',
+      'client-A',
+      'conv-1',
+      'audio/webm',
+      null,
+      logger
+    )
+
+    expect(result).toMatchObject({
+      storagePath: 'client-A/conv-1/audio-webm.webm',
+      resolvedMime: 'audio/webm',
+      source: 'evolution',
+      oggTruncated: false,
+    })
+    expect(uploads).toContainEqual({
+      path: 'client-A/conv-1/audio-webm.webm',
+      contentType: 'audio/webm',
+      bytes: webmBuffer.length,
+    })
+    expect(logger).not.toHaveBeenCalledWith(
+      'ogg_truncated',
+      expect.anything()
+    )
   })
 
   it('skips candidates that return base64 which decodes to an empty buffer', async () => {
