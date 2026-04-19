@@ -21,6 +21,11 @@ const chatwootFrameAncestors = Array.from(
 )
 
 const nextConfig: NextConfig = {
+  // ffmpeg-static precisa ser resolvido em runtime (não bundlado pelo webpack)
+  // para que o __dirname interno aponte para o filesystem real do container.
+  // Sem isso, o path vira algo virtual (/ROOT/node_modules/...) e o binário
+  // baixado no postinstall nunca é encontrado.
+  serverExternalPackages: ['ffmpeg-static'],
   experimental: {
     // Se algum outro proxy precisar ler o body completo, use um teto alinhado
     // com uploads de 50 MB reais enviados como JSON base64 (~66,7 MB no fio).
