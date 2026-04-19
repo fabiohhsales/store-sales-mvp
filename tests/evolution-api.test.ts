@@ -43,9 +43,7 @@ describe('Evolution API wrapper', () => {
     })
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
       number: '5511999999999@s.whatsapp.net',
-      audioMessage: {
-        audio: 'YmFzZTY0LWF1ZGlv',
-      },
+      audio: 'YmFzZTY0LWF1ZGlv',
     })
   })
 })

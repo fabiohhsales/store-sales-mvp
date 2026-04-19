@@ -1,6 +1,10 @@
 import OpenAI, { toFile } from 'openai'
 import { AI_MODEL_MINI } from '@/lib/ai/client'
-import { convertAudioForTranscription } from '@/lib/media/audio-conversion'
+import {
+  audioMimeToExtension,
+  convertAudioForTranscription,
+  normalizeAudioMime,
+} from '@/lib/media/audio-conversion'
 import type { BotMessage } from '@/types/bot'
 
 export const OPENAI_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe'
@@ -17,6 +21,21 @@ export interface MultimodalProcessingResult {
   processingStatus: MultimodalProcessingStatus
   processingError: string | null
 }
+
+const OPENAI_RAW_AUDIO_FALLBACK_MIME_TYPES = new Set([
+  'audio/aac',
+  'audio/flac',
+  'audio/m4a',
+  'audio/mp3',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/oga',
+  'audio/ogg',
+  'audio/wav',
+  'audio/webm',
+  'audio/x-m4a',
+  'audio/x-wav',
+])
 
 function trimText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
@@ -79,17 +98,18 @@ async function sendToWhisper(
   mime: string,
   client: OpenAI,
   model: string,
-  rawMime: string
+  rawMime: string,
+  filename?: string
 ): Promise<MultimodalProcessingResult> {
   try {
-    const ext = mime.split('/')[1] ?? 'wav'
+    const ext = audioMimeToExtension(mime)
     logMultimodalEvent('transcription_format_sent', {
       provider: 'openai',
       model,
       mime,
       rawMime,
     })
-    const file = await toFile(buffer, `audio.${ext}`, { type: mime })
+    const file = await toFile(buffer, filename ?? `audio.${ext}`, { type: mime })
     const result = await client.audio.transcriptions.create({ file, model, language: 'pt' })
     const transcript = trimText(result.text)
 
@@ -130,7 +150,7 @@ async function sendToWhisper(
       aiInputText: null,
       mediaTranscript: null,
       processingStatus: 'failed',
-      processingError: 'transcription_processing_failed',
+      processingError: 'transcription_provider_failed',
     }
   }
 }
@@ -152,10 +172,53 @@ async function transcribeAudio(buffer: Buffer, rawMime: string): Promise<Multimo
 
   logMultimodalEvent('audio_conversion_started', { rawMime })
   const t0 = Date.now()
-  const wavBuffer = await convertAudioForTranscription(buffer, rawMime)
+  const client = new OpenAI({ apiKey })
+  const model = resolveOpenAiTranscriptionModel()
+  const conversion = await convertAudioForTranscription(buffer, rawMime)
 
-  if (!wavBuffer) {
-    logMultimodalEvent('audio_conversion_failed', { rawMime, durationMs: Date.now() - t0 }, 'warn')
+  if (conversion.ok) {
+    logMultimodalEvent('audio_conversion_succeeded', {
+      rawMime,
+      wavBytes: conversion.buffer.length,
+      durationMs: Date.now() - t0,
+      binaryPath: conversion.binaryPath,
+      binarySource: conversion.binarySource,
+      exitCode: conversion.exitCode,
+      signal: conversion.signal,
+      stderrPreview: conversion.stderrPreview,
+    })
+
+    return sendToWhisper(
+      conversion.buffer,
+      'audio/wav',
+      client,
+      model,
+      rawMime,
+      'audio.wav'
+    )
+  }
+
+  logMultimodalEvent('audio_conversion_failed', {
+    rawMime,
+    durationMs: Date.now() - t0,
+    failureReason: conversion.failureReason,
+    binaryPath: conversion.binaryPath,
+    binarySource: conversion.binarySource,
+    exitCode: conversion.exitCode,
+    signal: conversion.signal,
+    stderrPreview: conversion.stderrPreview,
+    inputBytes: conversion.inputBytes,
+    outputBytes: conversion.outputBytes,
+  }, 'warn')
+
+  const normalizedRawMime = normalizeAudioMime(rawMime)
+  if (!OPENAI_RAW_AUDIO_FALLBACK_MIME_TYPES.has(normalizedRawMime)) {
+    logMultimodalEvent('audio_transcription_fallback_skipped', {
+      rawMime,
+      normalizedRawMime,
+      reason: 'unsupported_mime',
+      conversionFailureReason: conversion.failureReason,
+    }, 'warn')
     return {
       provider: 'openai',
       derivedText: null,
@@ -163,24 +226,42 @@ async function transcribeAudio(buffer: Buffer, rawMime: string): Promise<Multimo
       aiInputText: null,
       mediaTranscript: null,
       processingStatus: 'failed',
-      processingError: 'transcription_processing_failed',
+      processingError: conversion.failureReason,
     }
   }
 
-  logMultimodalEvent('audio_conversion_succeeded', {
+  logMultimodalEvent('audio_transcription_fallback_attempted', {
     rawMime,
-    wavBytes: wavBuffer.length,
-    durationMs: Date.now() - t0,
+    normalizedRawMime,
+    conversionFailureReason: conversion.failureReason,
   })
 
-  const client = new OpenAI({ apiKey })
-  return sendToWhisper(
-    wavBuffer,
-    'audio/wav',
+  const rawResult = await sendToWhisper(
+    buffer,
+    normalizedRawMime,
     client,
-    resolveOpenAiTranscriptionModel(),
-    rawMime
+    model,
+    rawMime,
+    `audio.${audioMimeToExtension(normalizedRawMime)}`
   )
+
+  if (rawResult.processingStatus === 'processed') {
+    logMultimodalEvent('audio_transcription_fallback_succeeded', {
+      rawMime,
+      normalizedRawMime,
+      conversionFailureReason: conversion.failureReason,
+    })
+    return rawResult
+  }
+
+  logMultimodalEvent('audio_transcription_fallback_failed', {
+    rawMime,
+    normalizedRawMime,
+    conversionFailureReason: conversion.failureReason,
+    fallbackError: rawResult.processingError,
+  }, 'warn')
+
+  return rawResult
 }
 
 async function analyzeImage(

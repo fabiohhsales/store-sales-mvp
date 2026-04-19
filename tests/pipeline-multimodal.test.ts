@@ -162,6 +162,43 @@ function makeImageMessage(): NormalizedEvolutionMessage {
   }
 }
 
+function makeAudioMessage(): NormalizedEvolutionMessage {
+  return {
+    instanceName: 'inst-1',
+    remoteJid: '5511999999999@s.whatsapp.net',
+    phoneNumber: '5511999999999',
+    contactName: 'Paciente',
+    messageId: 'evo-audio-1',
+    content: '[Ãudio]',
+    contentType: 'audio',
+    timestamp: new Date('2026-04-16T12:00:00Z'),
+    mediaUrl: 'https://example.com/audio.ogg',
+    mediaMimetype: 'audio/ogg',
+    mediaDuration: 14,
+    mediaWidth: null,
+    mediaHeight: null,
+    mediaFilename: 'audio.ogg',
+    rawPayload: {
+      event: 'messages.upsert',
+      instance: 'inst-1',
+      data: {
+        key: {
+          remoteJid: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+          id: 'evo-audio-1',
+        },
+        message: {
+          audioMessage: {
+            mimetype: 'audio/ogg',
+            url: 'https://example.com/audio.ogg',
+          },
+        },
+        messageTimestamp: 1713268800,
+      },
+    },
+  }
+}
+
 describe('saveEvolutionMessage — multimodal persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -287,5 +324,58 @@ describe('saveEvolutionMessage — multimodal persistence', () => {
         last_processing_status: 'processed',
       })
     )
+  })
+
+  it('preserves playback media fields when audio transcription fails', async () => {
+    const { supabase, updateCalls } = buildSupabase()
+
+    mocks.uploadMediaToStorage.mockResolvedValue({
+      storagePath: 'client-1/conv-1/evo-audio-1.ogg',
+      buffer: Buffer.from('audio-bytes'),
+      resolvedMime: 'audio/ogg',
+    })
+    mocks.processDownloadedMultimodalMessage.mockResolvedValue({
+      provider: 'openai',
+      derivedText: null,
+      derivedKind: null,
+      aiInputText: null,
+      mediaTranscript: null,
+      processingStatus: 'failed',
+      processingError: 'audio_conversion_binary_unavailable',
+    })
+
+    const result = await saveEvolutionMessage(
+      supabase as never,
+      makeAudioMessage(),
+      makeConversation(),
+      'client-1'
+    )
+
+    expect(updateCalls).toHaveLength(1)
+    expect(updateCalls[0]?.payload).toMatchObject({
+      media_url: 'client-1/conv-1/evo-audio-1.ogg',
+      media_mime_type: 'audio/ogg',
+      media_filename: 'audio.ogg',
+      media_duration_seconds: 14,
+      media_size_bytes: 11,
+      processing_status: 'failed',
+      processing_error: 'audio_conversion_binary_unavailable',
+      derived_text: null,
+      derived_kind: null,
+      ai_input_text: null,
+    })
+    expect(result).toMatchObject({
+      media_url: 'client-1/conv-1/evo-audio-1.ogg',
+      media_mime_type: 'audio/ogg',
+      media_filename: 'audio.ogg',
+      media_duration_seconds: 14,
+      media_size_bytes: 11,
+      processing_status: 'failed',
+      processing_error: 'audio_conversion_binary_unavailable',
+      derived_text: null,
+      derived_kind: null,
+      ai_input_text: null,
+    })
+    expect(result.media_transcript).toBeUndefined()
   })
 })

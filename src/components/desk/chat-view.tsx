@@ -26,7 +26,7 @@ import { ConversationHistoryCard } from './conversation-history-card'
 import { ConversationTimelineCard } from './conversation-timeline-card'
 import type { ConversationContext } from '@/types/conversation-context'
 
-interface Message {
+export interface Message {
   id: string
   content: string | null
   content_type: string
@@ -114,7 +114,7 @@ function relativeTime(date: string): string {
 }
 
 // --- Helper: resolve a URL de mídia via proxy ---
-function mediaProxyUrl(message: Message, conversationId: string): string | null {
+export function mediaProxyUrl(message: Message, conversationId: string): string | null {
   if (message.sender_type === 'operator') {
     return `/api/desk/media?db_msg_id=${message.id}&conversation_id=${conversationId}`
   }
@@ -180,12 +180,28 @@ function processingStatusClasses(status: string | null | undefined): string {
 
 function processingErrorLabel(error: string | null | undefined): string | null {
   switch (error) {
+    case 'audio_conversion_binary_unavailable':
+      return 'O conversor de Ã¡udio nÃ£o estÃ¡ disponÃ­vel no ambiente.'
+    case 'audio_conversion_permission_denied':
+      return 'O conversor de Ã¡udio nÃ£o tem permissÃ£o de execuÃ§Ã£o.'
+    case 'audio_conversion_spawn_failed':
+      return 'Falha ao iniciar o conversor de Ã¡udio.'
+    case 'audio_conversion_timeout':
+      return 'A conversÃ£o do Ã¡udio excedeu o tempo limite.'
+    case 'audio_conversion_nonzero_exit':
+      return 'O conversor de Ã¡udio foi encerrado com erro.'
+    case 'audio_conversion_output_missing':
+      return 'A conversÃ£o terminou sem gerar um arquivo de saÃ­da.'
+    case 'audio_conversion_output_empty':
+      return 'A conversÃ£o gerou um arquivo de saÃ­da vazio.'
     case 'media_download_failed':
       return 'Falha ao baixar a mídia recebida.'
     case 'transcription_provider_unavailable':
       return 'Não há provedor de transcrição configurado.'
     case 'transcription_empty':
       return 'A transcrição retornou vazia.'
+    case 'transcription_provider_failed':
+      return 'O provedor de transcricao falhou ao processar o audio.'
     case 'transcription_processing_failed':
       return 'Falha ao transcrever o áudio.'
     case 'vision_provider_unavailable':
@@ -202,7 +218,7 @@ function processingErrorLabel(error: string | null | undefined): string | null {
 }
 
 // --- Sub-renderer: Audio Player WhatsApp-style ---
-function AudioPlayer({
+export function AudioPlayer({
   src,
   transcript,
   onError,
@@ -295,7 +311,7 @@ function AudioPlayer({
   )
 }
 
-function MessageBubble({ message, conversationId, onImageClick }: { message: Message; conversationId: string; onImageClick?: (url: string, alt: string) => void }) {
+export function MessageBubble({ message, conversationId, onImageClick }: { message: Message; conversationId: string; onImageClick?: (url: string, alt: string) => void }) {
   const isOutgoing = message.sender_type !== 'contact'
   const isBot = message.sender_type === 'agent_bot'
   const isOperator = message.sender_type === 'operator'
