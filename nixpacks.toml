@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["ffmpeg"]
+aptPkgs = ["ffmpeg"]
 
 [phases.install]
 cmds = ["npm ci --prefer-offline --no-audit --progress=false"]
