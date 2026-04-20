@@ -320,13 +320,27 @@ async function resolveFfmpegBinary(): Promise<ResolvedBinary | BinaryResolutionF
   return lastFailure
 }
 
+// Detecta o formato do container por magic bytes para escolher o demuxer correto
+// no ffmpeg, independente do MIME declarado pelo Evolution. O WhatsApp/Evolution
+// às vezes entrega WebM/Opus com MIME 'audio/ogg; codecs=opus'.
+//   OGG: "OggS" = 4F 67 67 53
+//   WebM/MKV: EBML header = 1A 45 DF A3
+// Retorna a string de formato aceita pelo ffmpeg (-f), ou null para auto-detect.
+function sniffFfmpegFormat(buffer: Buffer): string | null {
+  if (buffer.length < 4) return null
+  if (buffer[0] === 0x4f && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53) return 'ogg'
+  if (buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3) return 'webm'
+  return null
+}
+
 async function runFfmpeg(args: {
   inputFile: string
   outputFile: string
   inputMime: string
   inputBytes: number
+  inputBuffer: Buffer
 }): Promise<AudioConversionResult> {
-  const { inputFile, outputFile, inputMime, inputBytes } = args
+  const { inputFile, outputFile, inputMime, inputBytes, inputBuffer } = args
   const binary = await resolveFfmpegBinary()
 
   if (!('path' in binary)) {
@@ -347,21 +361,22 @@ async function runFfmpeg(args: {
     })
   }
 
-  const isOgg = inputMime.includes('ogg') || inputMime.includes('opus')
+  // Usa magic bytes do buffer de entrada para selecionar o demuxer correto,
+  // ignorando o MIME declarado (que pode estar errado no Evolution).
+  const sniffedFormat = sniffFfmpegFormat(inputBuffer)
   const commandArgs = [
     '-hide_banner',
     '-loglevel',
     'error',
     '-nostdin',
     '-y',
-    // Tolera páginas OGG corrompidas (WhatsApp às vezes entrega stream parcial).
+    // Tolera páginas corrompidas e streams sem timestamps.
     '-err_detect',
     'ignore_err',
-    // Gera timestamps quando faltam; defesa contra streams sem DTS/PTS.
     '-fflags',
     '+genpts+igndts',
-    // Demuxer de input explícito para OGG/Opus — evita auto-probe sensível a EOF.
-    ...(isOgg ? ['-f', 'ogg'] : []),
+    // Demuxer explícito detectado por magic bytes (ogg, webm ou auto-detect).
+    ...(sniffedFormat ? ['-f', sniffedFormat] : []),
     '-i',
     inputFile,
     '-vn',
@@ -655,10 +670,13 @@ export async function convertAudioForTranscription(
 
   try {
     await fs.writeFile(inputFile, buffer)
-    // Loga os primeiros bytes para distinguir corrupção total (header ausente)
-    // de truncamento (header ok, fim do arquivo incompleto) em diagnósticos.
+    // Loga os primeiros bytes e o formato detectado para distinguir corrupção total
+    // (header ausente), truncamento (header ok, EOS faltando) e formato errado (WebM
+    // declarado como OGG pelo Evolution) em diagnósticos futuros.
+    const sniffedFormat = sniffFfmpegFormat(buffer)
     console.log('[audio-conversion] input_head_bytes', {
       hex: buffer.subarray(0, 8).toString('hex'),
+      sniffedFormat,
       inputBytes: buffer.length,
       inputMime: normalizeAudioMime(inputMime),
     })
@@ -667,6 +685,7 @@ export async function convertAudioForTranscription(
       outputFile,
       inputMime: normalizeAudioMime(inputMime),
       inputBytes: buffer.length,
+      inputBuffer: buffer,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

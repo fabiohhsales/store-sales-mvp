@@ -488,21 +488,40 @@ export async function uploadMediaToStorage(
   // Detecta OGG truncado ANTES de devolver para o caller, para permitir que
   // a pipeline pule a transcrição cedo. O upload continua sendo feito: browsers
   // toleram OGG incompleto, então o player do Desk ainda consegue reproduzir.
+  //
+  // Importante: só bloqueia transcrição quando o arquivo É OGG (magic bytes OggS)
+  // mas falta a página end-of-stream. Se o magic byte não for OggS, o Evolution
+  // pode ter entregue WebM/Opus com MIME errado — nesse caso passamos adiante e
+  // o ffmpeg detecta o formato real pelos bytes.
   let oggTruncated = false
   if (isOggLikeMime(downloaded.resolvedMime)) {
     const oggCheck = validateOggStructure(downloaded.buffer)
     if (!oggCheck.ok) {
-      oggTruncated = true
-      logger?.('ogg_truncated', {
-        clientId,
-        conversationId,
-        messageId,
-        source: downloaded.source,
-        reason: oggCheck.reason,
-        bytes: downloaded.buffer.byteLength,
-        firstBytesHex: downloaded.buffer.subarray(0, 8).toString('hex'),
-        lastBytesHex: downloaded.buffer.subarray(-8).toString('hex'),
-      })
+      const isTrulyTruncatedOgg = oggCheck.reason !== 'missing_oggs_header'
+      if (isTrulyTruncatedOgg) {
+        oggTruncated = true
+        logger?.('ogg_truncated', {
+          clientId,
+          conversationId,
+          messageId,
+          source: downloaded.source,
+          reason: oggCheck.reason,
+          bytes: downloaded.buffer.byteLength,
+          firstBytesHex: downloaded.buffer.subarray(0, 8).toString('hex'),
+          lastBytesHex: downloaded.buffer.subarray(-8).toString('hex'),
+        })
+      } else {
+        // Formato diferente de OGG (provavelmente WebM) entregue com MIME audio/ogg
+        // pelo Evolution. Não bloqueamos — o ffmpeg vai usar magic bytes para detectar.
+        logger?.('audio_format_mislabeled', {
+          clientId,
+          conversationId,
+          messageId,
+          source: downloaded.source,
+          declaredMime: downloaded.resolvedMime,
+          firstBytesHex: downloaded.buffer.subarray(0, 8).toString('hex'),
+        })
+      }
     }
   }
 
