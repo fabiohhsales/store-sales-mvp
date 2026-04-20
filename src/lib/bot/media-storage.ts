@@ -101,6 +101,28 @@ function isOggLikeMime(mime: string | null | undefined): boolean {
   return /ogg|opus/i.test(mime)
 }
 
+// Verifica se os primeiros bytes de um buffer correspondem a um formato de áudio
+// reconhecível. Usado para detectar conteúdo criptografado do CDN do WhatsApp,
+// que retorna bytes de alta-entropia sem magic bytes de formato válido.
+// Formatos cobertos: OGG (OggS), WebM/MKV (EBML), MP3 (ID3 / sync frame),
+// MP4/M4A (ftyp box com tamanho variável), RIFF/WAV.
+function isKnownAudioBytes(buf: Buffer): boolean {
+  if (buf.length < 4) return false
+  // OGG: "OggS"
+  if (buf[0] === 0x4f && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return true
+  // WebM / MKV: EBML header
+  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return true
+  // MP3: ID3 tag
+  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return true
+  // MP3: sync frame (FF E* / FF F*)
+  if (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return true
+  // RIFF (WAV, AVI)
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return true
+  // MP4 / M4A: ftyp box — tamanho variável nos primeiros 4 bytes, 'ftyp' nos próximos 4
+  if (buf.length >= 8 && buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return true
+  return false
+}
+
 function resolveDirectImageMime(
   buffer: Buffer,
   resolvedMime: string,
@@ -433,6 +455,24 @@ export async function uploadMediaToStorage(
 
     if (mediaUrl) {
       downloaded = await fetchMediaFromDirectUrl(mediaUrl, mimetype, logger, meta)
+    }
+
+    // URLs de mídia do WhatsApp CDN apontam para conteúdo criptografado (E2E).
+    // Se o MIME indica áudio mas os primeiros bytes não correspondem a nenhum
+    // formato de áudio conhecido, a URL direta retornou bytes criptografados.
+    // Nesse caso zeramos para forçar o fallback para fetchMediaFromEvolution,
+    // que faz a descriptografia via Evolution API.
+    if (downloaded && mimetype.startsWith('audio/') && !isKnownAudioBytes(downloaded.buffer)) {
+      logger?.('direct_url_audio_encrypted', {
+        clientId,
+        conversationId,
+        messageId,
+        source: 'direct_url',
+        declaredMime: downloaded.resolvedMime,
+        bytes: downloaded.buffer.byteLength,
+        firstBytesHex: downloaded.buffer.subarray(0, 8).toString('hex'),
+      })
+      downloaded = null
     }
 
     if (!downloaded) {
