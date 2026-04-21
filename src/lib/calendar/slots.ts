@@ -120,11 +120,7 @@ function slotLabel(start: Date, end: Date, language: string, timezone: string): 
     ? `${dayName}, ${month} ${p.day} · ${hh}:${mm}–${ehh}:${emm}`
     : `${dayName}, ${p.day}/${month} · ${hh}:${mm}–${ehh}:${emm}`
 
-  const startISO = toTzISO(start, timezone)
-  const endISO = toTzISO(end, timezone)
-
-  // ISO inline para o AI extrair start_iso/end_iso quando paciente seleciona o número
-  return `${timeStr} [${startISO}→${endISO}]`
+  return timeStr
 }
 
 // --- Interpretação do time_window_hint via AI ---
@@ -265,16 +261,25 @@ function roundUpToStep(date: Date, stepMs: number): Date {
 
 export function formatSlotsMessage(slots: TimeSlot[], professionalName: string, language = 'pt-BR'): string {
   const isEn = !language.startsWith('pt')
+  const firstName = professionalName.split(' ')[0]
 
   if (slots.length === 0) {
     return isEn
-      ? `No available slots found for that period. Would you like me to check another week?`
+      ? `I couldn't find any open slots for that period. Want me to check another week?`
       : `Não encontrei horários disponíveis nesse período. Quer que eu verifique outra semana?`
   }
 
   const list = slots.map((s, i) => `${i + 1}. ${s.label}`).join('\n')
 
-  return isEn
-    ? `Here are the available slots with ${professionalName}:\n\n${list}\n\nWhich one works for you? Reply with the number.`
-    : `Encontrei estes horários disponíveis com ${professionalName}:\n\n${list}\n\nQual desses funciona para você? Responda com o número.`
+  if (isEn) {
+    return `Here are some times available with ${firstName}:\n\n${list}\n\nWhich one works best for you? Just reply with the number.`
+  }
+
+  const intros = [
+    `Separei alguns horários disponíveis com ${firstName}:`,
+    `Aqui estão os próximos horários livres com ${firstName}:`,
+    `Encontrei esses horários com ${firstName}:`,
+  ]
+  const intro = intros[slots.length % intros.length]
+  return `${intro}\n\n${list}\n\nQual funciona melhor pra você? É só responder com o número. 😊`
 }

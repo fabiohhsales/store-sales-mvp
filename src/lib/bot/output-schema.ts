@@ -48,6 +48,7 @@ export const AgentOutputSchema = z.object({
       start_iso: z.string().nullable(),
       end_iso: z.string().nullable(),
       title: z.string().nullable(),
+      selected_slot_index: z.number().nullable().optional().default(null),
     }),
     agenda_update: z.object({
       should_update: z.boolean(),
@@ -81,7 +82,7 @@ export const fallbackOutput: AgentOutput = {
   handoff: { needs_human: false, reason: null },
   actions: {
     agenda_check: { should_check: false, time_window_hint: null },
-    agenda_create: { should_create: false, start_iso: null, end_iso: null, title: null },
+    agenda_create: { should_create: false, start_iso: null, end_iso: null, title: null, selected_slot_index: null },
     agenda_update: { should_update: false, google_event_id: null },
   },
   debug: { detected_intent: 'outro', stage_current: null, notes: 'parse_error' },

@@ -17,6 +17,56 @@ export async function handleAgendaCheck(
   const { clientContext, contact, conversation } = result
   const { botConfig, googleConfig, whatsappConfig } = clientContext
 
+  // Guard: evita reenvio duplicado de lista de slots em janela de 5min
+  {
+    const supabaseGuard = createAdminClient()
+    const { data: convGuard } = await supabaseGuard
+      .from('conversations')
+      .select('pending_slots, last_outgoing_at')
+      .eq('id', conversation.id)
+      .single()
+
+    const hasPendingSlots = Array.isArray(convGuard?.pending_slots) && convGuard.pending_slots.length > 0
+    const lastOutAt = convGuard?.last_outgoing_at ? new Date(convGuard.last_outgoing_at) : null
+    const sentRecently = lastOutAt && (Date.now() - lastOutAt.getTime()) < 5 * 60 * 1000
+
+    if (hasPendingSlots && sentRecently) {
+      console.log(`[CalendarAgent] agenda_check ignorado — slots já enviados recentemente para conv=${conversation.id}`)
+      return
+    }
+  }
+
+  // Pré-verificação: paciente já tem appointment futuro nesta conversa?
+  {
+    const supabaseCheck = createAdminClient()
+    const { data: existingAppt } = await supabaseCheck
+      .from('appointments')
+      .select('start_at, end_at, title')
+      .eq('conversation_id', conversation.id)
+      .in('status', ['scheduled', 'confirmed'])
+      .gte('start_at', new Date().toISOString())
+      .order('start_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+
+    if (existingAppt) {
+      const tz = botConfig?.timezone ?? 'America/Sao_Paulo'
+      const language = botConfig?.ai_language ?? 'pt-BR'
+      const isEn = !language.startsWith('pt')
+      const formattedDate = new Date(existingAppt.start_at).toLocaleString(
+        isEn ? 'en-US' : 'pt-BR',
+        { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }
+      )
+      const title = existingAppt.title ?? (isEn ? 'appointment' : 'consulta')
+      const msg = isEn
+        ? `You already have a ${title} scheduled for ${formattedDate}. Would you like to reschedule, or is this about something else?`
+        : `Você já tem uma ${title} agendada para ${formattedDate}. Quer reagendar, ou é uma nova consulta?`
+
+      await sendAndSave(whatsappConfig, contact, conversation, msg)
+      return
+    }
+  }
+
   // Condição de "pode agendar": basta ter working_hours + duração configurados.
   // Google NÃO é pré-requisito para consultar disponibilidade.
   if (!botConfig?.working_hours || !botConfig.appointment_duration_default) {
@@ -101,7 +151,26 @@ export async function handleAgendaCreate(
     return
   }
 
-  if (!agenda_create.start_iso || !agenda_create.end_iso) {
+  // Resolver start_iso/end_iso via pending_slots quando paciente escolheu por número
+  let agendaCreate = agenda_create
+  if (agendaCreate.selected_slot_index != null && !agendaCreate.start_iso) {
+    const supabaseSlots = createAdminClient()
+    const { data: convSlots } = await supabaseSlots
+      .from('conversations')
+      .select('pending_slots')
+      .eq('id', conversation.id)
+      .single()
+
+    const pendingSlots = convSlots?.pending_slots as
+      | Array<{ startISO: string; endISO: string; label: string }>
+      | null
+    const chosen = pendingSlots?.[agendaCreate.selected_slot_index - 1]
+    if (chosen) {
+      agendaCreate = { ...agendaCreate, start_iso: chosen.startISO, end_iso: chosen.endISO }
+    }
+  }
+
+  if (!agendaCreate.start_iso || !agendaCreate.end_iso) {
     await sendAndSave(
       whatsappConfig,
       contact,
@@ -122,12 +191,12 @@ export async function handleAgendaCreate(
           externalEventId: agenda_update.google_event_id ?? null,
           conversationId: conversation.id,
           clientId: clientContext.clientId,
-          newStartAt: agenda_create.start_iso,
-          newEndAt: agenda_create.end_iso,
-          title: agenda_create.title ?? null,
+          newStartAt: agendaCreate.start_iso!,
+          newEndAt: agendaCreate.end_iso!,
+          title: agendaCreate.title ?? null,
         })
 
-        const formattedDate = new Date(agenda_create.start_iso).toLocaleString('pt-BR', {
+        const formattedDate = new Date(agendaCreate.start_iso!).toLocaleString('pt-BR', {
           timeZone: tz,
           weekday: 'long',
           day: 'numeric',
@@ -169,16 +238,16 @@ export async function handleAgendaCreate(
       contactName: contact.name ?? 'Paciente',
       contactPhone: contact.phone_number,
       inviteeEmail,
-      title: agenda_create.title ?? null,
+      title: agendaCreate.title ?? null,
       modality: 'presencial',
       status: 'scheduled',
-      startAt: agenda_create.start_iso,
-      endAt: agenda_create.end_iso,
+      startAt: agendaCreate.start_iso!,
+      endAt: agendaCreate.end_iso!,
       syncToGoogle: true,
       source: 'bot',
     })
 
-    const formattedDate = new Date(agenda_create.start_iso).toLocaleString('pt-BR', {
+    const formattedDate = new Date(agendaCreate.start_iso!).toLocaleString('pt-BR', {
       timeZone: tz,
       weekday: 'long',
       day: 'numeric',
@@ -191,7 +260,7 @@ export async function handleAgendaCreate(
     if (appointment.meet_link) confirmMsg += `🔗 Link da videochamada: ${appointment.meet_link}\n`
     if (appointment.event_url) confirmMsg += `📋 Ver no calendário: ${appointment.event_url}\n`
     if (appointment.sync_status === 'error') {
-      confirmMsg += '\n⚠️ O agendamento foi salvo, mas houve uma falha ao sincronizar com o calendário. Nossa equipe já foi notificada.'
+      console.warn(`[CalendarAgent] sync_status=error silenciado para paciente. appointment=${appointment.id}, error=${appointment.sync_error}`)
     }
     confirmMsg += '\nSe precisar remarcar ou cancelar, é só me avisar! 😊'
 

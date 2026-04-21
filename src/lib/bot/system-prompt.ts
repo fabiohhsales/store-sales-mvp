@@ -12,6 +12,14 @@ type PromptConversationContext = {
   appointmentStatus: string | null
   lastIncomingAt: string | null
   lastOutgoingAt: string | null
+  upcomingAppointment?: {
+    id: string
+    start_at: string
+    end_at: string
+    status: string
+    title: string | null
+  } | null
+  patientContext?: 'new_patient' | 'returning_no_appointment' | 'has_future_appointment' | 'checking_existing' | null
 }
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
@@ -211,6 +219,25 @@ export function buildSystemPrompt(
   const appointmentStatus = context?.appointmentStatus ?? 'none'
   const lastIncomingAt = context?.lastIncomingAt ?? 'unknown'
   const lastOutgoingAt = context?.lastOutgoingAt ?? 'unknown'
+  const timezone = config.timezone ?? 'America/Sao_Paulo'
+  const upcomingApptLine = context?.upcomingAppointment
+    ? (() => {
+        const appt = context.upcomingAppointment!
+        const formatted = new Date(appt.start_at).toLocaleString(
+          lang.startsWith('pt') ? 'pt-BR' : 'en-US',
+          { timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }
+        )
+        return `${appt.title ?? 'Consulta'} em ${formatted} (status: ${appt.status}, id: ${appt.id})`
+      })()
+    : 'none'
+
+  const PATIENT_CONTEXT_DESCRIPTIONS: Record<string, string> = {
+    new_patient: 'First contact. Guide them through the scheduling process.',
+    returning_no_appointment: 'Returning patient with no upcoming appointment. They may want to book a new one.',
+    has_future_appointment: 'Patient already has an upcoming appointment (see upcoming_appointment above). If they ask about scheduling, FIRST acknowledge their existing appointment and ask if they want to reschedule or if this is an additional one. Do NOT jump straight to showing available slots.',
+    checking_existing: 'Patient may have had a past appointment. Appointment status is scheduled but no future appointment was found — clarify what they need.',
+  }
+  const patientContextLine = PATIENT_CONTEXT_DESCRIPTIONS[context?.patientContext ?? ''] ?? ''
 
   // Use only the first name to avoid the model confusing the patient's company with the clinic
   const patientFirstName = contactName.split(' ')[0]
@@ -251,10 +278,11 @@ CONVERSATION STATE (use to decide next action):
 - stage_current: ${stageCurrent ?? 'none'}
 - followup_cadence_current: ${followupCadenceCurrent}
 - appointment_status_current: ${appointmentStatus}
+- upcoming_appointment: ${upcomingApptLine}
 - last_incoming_at: ${lastIncomingAt}
 - last_outgoing_at: ${lastOutgoingAt}
 - email_collected: ${contactData?.custom_data?.email ? 'yes' : 'no'}
-
+${patientContextLine ? `\nPATIENT CONTEXT:\n${patientContextLine}` : ''}
 STAGE AND LABEL RULES:
 - labels_next may have multiple labels, but must contain exactly 1 stage label (slug starting with "etapa_").
 - Preserve relevant auxiliary labels when appropriate, but never return 2 stage labels at the same time.
@@ -267,13 +295,27 @@ SCHEDULING RULES:
 ${config.allow_same_day_booking ? '- Same-day booking is allowed' : '- Do not schedule for the same day'}
 
 SCHEDULING INTENT:
-When the patient wants to schedule, reschedule or cancel:
+When the patient wants to schedule or check availability:
 - Set actions.agenda_check.should_check = true and time_window_hint with the mentioned period
 - Set reply = null (the calendar agent takes over the response)
 - Use label etapa_agendando
 
-When the patient confirms a specific time slot:
+When the patient confirms a time slot by number (e.g. "1", "2", "o primeiro", "quero o segundo"):
+- Set actions.agenda_create.should_create = true
+- Set actions.agenda_create.selected_slot_index = <the number they said, 1-based>
+- Set start_iso = null and end_iso = null (resolved automatically from pending slots)
+- Set reply = null
+
+When the patient provides an explicit date/time not from a list:
 - Set actions.agenda_create.should_create = true with start_iso and end_iso in ISO-8601
+- Set selected_slot_index = null
+- Set reply = null
+
+RESCHEDULING:
+When the patient wants to reschedule an existing appointment:
+- Set actions.agenda_update.should_update = true
+- Set actions.agenda_update.google_event_id = null (resolved automatically from conversation)
+- Then set actions.agenda_check.should_check = true with the new time preference in time_window_hint
 - Set reply = null
 
 EMAIL FOR CONFIRMATION:
@@ -332,7 +374,7 @@ MANDATORY OUTPUT FORMAT (respond ONLY with this JSON, no markdown):
   "handoff": { "needs_human": false, "reason": null },
   "actions": {
     "agenda_check": { "should_check": false, "time_window_hint": null },
-    "agenda_create": { "should_create": false, "start_iso": null, "end_iso": null, "title": null },
+    "agenda_create": { "should_create": false, "start_iso": null, "end_iso": null, "title": null, "selected_slot_index": null },
     "agenda_update": { "should_update": false, "google_event_id": null }
   },
   "debug": { "detected_intent": "triagem|qualificacao|agendamento|confirmacao|pos|humano|outro", "stage_current": null, "notes": null }

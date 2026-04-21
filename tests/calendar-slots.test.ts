@@ -3,7 +3,9 @@
 
 import { describe, it, expect } from 'vitest'
 import {
+  formatSlotsMessage,
   getTzOffset,
+  getAvailableSlots,
   localToUTC,
   toTzISO,
   tzDateStr,
@@ -106,5 +108,70 @@ describe('tzDateStr', () => {
     expect(tzDateStr(d, 'Europe/Athens')).toBe('2026-07-16')
     // Same instant = 2026-07-15 20:30 America/Sao_Paulo
     expect(tzDateStr(d, 'America/Sao_Paulo')).toBe('2026-07-15')
+  })
+})
+
+describe('slot presentation', () => {
+  it('formats generated slot labels without raw ISO markers', async () => {
+    const calendar = {
+      freebusy: {
+        query: async () => ({
+          data: {
+            calendars: {
+              default: {
+                busy: [],
+              },
+            },
+          },
+        }),
+      },
+    } as any
+
+    const slots = await getAvailableSlots(
+      calendar,
+      'default',
+      {
+        start: localToUTC('2030-04-22', '00:00', 'America/Sao_Paulo'),
+        end: localToUTC('2030-04-22', '23:59', 'America/Sao_Paulo'),
+      },
+      {
+        sunday: { enabled: false, start: '09:00', end: '18:00' },
+        monday: { enabled: true, start: '09:00', end: '18:00' },
+        tuesday: { enabled: false, start: '09:00', end: '18:00' },
+        wednesday: { enabled: false, start: '09:00', end: '18:00' },
+        thursday: { enabled: false, start: '09:00', end: '18:00' },
+        friday: { enabled: false, start: '09:00', end: '18:00' },
+        saturday: { enabled: false, start: '09:00', end: '18:00' },
+      },
+      60,
+      0,
+      1,
+      'pt-BR',
+      2,
+      'America/Sao_Paulo'
+    )
+
+    expect(slots).toHaveLength(1)
+    expect(slots[0]?.label).not.toContain('[')
+    expect(slots[0]?.label).not.toContain('2030-')
+  })
+
+  it('humanizes the WhatsApp slot list using the professional first name', () => {
+    const message = formatSlotsMessage(
+      [
+        {
+          startUTC: new Date('2030-04-22T12:00:00Z'),
+          endUTC: new Date('2030-04-22T13:00:00Z'),
+          label: 'Seg, 22/abr · 09:00–10:00',
+          startISO: '2030-04-22T09:00:00-03:00',
+          endISO: '2030-04-22T10:00:00-03:00',
+        },
+      ],
+      'Fernanda Souza',
+      'pt-BR'
+    )
+
+    expect(message).toContain('Fernanda')
+    expect(message).toContain('É só responder com o número')
   })
 })

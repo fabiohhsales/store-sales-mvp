@@ -131,14 +131,16 @@ describe('convertAudioForTranscription', () => {
         'ignore_err',
         '-fflags',
         '+genpts+igndts',
-        '-f',
-        'ogg',
         '-i',
         expect.stringContaining('.ogg'),
         expect.stringContaining('.wav'),
       ]),
       expect.objectContaining({ stdio: ['ignore', 'ignore', 'pipe'] })
     )
+    const spawnArgs = mocks.spawn.mock.calls[0]?.[1] as string[]
+    const inputFlagIndex = spawnArgs.indexOf('-i')
+    expect(inputFlagIndex).toBeGreaterThanOrEqual(0)
+    expect(spawnArgs.slice(0, inputFlagIndex)).not.toContain('ogg')
     expect(console.log).toHaveBeenCalledWith(
       '[audio-conversion] input_head_bytes',
       expect.objectContaining({
