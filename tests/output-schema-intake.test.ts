@@ -21,6 +21,7 @@ function buildRaw(intakeSave: unknown): string {
         start_iso: null,
         end_iso: null,
         title: null,
+        selected_slot_index: null,
       },
       agenda_update: { should_update: false, google_event_id: null },
     },

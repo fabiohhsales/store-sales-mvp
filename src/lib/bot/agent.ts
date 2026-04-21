@@ -110,14 +110,45 @@ export async function runAgent(result: PipelineResult): Promise<AgentOutput> {
   const runtimeBotConfig = resolveRuntimeBotConfig(result)
   const stageCurrent = (conversation.labels ?? []).find((label) => label.startsWith('etapa_')) ?? null
 
+  // Busca appointment futuro para injetar no prompt
+  const hasActiveApptStatus = conversation.appointment_status === 'scheduled' || conversation.appointment_status === 'confirmed'
+  let upcomingAppointment: { id: string; start_at: string; end_at: string; status: string; title: string | null } | null = null
+  if (hasActiveApptStatus) {
+    const supabaseAppt = createAdminClient()
+    const { data: apptData } = await supabaseAppt
+      .from('appointments')
+      .select('id, start_at, end_at, status, title')
+      .eq('conversation_id', conversation.id)
+      .in('status', ['scheduled', 'confirmed'])
+      .gte('start_at', new Date().toISOString())
+      .order('start_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    upcomingAppointment = apptData ?? null
+  }
+
+  // Classifica contexto do paciente para guiar a IA
+  const labels = conversation.labels ?? []
+  let patientContext: 'new_patient' | 'returning_no_appointment' | 'has_future_appointment' | 'checking_existing'
+  if (upcomingAppointment) {
+    patientContext = 'has_future_appointment'
+  } else if (hasActiveApptStatus) {
+    patientContext = 'checking_existing'
+  } else {
+    const engaged = labels.some((label) => label.includes('qualificacao') || label.includes('agendando') || label.includes('atendimento'))
+    patientContext = engaged ? 'returning_no_appointment' : 'new_patient'
+  }
+
   const systemPrompt = buildSystemPrompt(runtimeBotConfig, contact.name ?? 'Paciente', {
     status: conversation.status,
-    labelsCurrent: conversation.labels ?? [],
+    labelsCurrent: labels,
     stageCurrent,
     followupCadenceCurrent: conversation.followup_cadence,
     appointmentStatus: conversation.appointment_status,
     lastIncomingAt: conversation.last_incoming_at,
     lastOutgoingAt: conversation.last_outgoing_at,
+    upcomingAppointment,
+    patientContext,
   }, {
     custom_data: contact.custom_data ?? null,
     intake_completed_at: contact.intake_completed_at ?? null,

@@ -330,8 +330,5 @@ function formatSlotLabel(start: Date, end: Date, language: string, timezone: str
     ? `${dayName}, ${month} ${day} · ${sh}:${sm}–${eh}:${em}`
     : `${dayName}, ${day}/${month} · ${sh}:${sm}–${eh}:${em}`
 
-  const startISO = toTzISO(start, timezone)
-  const endISO = toTzISO(end, timezone)
-
-  return `${timeStr} [${startISO}→${endISO}]`
+  return timeStr
 }
