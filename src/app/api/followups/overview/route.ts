@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
         contacts(name, phone_number)
       `)
       .eq('client_id', auth.client_id)
-      .neq('stage', 'resolved')
+      .or('stage.neq.resolved,stage.is.null')
       .limit(500)
 
     if (convError) throw convError

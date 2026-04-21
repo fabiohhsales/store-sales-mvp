@@ -14,6 +14,8 @@ export type ConversationEventType =
   | 'appointment_sync_error'
   | 'intake_updated'
   | 'followup_sent'
+  | 'followup_cancelled'
+  | 'followup_triggered_manual'
   | 'followup_blocked'
   | 'bot_paused'
   | 'bot_resumed'
