@@ -172,14 +172,22 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
   return sentCount
 }
 
-export async function runAgendadoCadencePipeline(): Promise<AgendadoCadenceSummary> {
+export async function runAgendadoCadencePipeline(
+  targetClientId?: string
+): Promise<AgendadoCadenceSummary> {
   const supabase = createAdminClient()
-  const { data: rows, error } = await supabase
+  let query = supabase
     .from('panel_bot_config')
     .select('*, panel_clients!inner(id, status), panel_whatsapp_config(*)')
     .eq('followup_enabled', true)
     .eq('panel_clients.status', 'active')
     .limit(200)
+
+  if (targetClientId) {
+    query = query.eq('client_id', targetClientId)
+  }
+
+  const { data: rows, error } = await query
 
   if (error) throw error
   if (!rows?.length) return { clients: 0, stepsSent: 0, skippedOutsideHours: false }

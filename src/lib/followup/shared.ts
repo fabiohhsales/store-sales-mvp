@@ -1,61 +1,168 @@
+import { sendTextMessage } from '@/lib/api/evolution'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type {
+  AgendadoFollowupStepConfig,
+  FollowupStepConfig,
+  PanelBotConfig,
+  PanelWhatsAppConfig,
+} from '@/types/database'
+
+export type CadenceType = 'lead' | 'atendimento' | 'agendado'
+
 // ---------------------------------------------------------------------------
-// Supressão de cadência: conversas bloqueadas para follow-up
+// Cadence suppression
 // ---------------------------------------------------------------------------
 
-/**
- * Retorna um Set de conversation_id com supressão ativa para a cadência e client_id informados.
- */
-export async function getSuppressedConversations(clientId: string, cadenceType: CadenceType): Promise<Set<string>> {
-  const supabase = createAdminClient();
+export async function getSuppressedConversations(
+  clientId: string,
+  cadenceType: CadenceType
+): Promise<Set<string>> {
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('followup_cadence_suppressions')
     .select('conversation_id')
     .eq('client_id', clientId)
     .eq('cadence_type', cadenceType)
-    .is('released_at', null);
-  if (error) throw error;
-  return new Set((data ?? []).map((row: { conversation_id: string }) => row.conversation_id));
-}
-// Shared follow-up utilities: dynamic step config resolution, unified message
-// dispatch (with Desk visibility + delivery tracking), circuit breaker, and
-// structured logging.
+    .is('released_at', null)
 
-import { createAdminClient } from '@/lib/supabase/admin'
-import { sendTextMessage } from '@/lib/api/evolution'
-import type {
-  PanelBotConfig,
-  PanelWhatsAppConfig,
-  FollowupStepConfig,
-  AgendadoFollowupStepConfig,
-} from '@/types/database'
+  if (error) throw error
+
+  return new Set(
+    (data ?? [])
+      .map((row: { conversation_id: string | null }) => row.conversation_id)
+      .filter(Boolean) as string[]
+  )
+}
 
 // ---------------------------------------------------------------------------
-// Default step definitions (frozen copies of the old hardcoded constants)
+// Default step definitions
 // ---------------------------------------------------------------------------
 
 const DEFAULT_LEAD_STEPS: FollowupStepConfig[] = [
-  { step_key: 'lead_D1', label: 'D+1', min_hours: 12, max_hours: 36, template: 'Ola {patient_name}, tudo bem? Posso te ajudar a concluir seu agendamento com {professional_name}?', enabled: true },
-  { step_key: 'lead_D2', label: 'D+2', min_hours: 36, max_hours: 60, template: 'Oi {patient_name}, sigo por aqui para ajudar no agendamento com {professional_name}. Quer que eu te sugira horarios?', enabled: true },
-  { step_key: 'lead_D3', label: 'D+3', min_hours: 60, max_hours: 84, template: 'Ola {patient_name}, passando para te lembrar que consigo te ajudar a marcar sua consulta quando preferir.', enabled: true },
-  { step_key: 'lead_D5', label: 'D+5', min_hours: 108, max_hours: 132, template: 'Oi {patient_name}, ainda quer seguir com o atendimento? Posso te enviar opcoes de horario.', enabled: true },
-  { step_key: 'lead_D7', label: 'D+7', min_hours: 156, max_hours: 180, template: 'Ola {patient_name}, este e meu ultimo lembrete. Se quiser, retomo seu agendamento agora mesmo.', enabled: true },
+  {
+    step_key: 'lead_D1',
+    label: 'D+1',
+    min_hours: 12,
+    max_hours: 36,
+    template:
+      'Ola {patient_name}, tudo bem? Posso te ajudar a concluir seu agendamento com {professional_name}?',
+    enabled: true,
+  },
+  {
+    step_key: 'lead_D2',
+    label: 'D+2',
+    min_hours: 36,
+    max_hours: 60,
+    template:
+      'Oi {patient_name}, sigo por aqui para ajudar no agendamento com {professional_name}. Quer que eu te sugira horarios?',
+    enabled: true,
+  },
+  {
+    step_key: 'lead_D3',
+    label: 'D+3',
+    min_hours: 60,
+    max_hours: 84,
+    template:
+      'Ola {patient_name}, passando para te lembrar que consigo te ajudar a marcar sua consulta quando preferir.',
+    enabled: true,
+  },
+  {
+    step_key: 'lead_D5',
+    label: 'D+5',
+    min_hours: 108,
+    max_hours: 132,
+    template:
+      'Oi {patient_name}, ainda quer seguir com o atendimento? Posso te enviar opcoes de horario.',
+    enabled: true,
+  },
+  {
+    step_key: 'lead_D7',
+    label: 'D+7',
+    min_hours: 156,
+    max_hours: 180,
+    template:
+      'Ola {patient_name}, este e meu ultimo lembrete. Se quiser, retomo seu agendamento agora mesmo.',
+    enabled: true,
+  },
 ]
 
 const DEFAULT_ATENDIMENTO_STEPS: FollowupStepConfig[] = [
-  { step_key: 'atendimento_D1', label: 'D+1', min_hours: 12, max_hours: 36, template: 'Ola {patient_name}, recebi sua mensagem! Estou verificando e ja te respondo. Obrigado pela paciencia.', enabled: true },
-  { step_key: 'atendimento_D2', label: 'D+2', min_hours: 36, max_hours: 60, template: 'Oi {patient_name}, desculpe a demora. Ainda estou cuidando da sua solicitacao. Posso te ajudar com algo mais?', enabled: true },
-  { step_key: 'atendimento_D4', label: 'D+4', min_hours: 84, max_hours: 108, template: 'Ola {patient_name}, passando para verificar se ainda precisa de ajuda. Estou a disposicao!', enabled: true },
-  { step_key: 'atendimento_D7', label: 'D+7', min_hours: 156, max_hours: 180, template: 'Oi {patient_name}, faz alguns dias que nao conseguimos dar sequencia. Quer que eu retome seu atendimento?', enabled: true },
-  { step_key: 'atendimento_D10', label: 'D+10', min_hours: 228, max_hours: 252, template: 'Ola {patient_name}, este e meu ultimo lembrete. Se precisar de algo, e so me chamar que retomo na hora.', enabled: true },
+  {
+    step_key: 'atendimento_D1',
+    label: 'D+1',
+    min_hours: 12,
+    max_hours: 36,
+    template:
+      'Ola {patient_name}, recebi sua mensagem! Estou verificando e ja te respondo. Obrigado pela paciencia.',
+    enabled: true,
+  },
+  {
+    step_key: 'atendimento_D2',
+    label: 'D+2',
+    min_hours: 36,
+    max_hours: 60,
+    template:
+      'Oi {patient_name}, desculpe a demora. Ainda estou cuidando da sua solicitacao. Posso te ajudar com algo mais?',
+    enabled: true,
+  },
+  {
+    step_key: 'atendimento_D4',
+    label: 'D+4',
+    min_hours: 84,
+    max_hours: 108,
+    template:
+      'Ola {patient_name}, passando para verificar se ainda precisa de ajuda. Estou a disposicao!',
+    enabled: true,
+  },
+  {
+    step_key: 'atendimento_D7',
+    label: 'D+7',
+    min_hours: 156,
+    max_hours: 180,
+    template:
+      'Oi {patient_name}, faz alguns dias que nao conseguimos dar sequencia. Quer que eu retome seu atendimento?',
+    enabled: true,
+  },
+  {
+    step_key: 'atendimento_D10',
+    label: 'D+10',
+    min_hours: 228,
+    max_hours: 252,
+    template:
+      'Ola {patient_name}, este e meu ultimo lembrete. Se precisar de algo, e so me chamar que retomo na hora.',
+    enabled: true,
+  },
 ]
 
 const DEFAULT_AGENDADO_STEPS: AgendadoFollowupStepConfig[] = [
-  { step_key: 'agendado_D-2_12h', label: 'D-2 (12h)', min_hours_before: 46, max_hours_before: 50, template: 'Ola {patient_name}! Sua consulta com {professional_name} esta marcada para {day_of_week}, {date} as {time}. Podemos confirmar sua presenca?', enabled: true },
-  { step_key: 'agendado_-3h', label: '-3h', min_hours_before: 2.5, max_hours_before: 3.5, template: 'Oi {patient_name}, lembrete: sua consulta com {professional_name} e hoje as {time}. Nos vemos em breve!', enabled: true },
-  { step_key: 'agendado_-5min', label: '-5min', min_hours_before: 0.05, max_hours_before: 0.12, template: 'Ola {patient_name}, sua consulta comeca em instantes! {meet_link}', enabled: true },
+  {
+    step_key: 'agendado_D-2_12h',
+    label: 'D-2 (12h)',
+    min_hours_before: 46,
+    max_hours_before: 50,
+    template:
+      'Ola {patient_name}! Sua consulta com {professional_name} esta marcada para {day_of_week}, {date} as {time}. Podemos confirmar sua presenca?',
+    enabled: true,
+  },
+  {
+    step_key: 'agendado_-3h',
+    label: '-3h',
+    min_hours_before: 2.5,
+    max_hours_before: 3.5,
+    template:
+      'Oi {patient_name}, lembrete: sua consulta com {professional_name} e hoje as {time}. Nos vemos em breve!',
+    enabled: true,
+  },
+  {
+    step_key: 'agendado_-5min',
+    label: '-5min',
+    min_hours_before: 0.05,
+    max_hours_before: 0.12,
+    template: 'Ola {patient_name}, sua consulta comeca em instantes! {meet_link}',
+    enabled: true,
+  },
 ]
 
-// Legacy template field mapping for fallback when JSONB is null.
 const LEGACY_LEAD_FIELDS: Record<string, keyof PanelBotConfig> = {
   lead_D1: 'lead_followup_msg_d1',
   lead_D2: 'lead_followup_msg_d2',
@@ -78,14 +185,11 @@ const LEGACY_AGENDADO_FIELDS: Record<string, keyof PanelBotConfig> = {
   'agendado_-5min': 'agendado_followup_msg_minus5min',
 }
 
-// ---------------------------------------------------------------------------
-// resolveStepConfig — reads JSONB or falls back to legacy + hardcoded defaults
-// ---------------------------------------------------------------------------
-
 export function resolveLeadSteps(config: PanelBotConfig): FollowupStepConfig[] {
   if (Array.isArray(config.lead_followup_steps) && config.lead_followup_steps.length > 0) {
-    return config.lead_followup_steps.filter((s) => s.enabled)
+    return config.lead_followup_steps.filter((step) => step.enabled)
   }
+
   return DEFAULT_LEAD_STEPS.map((step) => {
     const legacyField = LEGACY_LEAD_FIELDS[step.step_key]
     const legacyTemplate = legacyField ? (config[legacyField] as string | null) : null
@@ -95,8 +199,9 @@ export function resolveLeadSteps(config: PanelBotConfig): FollowupStepConfig[] {
 
 export function resolveAtendimentoSteps(config: PanelBotConfig): FollowupStepConfig[] {
   if (Array.isArray(config.atendimento_followup_steps) && config.atendimento_followup_steps.length > 0) {
-    return config.atendimento_followup_steps.filter((s) => s.enabled)
+    return config.atendimento_followup_steps.filter((step) => step.enabled)
   }
+
   return DEFAULT_ATENDIMENTO_STEPS.map((step) => {
     const legacyField = LEGACY_ATENDIMENTO_FIELDS[step.step_key]
     const legacyTemplate = legacyField ? (config[legacyField] as string | null) : null
@@ -106,8 +211,9 @@ export function resolveAtendimentoSteps(config: PanelBotConfig): FollowupStepCon
 
 export function resolveAgendadoSteps(config: PanelBotConfig): AgendadoFollowupStepConfig[] {
   if (Array.isArray(config.agendado_followup_steps) && config.agendado_followup_steps.length > 0) {
-    return config.agendado_followup_steps.filter((s) => s.enabled)
+    return config.agendado_followup_steps.filter((step) => step.enabled)
   }
+
   return DEFAULT_AGENDADO_STEPS.map((step) => {
     const legacyField = LEGACY_AGENDADO_FIELDS[step.step_key]
     const legacyTemplate = legacyField ? (config[legacyField] as string | null) : null
@@ -115,11 +221,10 @@ export function resolveAgendadoSteps(config: PanelBotConfig): AgendadoFollowupSt
   })
 }
 
-// Re-export defaults for use by the config UI when building initial state.
 export { DEFAULT_LEAD_STEPS, DEFAULT_ATENDIMENTO_STEPS, DEFAULT_AGENDADO_STEPS }
 
 // ---------------------------------------------------------------------------
-// Template rendering
+// Templates
 // ---------------------------------------------------------------------------
 
 export function renderTemplate(template: string, vars: Record<string, string>): string {
@@ -127,15 +232,13 @@ export function renderTemplate(template: string, vars: Record<string, string>): 
 }
 
 // ---------------------------------------------------------------------------
-// Unified follow-up message dispatch
+// Dispatch
 // ---------------------------------------------------------------------------
-
-export type CadenceType = 'lead' | 'atendimento' | 'agendado'
 
 export interface SendFollowupParams {
   clientId: string
   conversationId: string
-  contactId: string
+  contactId: string | null
   recipient: string
   instanceName: string
   cadenceType: CadenceType
@@ -143,14 +246,18 @@ export interface SendFollowupParams {
   message: string
 }
 
-/**
- * Sends a follow-up message via Evolution, inserts into `messages` (Desk visibility),
- * logs to `followup_logs` and `followup_cadence_steps` (idempotency), and updates
- * the conversation's followup state.
- *
- * Returns true if the message was sent (new step). Returns false if the step was
- * already sent (idempotency duplicate). Throws on API or DB errors.
- */
+export interface SendOperationalFollowupParams {
+  clientId: string
+  conversationId: string
+  contactId: string | null
+  recipient: string
+  instanceName: string
+  cadenceType: CadenceType
+  message: string
+  stepKey?: string | null
+  logStepName?: string
+}
+
 export async function sendFollowupMessage(params: SendFollowupParams): Promise<boolean> {
   const {
     clientId,
@@ -166,7 +273,6 @@ export async function sendFollowupMessage(params: SendFollowupParams): Promise<b
   const supabase = createAdminClient()
   const sentAt = new Date().toISOString()
 
-  // 1. Idempotency guard
   const { data: insertedStep, error: insertError } = await supabase
     .from('followup_cadence_steps')
     .upsert(
@@ -183,13 +289,11 @@ export async function sendFollowupMessage(params: SendFollowupParams): Promise<b
     .maybeSingle()
 
   if (insertError) throw insertError
-  if (!insertedStep?.id) return false // Already sent
+  if (!insertedStep?.id) return false
 
   try {
-    // 2. Send via Evolution API
     const evolutionMessageId = await sendTextMessage(instanceName, recipient, message)
 
-    // 3. Update idempotency record with evolution_message_id
     if (evolutionMessageId) {
       await supabase
         .from('followup_cadence_steps')
@@ -197,7 +301,6 @@ export async function sendFollowupMessage(params: SendFollowupParams): Promise<b
         .eq('id', insertedStep.id)
     }
 
-    // 4. Insert into messages table (Desk visibility + delivery tracking)
     await supabase.from('messages').insert({
       id: crypto.randomUUID(),
       conversation_id: conversationId,
@@ -210,7 +313,6 @@ export async function sendFollowupMessage(params: SendFollowupParams): Promise<b
       created_at: sentAt,
     })
 
-    // 5. Audit log
     await supabase.from('followup_logs').insert({
       id: crypto.randomUUID(),
       conversation_id: conversationId,
@@ -222,25 +324,102 @@ export async function sendFollowupMessage(params: SendFollowupParams): Promise<b
       evolution_message_id: evolutionMessageId,
     })
 
-    // 6. Update conversation
     await supabase
       .from('conversations')
       .update({
         followup_cadence: cadenceType,
         last_followup_at: sentAt,
+        last_outgoing_at: sentAt,
+        last_outgoing_by: 'ai',
       })
       .eq('id', conversationId)
 
     return true
   } catch (error) {
-    // Remove idempotency reservation to allow retry on next cron cycle
     await supabase.from('followup_cadence_steps').delete().eq('id', insertedStep.id)
     throw error
   }
 }
 
+export async function sendOperationalFollowupMessage(
+  params: SendOperationalFollowupParams
+): Promise<{ evolutionMessageId: string | null; sentAt: string }> {
+  const {
+    clientId,
+    conversationId,
+    contactId,
+    recipient,
+    instanceName,
+    cadenceType,
+    message,
+    stepKey = null,
+    logStepName = 'manual_send',
+  } = params
+
+  const supabase = createAdminClient()
+  const sentAt = new Date().toISOString()
+  const evolutionMessageId = await sendTextMessage(instanceName, recipient, message)
+
+  if (stepKey) {
+    const { error: stepError } = await supabase
+      .from('followup_cadence_steps')
+      .upsert(
+        {
+          conversation_id: conversationId,
+          cadence_type: cadenceType,
+          step_key: stepKey,
+          message_sent: message,
+          sent_at: sentAt,
+          evolution_message_id: evolutionMessageId,
+        },
+        { onConflict: 'conversation_id,cadence_type,step_key', ignoreDuplicates: true }
+      )
+
+    if (stepError) throw stepError
+  }
+
+  const [{ error: messageError }, { error: logError }, { error: conversationError }] = await Promise.all([
+    supabase.from('messages').insert({
+      id: crypto.randomUUID(),
+      conversation_id: conversationId,
+      client_id: clientId,
+      content: message,
+      content_type: 'text',
+      sender_type: 'agent_bot',
+      from_who: 'followup',
+      evolution_message_id: evolutionMessageId,
+      created_at: sentAt,
+    }),
+    supabase.from('followup_logs').insert({
+      id: crypto.randomUUID(),
+      conversation_id: conversationId,
+      contact_id: contactId,
+      workflow_name: 'panel_followup',
+      step_name: logStepName,
+      message_sent: message,
+      sent_at: sentAt,
+      evolution_message_id: evolutionMessageId,
+    }),
+    supabase
+      .from('conversations')
+      .update({
+        followup_cadence: cadenceType,
+        last_followup_at: sentAt,
+        last_outgoing_at: sentAt,
+        last_outgoing_by: 'ai',
+      })
+      .eq('id', conversationId),
+  ])
+
+  if (messageError) throw messageError
+  if (logError) throw logError
+  if (conversationError) throw conversationError
+
+  return { evolutionMessageId, sentAt }
+}
+
 // ---------------------------------------------------------------------------
-// Circuit breaker (in-memory, per cron cycle)
+// Circuit breaker
 // ---------------------------------------------------------------------------
 
 export class FollowupCircuitBreaker {
@@ -276,7 +455,7 @@ export class FollowupCircuitBreaker {
       client_id: clientId,
       cadence_type: 'all',
       alert_type: 'circuit_breaker',
-      message: `Evolution API: ${this.threshold} falhas consecutivas — follow-ups pausados para este cliente neste ciclo.`,
+      message: `Evolution API: ${this.threshold} falhas consecutivas - follow-ups pausados para este cliente neste ciclo.`,
       details: { threshold: this.threshold },
     })
   }
@@ -301,20 +480,16 @@ export function logFollowupEvent(
 // ---------------------------------------------------------------------------
 
 export function isWhatsAppConnected(whatsappConfig: PanelWhatsAppConfig): boolean {
-  return (
-    !!whatsappConfig.evolution_instance_name &&
-    whatsappConfig.connection_status === 'open'
-  )
+  return !!whatsappConfig.evolution_instance_name && whatsappConfig.connection_status === 'open'
 }
 
 // ---------------------------------------------------------------------------
-// Reconciliation: fix orphaned steps where Evolution sent but messages INSERT failed
+// Reconciliation: repair orphaned follow-up steps
 // ---------------------------------------------------------------------------
 
 export async function reconcileOrphanedSteps(): Promise<number> {
   const supabase = createAdminClient()
 
-  // Find steps that have evolution_message_id but no matching row in messages
   const { data: orphans, error } = await supabase
     .from('followup_cadence_steps')
     .select('id, conversation_id, cadence_type, step_key, message_sent, sent_at, evolution_message_id')
@@ -326,16 +501,14 @@ export async function reconcileOrphanedSteps(): Promise<number> {
   let reconciled = 0
 
   for (const step of orphans) {
-    // Check if a matching message already exists
     const { data: existing } = await supabase
       .from('messages')
       .select('id')
       .eq('evolution_message_id', step.evolution_message_id!)
       .maybeSingle()
 
-    if (existing) continue // Message exists, not orphaned
+    if (existing) continue
 
-    // Also check by conversation_id + from_who + approximate time (within 5 seconds)
     const sentAt = new Date(step.sent_at).getTime()
     const { data: nearMatch } = await supabase
       .from('messages')
@@ -346,16 +519,14 @@ export async function reconcileOrphanedSteps(): Promise<number> {
       .lte('created_at', new Date(sentAt + 5000).toISOString())
       .maybeSingle()
 
-    if (nearMatch) continue // Close enough match exists
+    if (nearMatch) continue
 
-    // Resolve client_id from conversation
     const { data: conv } = await supabase
       .from('conversations')
       .select('client_id')
       .eq('id', step.conversation_id)
       .maybeSingle()
 
-    // Re-insert the missing message
     const { error: insertError } = await supabase.from('messages').insert({
       id: crypto.randomUUID(),
       conversation_id: step.conversation_id,
@@ -370,7 +541,9 @@ export async function reconcileOrphanedSteps(): Promise<number> {
 
     if (!insertError) {
       reconciled++
-      console.log(`[followup/reconcile] Repaired orphaned step ${step.id} (conv=${step.conversation_id}, step=${step.step_key})`)
+      console.log(
+        `[followup/reconcile] Repaired orphaned step ${step.id} (conv=${step.conversation_id}, step=${step.step_key})`
+      )
     } else {
       console.error(`[followup/reconcile] Failed to repair step ${step.id}:`, insertError.message)
     }
