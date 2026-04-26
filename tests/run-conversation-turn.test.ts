@@ -211,7 +211,13 @@ describe('runConversationBotTurn', () => {
       handoff: { needs_human: false, reason: null },
       actions: {
         agenda_check: { should_check: false, time_window_hint: null },
-        agenda_create: { should_create: false, start_iso: null, end_iso: null, title: null, selected_slot_index: null },
+        agenda_create: {
+          should_create: false,
+          start_iso: null,
+          end_iso: null,
+          title: null,
+          selected_slot_index: null,
+        },
         agenda_update: { should_update: false, google_event_id: null },
       },
       debug: { detected_intent: 'triagem', stage_current: 'etapa_triagem', notes: null },

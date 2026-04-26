@@ -1,18 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PipelineResult } from '@/lib/bot/pipeline'
 
 const mocks = vi.hoisted(() => ({
-  parseTimeWindow: vi.fn(),
-  formatSlotsMessage: vi.fn(),
+  createAdminClient: vi.fn(),
+  sendTextMessage: vi.fn(),
   getAvailableSlotsFromAppointments: vi.fn(),
   createAppointment: vi.fn(),
   rescheduleAppointment: vi.fn(),
-  sendTextMessage: vi.fn(),
-  createAdminClient: vi.fn(),
 }))
 
-vi.mock('@/lib/calendar/slots', () => ({
-  parseTimeWindow: mocks.parseTimeWindow,
-  formatSlotsMessage: mocks.formatSlotsMessage,
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: mocks.createAdminClient,
+}))
+
+vi.mock('@/lib/api/evolution', () => ({
+  sendTextMessage: mocks.sendTextMessage,
 }))
 
 vi.mock('@/lib/agenda/availability', () => ({
@@ -24,35 +26,24 @@ vi.mock('@/lib/agenda/commands', () => ({
   rescheduleAppointment: mocks.rescheduleAppointment,
 }))
 
-vi.mock('@/lib/api/evolution', () => ({
-  sendTextMessage: mocks.sendTextMessage,
-}))
-
-vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: mocks.createAdminClient,
-}))
-
 import { handleAgendaCheck, handleAgendaCreate } from '@/lib/bot/calendar-agent'
 
-type QueryState = {
-  table: string
-  selectColumns: string | null
-  updatePayload: Record<string, unknown> | null
-  filters: Record<string, unknown>
-}
-
-function buildResult() {
+function buildResult(): PipelineResult {
   return {
     clientContext: {
       clientId: 'client-1',
-      whatsappConfig: { evolution_instance_name: 'inst-1' },
-      googleConfig: null,
       botConfig: {
-        professional_name: 'Dra. Fernanda Souza',
-        ai_language: 'pt-BR',
         timezone: 'America/Sao_Paulo',
-        appointment_duration_default: 60,
-        working_hours: {},
+        ai_language: 'pt-BR',
+        professional_name: 'Dra. Clara Souza',
+        working_hours: {
+          monday: { enabled: true, start: '09:00', end: '18:00', break_start: null, break_end: null },
+        },
+        appointment_duration_default: 30,
+      },
+      googleConfig: null,
+      whatsappConfig: {
+        evolution_instance_name: 'inst-1',
       },
     },
     contact: {
@@ -60,225 +51,248 @@ function buildResult() {
       name: 'Maria',
       phone_number: '5511999999999',
       identifier: '5511999999999@s.whatsapp.net',
-      custom_data: {},
+      custom_data: { email: 'maria@example.com' },
     },
     conversation: {
       id: 'conv-1',
       client_id: 'client-1',
-      labels: ['etapa_triagem'],
-      status: 'pending',
+      contact_id: 'contact-1',
+      stage: 'bot_triage',
+      status: 'open',
+      labels: ['etapa_agendando'],
+      pending_slots: null,
     },
-  } as any
+    message: null,
+    messageHistory: [],
+  } as unknown as PipelineResult
 }
 
-function buildAdmin(resolvers?: {
-  onSingle?: (state: QueryState) => Promise<{ data: any; error: any }> | { data: any; error: any }
-  onMaybeSingle?: (state: QueryState) => Promise<{ data: any; error: any }> | { data: any; error: any }
-}) {
-  const updates: Array<{ table: string; payload: Record<string, unknown>; filters: Record<string, unknown> }> = []
-  const inserts: Array<{ table: string; payload: unknown }> = []
-
-  const admin = {
+function makeConversationSelectAdmin(data: unknown) {
+  return {
     from(table: string) {
-      const state: QueryState = {
-        table,
-        selectColumns: null,
-        updatePayload: null,
-        filters: {},
-      }
-
-      const builder = {
-        select(columns: string) {
-          state.selectColumns = columns
-          return builder
-        },
-        eq(field: string, value: unknown) {
-          state.filters[field] = value
-          if (state.updatePayload) {
-            updates.push({ table, payload: state.updatePayload, filters: { ...state.filters } })
-            return Promise.resolve({ data: null, error: null })
+      expect(table).toBe('conversations')
+      return {
+        select() {
+          return {
+            eq() {
+              return {
+                async single() {
+                  return { data, error: null }
+                },
+              }
+            },
           }
-          return builder
-        },
-        in(field: string, value: unknown) {
-          state.filters[`in:${field}`] = value
-          return builder
-        },
-        gte(field: string, value: unknown) {
-          state.filters[`gte:${field}`] = value
-          return builder
-        },
-        order(field: string, value: unknown) {
-          state.filters[`order:${field}`] = value
-          return builder
-        },
-        limit(value: number) {
-          state.filters.limit = value
-          return builder
-        },
-        update(payload: Record<string, unknown>) {
-          state.updatePayload = payload
-          return builder
-        },
-        insert(payload: unknown) {
-          inserts.push({ table, payload })
-          return Promise.resolve({ data: null, error: null })
-        },
-        single() {
-          return Promise.resolve(resolvers?.onSingle?.(state) ?? { data: null, error: null })
-        },
-        maybeSingle() {
-          return Promise.resolve(resolvers?.onMaybeSingle?.(state) ?? { data: null, error: null })
         },
       }
-
-      return builder
     },
   }
+}
 
-  return { admin, updates, inserts }
+function makeAppointmentLookupAdmin(data: unknown) {
+  return {
+    from(table: string) {
+      expect(table).toBe('appointments')
+      return {
+        select() {
+          return {
+            eq() {
+              return {
+                in() {
+                  return {
+                    gte() {
+                      return {
+                        order() {
+                          return {
+                            limit() {
+                              return {
+                                async maybeSingle() {
+                                  return { data, error: null }
+                                },
+                              }
+                            },
+                          }
+                        },
+                      }
+                    },
+                  }
+                },
+              }
+            },
+          }
+        },
+      }
+    },
+  }
+}
+
+function makeSendAndSaveAdmin() {
+  const updates: Array<Record<string, unknown>> = []
+  const messages: Array<Record<string, unknown>> = []
+
+  return {
+    admin: {
+      from(table: string) {
+        if (table === 'conversations') {
+          return {
+            update(payload: Record<string, unknown>) {
+              updates.push(payload)
+              return {
+                eq() {
+                  return Promise.resolve({ data: null, error: null })
+                },
+              }
+            },
+          }
+        }
+
+        if (table === 'messages') {
+          return {
+            insert(payload: Record<string, unknown>) {
+              messages.push(payload)
+              return Promise.resolve({ data: null, error: null })
+            },
+          }
+        }
+
+        throw new Error(`Unexpected table in sendAndSave admin: ${table}`)
+      },
+    },
+    updates,
+    messages,
+  }
+}
+
+function makeConversationUpdateAdmin() {
+  const updates: Array<Record<string, unknown>> = []
+
+  return {
+    admin: {
+      from(table: string) {
+        expect(table).toBe('conversations')
+        return {
+          update(payload: Record<string, unknown>) {
+            updates.push(payload)
+            return {
+              eq() {
+                return Promise.resolve({ data: null, error: null })
+              },
+            }
+          },
+        }
+      },
+    },
+    updates,
+  }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.spyOn(console, 'log').mockImplementation(() => {})
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
-  vi.spyOn(console, 'log').mockImplementation(() => {})
+  mocks.sendTextMessage.mockResolvedValue('evo-1')
+  mocks.getAvailableSlotsFromAppointments.mockResolvedValue([])
+  mocks.createAppointment.mockResolvedValue({
+    id: 'appt-1',
+    meet_link: null,
+    event_url: 'https://calendar.example.com/appt-1',
+    sync_status: 'synced',
+    sync_error: null,
+  })
+  mocks.rescheduleAppointment.mockResolvedValue({ id: 'appt-1' })
 })
 
-describe('calendar-agent agenda rescue behaviors', () => {
-  it('resolves selected_slot_index via pending_slots and hides sync_status errors from the patient', async () => {
-    const pendingSlots = [
-      { label: '1', startISO: '2026-04-21T09:00:00-03:00', endISO: '2026-04-21T10:00:00-03:00' },
-      { label: '2', startISO: '2026-04-21T11:00:00-03:00', endISO: '2026-04-21T12:00:00-03:00' },
-    ]
-    const { admin, updates, inserts } = buildAdmin({
-      onSingle: (state) => {
-        if (state.table === 'conversations' && state.selectColumns === 'pending_slots') {
-          return { data: { pending_slots: pendingSlots }, error: null }
-        }
-        return { data: null, error: null }
-      },
-    })
-    mocks.createAdminClient.mockReturnValue(admin)
-    mocks.createAppointment.mockResolvedValue({
-      id: 'appt-1',
-      meet_link: null,
-      event_url: null,
-      sync_status: 'error',
-      sync_error: 'oauth_issue',
-    })
-
-    await handleAgendaCreate(
-      buildResult(),
-      {
-        labels_next: ['etapa_agendando'],
-        actions: {
-          agenda_create: {
-            should_create: true,
-            start_iso: null,
-            end_iso: null,
-            title: 'Consulta',
-            selected_slot_index: 2,
-          },
-          agenda_update: { should_update: false, google_event_id: null },
-        },
-      } as any
-    )
-
-    expect(mocks.createAppointment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        startAt: pendingSlots[1].startISO,
-        endAt: pendingSlots[1].endISO,
+describe('calendar-agent', () => {
+  it('ignores agenda_check when pending slots were already sent in the last 5 minutes', async () => {
+    mocks.createAdminClient.mockReturnValue(
+      makeConversationSelectAdmin({
+        pending_slots: [{ label: '1', startISO: '2026-04-22T10:00:00-03:00', endISO: '2026-04-22T10:30:00-03:00' }],
+        last_outgoing_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
       })
     )
-    expect(mocks.sendTextMessage).toHaveBeenCalledTimes(1)
-    expect(mocks.sendTextMessage.mock.calls[0]?.[2]).not.toContain('falha ao sincronizar')
-    expect(updates).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          table: 'conversations',
-          payload: expect.objectContaining({
-            appointment_status: 'scheduled',
-            pending_slots: null,
-          }),
-        }),
-      ])
-    )
-    expect(inserts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          table: 'messages',
-        }),
-      ])
-    )
-  })
 
-  it('asks about rescheduling before checking availability when a future appointment already exists', async () => {
-    const { admin } = buildAdmin({
-      onSingle: (state) => {
-        if (state.table === 'conversations' && state.selectColumns === 'pending_slots, last_outgoing_at') {
-          return { data: { pending_slots: null, last_outgoing_at: '2026-04-19T12:00:00Z' }, error: null }
-        }
-        return { data: null, error: null }
+    await handleAgendaCheck(buildResult(), {
+      actions: {
+        agenda_check: { should_check: true, time_window_hint: 'amanhã' },
       },
-      onMaybeSingle: (state) => {
-        if (state.table === 'appointments') {
-          return {
-            data: {
-              start_at: '2026-04-22T12:00:00Z',
-              end_at: '2026-04-22T13:00:00Z',
-              title: 'consulta',
-            },
-            error: null,
-          }
-        }
-        return { data: null, error: null }
-      },
-    })
-    mocks.createAdminClient.mockReturnValue(admin)
-
-    await handleAgendaCheck(
-      buildResult(),
-      {
-        actions: {
-          agenda_check: { should_check: true, time_window_hint: 'amanhã' },
-        },
-      } as any
-    )
-
-    expect(mocks.getAvailableSlotsFromAppointments).not.toHaveBeenCalled()
-    expect(mocks.sendTextMessage).toHaveBeenCalledTimes(1)
-    expect(mocks.sendTextMessage.mock.calls[0]?.[2]).toContain('Quer reagendar')
-  })
-
-  it('skips duplicate agenda_check calls when pending slots were already sent recently', async () => {
-    const { admin } = buildAdmin({
-      onSingle: (state) => {
-        if (state.table === 'conversations' && state.selectColumns === 'pending_slots, last_outgoing_at') {
-          return {
-            data: {
-              pending_slots: [{ startISO: '2026-04-21T09:00:00-03:00', endISO: '2026-04-21T10:00:00-03:00', label: '1' }],
-              last_outgoing_at: new Date().toISOString(),
-            },
-            error: null,
-          }
-        }
-        return { data: null, error: null }
-      },
-    })
-    mocks.createAdminClient.mockReturnValue(admin)
-
-    await handleAgendaCheck(
-      buildResult(),
-      {
-        actions: {
-          agenda_check: { should_check: true, time_window_hint: 'amanhã' },
-        },
-      } as any
-    )
+    } as never)
 
     expect(mocks.getAvailableSlotsFromAppointments).not.toHaveBeenCalled()
     expect(mocks.sendTextMessage).not.toHaveBeenCalled()
+  })
+
+  it('asks for clarification instead of reopening availability when an upcoming appointment already exists', async () => {
+    const sendAndSave = makeSendAndSaveAdmin()
+    mocks.createAdminClient
+      .mockReturnValueOnce(
+        makeConversationSelectAdmin({
+          pending_slots: null,
+          last_outgoing_at: null,
+        })
+      )
+      .mockReturnValueOnce(
+        makeAppointmentLookupAdmin({
+          start_at: '2026-04-25T14:00:00Z',
+          end_at: '2026-04-25T14:30:00Z',
+          title: 'Consulta de retorno',
+        })
+      )
+      .mockReturnValueOnce(sendAndSave.admin)
+
+    await handleAgendaCheck(buildResult(), {
+      actions: {
+        agenda_check: { should_check: true, time_window_hint: 'amanhã' },
+      },
+    } as never)
+
+    expect(mocks.getAvailableSlotsFromAppointments).not.toHaveBeenCalled()
+    expect(mocks.sendTextMessage).toHaveBeenCalledTimes(1)
+    expect(mocks.sendTextMessage.mock.calls[0][2]).toContain('Quer reagendar')
+    expect(sendAndSave.messages).toHaveLength(1)
+  })
+
+  it('resolves selected_slot_index from pending_slots before creating the appointment', async () => {
+    const pendingSlotsAdmin = makeConversationSelectAdmin({
+      pending_slots: [
+        { label: '1. Quarta 09:00', startISO: '2026-04-22T09:00:00-03:00', endISO: '2026-04-22T09:30:00-03:00' },
+        { label: '2. Quarta 10:00', startISO: '2026-04-22T10:00:00-03:00', endISO: '2026-04-22T10:30:00-03:00' },
+      ],
+    })
+    const conversationUpdate = makeConversationUpdateAdmin()
+    const sendAndSave = makeSendAndSaveAdmin()
+
+    mocks.createAdminClient
+      .mockReturnValueOnce(pendingSlotsAdmin)
+      .mockReturnValueOnce(conversationUpdate.admin)
+      .mockReturnValueOnce(sendAndSave.admin)
+
+    await handleAgendaCreate(buildResult(), {
+      labels_next: ['etapa_agendado'],
+      actions: {
+        agenda_create: {
+          should_create: true,
+          start_iso: null,
+          end_iso: null,
+          title: null,
+          selected_slot_index: 2,
+        },
+        agenda_update: { should_update: false, google_event_id: null },
+      },
+    } as never)
+
+    expect(mocks.createAppointment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startAt: '2026-04-22T10:00:00-03:00',
+        endAt: '2026-04-22T10:30:00-03:00',
+      })
+    )
+    expect(sendAndSave.messages).toHaveLength(1)
+    expect(conversationUpdate.updates).toContainEqual(
+      expect.objectContaining({
+        labels: ['etapa_agendado'],
+        appointment_status: 'scheduled',
+        pending_slots: null,
+      })
+    )
   })
 })

@@ -239,6 +239,26 @@ export function buildSystemPrompt(
   }
   const patientContextLine = PATIENT_CONTEXT_DESCRIPTIONS[context?.patientContext ?? ''] ?? ''
 
+  const timezone = config.timezone ?? 'America/Sao_Paulo'
+  const upcomingApptLine = context?.upcomingAppointment
+    ? (() => {
+        const appt = context.upcomingAppointment!
+        const formatted = new Date(appt.start_at).toLocaleString(
+          lang.startsWith('pt') ? 'pt-BR' : 'en-US',
+          { timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }
+        )
+        return `${appt.title ?? 'Consulta'} em ${formatted} (status: ${appt.status}, id: ${appt.id})`
+      })()
+    : 'none'
+
+  const PATIENT_CONTEXT_DESCRIPTIONS: Record<string, string> = {
+    new_patient: 'First contact. Guide them through the scheduling process.',
+    returning_no_appointment: 'Returning patient with no upcoming appointment. They may want to book a new one.',
+    has_future_appointment: 'Patient already has an upcoming appointment (see upcoming_appointment above). If they ask about scheduling, FIRST acknowledge their existing appointment and ask if they want to reschedule or if this is an additional one. Do NOT jump straight to showing available slots.',
+    checking_existing: 'Patient may have had a past appointment. Appointment status is scheduled but no future appointment was found — clarify what they need.',
+  }
+  const patientContextLine = PATIENT_CONTEXT_DESCRIPTIONS[context?.patientContext ?? ''] ?? ''
+
   // Use only the first name to avoid the model confusing the patient's company with the clinic
   const patientFirstName = contactName.split(' ')[0]
 

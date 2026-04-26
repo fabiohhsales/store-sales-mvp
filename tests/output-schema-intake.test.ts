@@ -60,4 +60,31 @@ describe('output-schema intake_save coercion', () => {
     const out = safeParseAgentOutput(buildRaw({ age: [1, 2] }))
     expect(out).toBe(fallbackOutput)
   })
+
+  it('preserves selected_slot_index in agenda_create when provided by the model', () => {
+    const out = safeParseAgentOutput(
+      JSON.stringify({
+        reply: null,
+        intake_save: null,
+        status_next: 'open',
+        labels_next: ['etapa_agendando'],
+        classification: { intent: 'agendamento', stage: 'etapa_agendando', status: 'open' },
+        handoff: { needs_human: false, reason: null },
+        actions: {
+          agenda_check: { should_check: false, time_window_hint: null },
+          agenda_create: {
+            should_create: true,
+            start_iso: null,
+            end_iso: null,
+            title: null,
+            selected_slot_index: 2,
+          },
+          agenda_update: { should_update: false, google_event_id: null },
+        },
+        debug: { detected_intent: 'agendamento', stage_current: 'etapa_agendando', notes: null },
+      })
+    )
+
+    expect(out.actions.agenda_create.selected_slot_index).toBe(2)
+  })
 })
