@@ -38,29 +38,71 @@ function resolveReplyReason(result: PipelineResult, output: AgentOutput): string
   return null
 }
 
-function buildMultimodalFallbackOutput(result: PipelineResult): AgentOutput {
-  const stageLabel = result.conversation.labels?.find((label) => label.startsWith('etapa_')) ?? 'etapa_triagem'
+type MultimodalDecision = 'ask_resend' | 'ask_explanation' | 'handoff'
 
+function resolveMultimodalDecision(processingError: string | null | undefined): MultimodalDecision {
+  switch (processingError) {
+    case 'audio_source_truncated':
+    case 'transcription_empty':
+    case 'media_download_failed':
+    case 'missing_ai_input_text':
+      return 'ask_resend'
+    case 'vision_empty':
+    case 'vision_processing_failed':
+      return 'ask_explanation'
+    default:
+      return 'handoff'
+  }
+}
+
+function buildMultimodalBaseOutput(result: PipelineResult) {
+  const stageLabel = result.conversation.labels?.find((label) => label.startsWith('etapa_')) ?? 'etapa_triagem'
   return {
-    ...fallbackOutput,
-    reply:
-      'Recebi sua mídia, mas não consegui interpretá-la com segurança. Vou te encaminhar para nossa equipe para continuar o atendimento.',
-    status_next: 'open',
-    labels_next: [stageLabel, ...((result.conversation.labels ?? []).filter((label) => !label.startsWith('etapa_')))],
-    classification: {
-      intent: fallbackOutput.classification.intent,
-      stage: stageLabel,
-      status: 'open',
+    stageLabel,
+    base: {
+      ...fallbackOutput,
+      status_next: 'open' as const,
+      labels_next: [stageLabel, ...((result.conversation.labels ?? []).filter((label) => !label.startsWith('etapa_')))],
+      classification: {
+        intent: fallbackOutput.classification.intent,
+        stage: stageLabel,
+        status: 'open' as const,
+      },
+      debug: {
+        ...fallbackOutput.debug,
+        stage_current: stageLabel,
+      },
     },
-    handoff: {
-      needs_human: true,
-      reason: 'multimodal_processing_failed',
-    },
-    debug: {
-      ...fallbackOutput.debug,
-      stage_current: stageLabel,
-      notes: 'multimodal_processing_failed',
-    },
+  }
+}
+
+function buildMultimodalAskResendOutput(result: PipelineResult): AgentOutput {
+  const { base } = buildMultimodalBaseOutput(result)
+  return {
+    ...base,
+    reply: 'Recebi seu áudio, mas ele chegou incompleto por aqui. Pode me mandar de novo ou escrever rapidinho o que precisa?',
+    handoff: { needs_human: false, reason: null },
+    debug: { ...base.debug, notes: 'multimodal_ask_resend' },
+  }
+}
+
+function buildMultimodalAskExplanationOutput(result: PipelineResult): AgentOutput {
+  const { base } = buildMultimodalBaseOutput(result)
+  return {
+    ...base,
+    reply: 'Recebi a imagem, mas não consegui analisar com segurança. Pode me explicar rapidinho o que devo observar nela?',
+    handoff: { needs_human: false, reason: null },
+    debug: { ...base.debug, notes: 'multimodal_ask_explanation' },
+  }
+}
+
+function buildMultimodalHandoffOutput(result: PipelineResult): AgentOutput {
+  const { base } = buildMultimodalBaseOutput(result)
+  return {
+    ...base,
+    reply: 'Não consegui interpretar a mídia por aqui com segurança. Vou deixar nossa equipe assumir para não te passar uma informação errada.',
+    handoff: { needs_human: true, reason: 'multimodal_processing_failed' },
+    debug: { ...base.debug, notes: 'multimodal_processing_failed' },
   }
 }
 
@@ -125,12 +167,21 @@ export async function runConversationBotTurn(result: PipelineResult): Promise<Bo
         'warn'
       )
 
-      await dispatch(freshResult, buildMultimodalFallbackOutput(freshResult))
+      // processingError ?? 'missing_ai_input_text' garante que mensagens sem erro
+      // explícito (áudio ainda em processamento, sem texto derivado) peçam reenvio
+      // em vez de disparar handoff imediato.
+      const decision = resolveMultimodalDecision(latestLeadMessage.processing_error ?? 'missing_ai_input_text')
+      const recoveryOutput =
+        decision === 'ask_resend' ? buildMultimodalAskResendOutput(freshResult)
+        : decision === 'ask_explanation' ? buildMultimodalAskExplanationOutput(freshResult)
+        : buildMultimodalHandoffOutput(freshResult)
+
+      await dispatch(freshResult, recoveryOutput)
 
       return {
         attempted: true,
-        sent: false,
-        reason: 'multimodal_processing_failed',
+        sent: decision !== 'handoff',
+        reason: decision === 'handoff' ? 'multimodal_processing_failed' : decision,
       }
     }
 

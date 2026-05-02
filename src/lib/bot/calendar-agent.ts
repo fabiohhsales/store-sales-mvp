@@ -90,7 +90,7 @@ export async function handleAgendaCheck(
       clientId: clientContext.clientId,
       dateFrom: dateRange.start,
       dateTo: dateRange.end,
-      maxSlots: 6,
+      maxSlots: 3,
       language,
       botConfig,
     })
@@ -239,7 +239,7 @@ export async function handleAgendaCreate(
       contactPhone: contact.phone_number,
       inviteeEmail,
       title: agendaCreate.title ?? null,
-      modality: 'presencial',
+      modality: agendaCreate.modality ?? 'indiferente',
       status: 'scheduled',
       startAt: agendaCreate.start_iso!,
       endAt: agendaCreate.end_iso!,

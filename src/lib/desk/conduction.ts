@@ -36,6 +36,41 @@ export function conductionBadgeVariant(
   return map[mode]
 }
 
+// ── Operational status (derivado, não persistido) ───────────────────────────
+
+export type OperationalStatus =
+  | 'bot_active'
+  | 'waiting_human'
+  | 'human_active'
+  | 'waiting_lead'
+  | 'bot_paused'
+  | 'resolved'
+
+export function deriveOperationalStatus(input: {
+  stage: string | null
+  status: string | null
+  lastOutgoingAt: string | null
+  lastIncomingAt: string | null
+  hasActiveAiPause?: boolean
+}): OperationalStatus {
+  const { stage, status, lastOutgoingAt, lastIncomingAt, hasActiveAiPause } = input
+  if (status === 'resolved' || stage === 'resolved') return 'resolved'
+  if (stage === 'awaiting_human') return 'waiting_human'
+  if (stage === 'in_service') return 'human_active'
+  if (hasActiveAiPause) return 'bot_paused'
+  if (lastOutgoingAt && (!lastIncomingAt || lastOutgoingAt > lastIncomingAt)) return 'waiting_lead'
+  return 'bot_active'
+}
+
+export const OPERATIONAL_STATUS_LABEL: Record<OperationalStatus, string> = {
+  bot_active: 'Com bot',
+  waiting_human: 'Aguardando humano',
+  human_active: 'Em atendimento humano',
+  waiting_lead: 'Aguardando lead',
+  bot_paused: 'Bot pausado',
+  resolved: 'Finalizadas',
+}
+
 // ── Stage labels (PT-BR) ────────────────────────────────────────────────────
 
 export const STAGE_LABELS: Record<string, string> = {

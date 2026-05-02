@@ -11,11 +11,11 @@ import type { SlaThresholds } from '@/lib/desk/sla-config'
 import type { DeskConversation } from './desk-shell'
 
 const STAGES = [
-  { key: 'all',            label: 'Todas ativas', icon: MessageSquare, color: 'text-foreground' },
-  { key: 'awaiting_human', label: 'Aguardando', icon: Clock, color: 'text-destructive' },
-  { key: 'in_service',     label: 'Em atendimento', icon: UserCheck, color: 'text-blue-500' },
-  { key: 'bot_triage',     label: 'Com o bot', icon: Bot, color: 'text-muted-foreground' },
-  { key: 'resolved',       label: 'Finalizados', icon: CheckCheck, color: 'text-green-500' },
+  { key: 'all',            label: 'Todas ativas',          icon: MessageSquare, color: 'text-foreground' },
+  { key: 'awaiting_human', label: 'Aguardando humano',    icon: Clock, color: 'text-destructive' },
+  { key: 'in_service',     label: 'Em atendimento humano', icon: UserCheck, color: 'text-blue-500' },
+  { key: 'bot_triage',     label: 'Com bot',               icon: Bot, color: 'text-muted-foreground' },
+  { key: 'resolved',       label: 'Finalizados',           icon: CheckCheck, color: 'text-green-500' },
 ] as const
 
 interface Props {

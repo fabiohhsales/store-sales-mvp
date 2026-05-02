@@ -49,6 +49,7 @@ export const AgentOutputSchema = z.object({
       end_iso: z.string().nullable(),
       title: z.string().nullable(),
       selected_slot_index: z.number().nullable().optional().default(null),
+      modality: z.enum(['online', 'presencial', 'indiferente']).nullable().optional().default(null),
     }),
     agenda_update: z.object({
       should_update: z.boolean(),
@@ -82,7 +83,7 @@ export const fallbackOutput: AgentOutput = {
   handoff: { needs_human: false, reason: null },
   actions: {
     agenda_check: { should_check: false, time_window_hint: null },
-    agenda_create: { should_create: false, start_iso: null, end_iso: null, title: null, selected_slot_index: null },
+    agenda_create: { should_create: false, start_iso: null, end_iso: null, title: null, selected_slot_index: null, modality: null },
     agenda_update: { should_update: false, google_event_id: null },
   },
   debug: { detected_intent: 'outro', stage_current: null, notes: 'parse_error' },
@@ -181,6 +182,15 @@ function normalizeOutputCandidate(
 
   const nonStageLabels = normalizedLabels.filter((label) => !label.startsWith('etapa_'))
   candidate.labels_next = [stageLabel, ...nonStageLabels]
+
+  // Normaliza modality para lowercase antes do parse Zod (evita "Online" ou "Presencial" quebrarem o enum)
+  const actions = isObject(candidate.actions) ? candidate.actions : {}
+  const agendaCreate = isObject(actions.agenda_create) ? actions.agenda_create : {}
+  if (typeof agendaCreate.modality === 'string') {
+    agendaCreate.modality = agendaCreate.modality.trim().toLowerCase()
+    actions.agenda_create = agendaCreate
+    candidate.actions = actions
+  }
 
   candidate.classification = {
     intent:

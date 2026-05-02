@@ -597,6 +597,10 @@ export function MessageBubble({ message, conversationId, onImageClick }: { messa
   )
 }
 
+function isNearBottom(el: HTMLDivElement, threshold = 120) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+}
+
 export function ChatView({ conversationId, clientId, currentUserId, onConversationUpdate }: Props) {
   const [conversation, setConversation] = useState<ConversationDetail | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -660,16 +664,21 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const oldestMessageIdRef = useRef<string | null>(null)
-  const isInitialLoadRef = useRef(true)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const notesBottomRef = useRef<HTMLDivElement>(null)
 
+  // Controle de scroll
+  const firstLoadForConversationRef = useRef(true)
+  const userNearBottomRef = useRef(true)
+  const loadingOlderRef = useRef(false)
+  const lastMessageCountRef = useRef(0)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+
   const load = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
-    isInitialLoadRef.current = true
     try {
       const res = await fetch(`/api/desk/conversations/${conversationId}?client_id=${clientId}`)
       if (res.ok) {
@@ -697,6 +706,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
   const loadOlderMessages = useCallback(async () => {
     if (!hasMore || loadingOlder || !oldestMessageIdRef.current) return
     setLoadingOlder(true)
+    loadingOlderRef.current = true
     const container = messagesContainerRef.current
     const prevScrollHeight = container?.scrollHeight ?? 0
 
@@ -711,18 +721,23 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
           setMessages((prev) => [...older, ...prev])
           oldestMessageIdRef.current = data.oldestMessageId ?? null
           setHasMore(data.hasMore ?? false)
-          // Preserve scroll position after prepend
+          // Preserva posição visual ao fazer prepend
           requestAnimationFrame(() => {
             if (container) {
               container.scrollTop = container.scrollHeight - prevScrollHeight
             }
+            loadingOlderRef.current = false
           })
         } else {
           setHasMore(false)
+          loadingOlderRef.current = false
         }
+      } else {
+        loadingOlderRef.current = false
       }
     } catch (err) {
       console.error('[ChatView] Erro ao carregar mensagens anteriores:', err)
+      loadingOlderRef.current = false
     } finally {
       setLoadingOlder(false)
     }
@@ -823,22 +838,40 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     return () => clearInterval(interval)
   }, [load])
 
-  // Scroll para o final — apenas no load inicial e novas mensagens (não ao carregar antigas)
+  // Reset de scroll ao trocar de conversa
   useEffect(() => {
-    if (isInitialLoadRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-      isInitialLoadRef.current = false
+    firstLoadForConversationRef.current = true
+    userNearBottomRef.current = true
+    loadingOlderRef.current = false
+    lastMessageCountRef.current = 0
+    setShowScrollToBottom(false)
+  }, [conversationId])
+
+  // Auto-scroll controlado: apenas load inicial ou nova mensagem com usuário no final
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    if (loadingOlderRef.current) return
+
+    const countChanged = messages.length !== lastMessageCountRef.current
+    lastMessageCountRef.current = messages.length
+
+    if (firstLoadForConversationRef.current) {
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight
+        firstLoadForConversationRef.current = false
+        userNearBottomRef.current = true
+        setShowScrollToBottom(false)
+      })
       return
     }
-    // Auto-scroll only if user is near the bottom (within 200px)
-    const container = messagesContainerRef.current
-    if (container) {
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200
-      if (isNearBottom) {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-      }
+
+    if (countChanged && userNearBottomRef.current) {
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight
+      })
     }
-  }, [messages])
+  }, [conversationId, messages.length])
 
   // Scroll para o final — notas
   useEffect(() => {
@@ -1389,7 +1422,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           {activeView === 'messages' ? (
             <>
               {/* Summary + intake banner */}
@@ -1412,6 +1445,9 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                   if (el.scrollTop < 80 && hasMore && !loadingOlder) {
                     loadOlderMessages()
                   }
+                  const near = isNearBottom(el)
+                  userNearBottomRef.current = near
+                  setShowScrollToBottom(!near)
                 }}
               >
                 {loadingOlder && (
@@ -1452,6 +1488,22 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                 ))}
                 <div ref={bottomRef} />
               </div>
+
+              {/* Botão flutuante: ir para o final */}
+              {showScrollToBottom && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const container = messagesContainerRef.current
+                    if (container) container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+                    userNearBottomRef.current = true
+                    setShowScrollToBottom(false)
+                  }}
+                  className="absolute bottom-24 right-6 z-10 rounded-full border border-border bg-background px-3 py-2 text-xs shadow-lg hover:bg-muted transition-colors"
+                >
+                  Ir para o final
+                </button>
+              )}
 
               {/* Upload progress bar */}
               {uploadLoading && uploadProgress > 0 && (
