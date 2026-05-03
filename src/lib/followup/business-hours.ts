@@ -102,6 +102,7 @@ export type FollowupSkipReason =
   | 'sem_step_elegivel'
   | 'contato_nao_encontrado'
   | 'sem_whatsapp_config'
+  | 'em_atendimento_humano'
 
 export function logFollowupSkip(
   cadence: 'lead' | 'atendimento' | 'agendado',

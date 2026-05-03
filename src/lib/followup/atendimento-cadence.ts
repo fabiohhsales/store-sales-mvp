@@ -19,6 +19,7 @@ interface AtendimentoConversation {
   id: string
   contact_id: string | null
   status: 'pending' | 'open' | 'resolved' | null
+  stage: string | null
   labels: string[] | null
   followup_cadence: string | null
   last_incoming_at: string | null
@@ -103,7 +104,7 @@ async function queryAtendimentoConversations(
 
   const { data, error } = await supabase
     .from('conversations')
-    .select('id, contact_id, status, labels, followup_cadence, last_incoming_at, last_outgoing_at')
+    .select('id, contact_id, status, stage, labels, followup_cadence, last_incoming_at, last_outgoing_at')
     .eq('client_id', clientId)
     .neq('status', 'resolved')
     .not('last_incoming_at', 'is', null)
@@ -190,6 +191,14 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
     if (breaker.isOpen(ctx.clientId)) {
       logFollowupEvent('atendimento', 'circuit_open', { clientId: ctx.clientId })
       break
+    }
+
+    if (conversation.stage === 'in_service' || conversation.stage === 'awaiting_human') {
+      logFollowupSkip('atendimento', 'em_atendimento_humano', {
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+      })
+      continue
     }
 
     if (!conversation.last_incoming_at || !conversation.contact_id) {

@@ -13,6 +13,7 @@ import type { PanelBotConfig, PanelWhatsAppConfig, FollowupStepConfig } from '@/
 interface LeadConversation {
   id: string
   contact_id: string | null
+  stage: string | null
   last_incoming_at: string | null
   last_outgoing_at: string | null
 }
@@ -47,7 +48,7 @@ async function queryLeadConversations(clientId: string): Promise<LeadConversatio
 
   const { data, error } = await supabase
     .from('conversations')
-    .select('id, contact_id, last_incoming_at, last_outgoing_at')
+    .select('id, contact_id, stage, last_incoming_at, last_outgoing_at')
     .eq('client_id', clientId)
     .neq('status', 'resolved')
     .not('last_outgoing_at', 'is', null)
@@ -132,6 +133,14 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
     if (breaker.isOpen(ctx.clientId)) {
       logFollowupEvent('lead', 'circuit_open', { clientId: ctx.clientId })
       break
+    }
+
+    if (conversation.stage === 'in_service' || conversation.stage === 'awaiting_human') {
+      logFollowupSkip('lead', 'em_atendimento_humano', {
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+      })
+      continue
     }
 
     if (!conversation.last_outgoing_at || !conversation.contact_id) {
