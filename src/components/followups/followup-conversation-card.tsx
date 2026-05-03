@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button'
 import type { FollowupConversation } from '@/types/followup'
 
 const CADENCE_STYLES = {
-  lead: 'border-violet-500/30 bg-violet-500/10 text-violet-200',
-  atendimento: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200',
-  agendado: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+  lead: 'border-blue-500/30 bg-blue-500/10 text-blue-300',
+  atendimento: 'border-teal-500/30 bg-teal-500/10 text-teal-300',
+  agendado: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
 } as const
 
 function formatDate(value: string | null) {

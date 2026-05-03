@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button'
 import type { CadenceType, FollowupOverviewSummary, FollowupTreeNode } from '@/types/followup'
 
 const CADENCE_STYLES: Record<CadenceType, string> = {
-  lead: 'border-violet-500/30 bg-violet-500/10 text-violet-200',
-  atendimento: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200',
-  agendado: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+  lead: 'border-blue-500/30 bg-blue-500/10 text-blue-300',
+  atendimento: 'border-teal-500/30 bg-teal-500/10 text-teal-300',
+  agendado: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
 }
 
 interface Props {
@@ -45,7 +45,7 @@ export function FollowupSidebar({
             <Inbox className="size-4" />
             Todos
           </span>
-          <Badge variant="outline">{tree.reduce((sum, node) => sum + node.count, 0)}</Badge>
+          <Badge variant="outline">{(tree ?? []).reduce((sum, node) => sum + (node.count ?? 0), 0)}</Badge>
         </Button>
       </div>
 
@@ -56,12 +56,12 @@ export function FollowupSidebar({
         </div>
 
         <div className="space-y-2">
-          {tree.map((node) => {
+          {(tree ?? []).map((node) => {
             const isCadenceSelected = selectedCadence === node.cadence && !selectedStep
             const hasSelectedStep =
               selectedCadence === node.cadence &&
               !!selectedStep &&
-              node.steps.some((step) => step.step_key === selectedStep)
+              (node.steps ?? []).some((step) => step.step_key === selectedStep)
 
             return (
               <div key={node.cadence} className="rounded-xl border border-border/70 bg-background/40">
@@ -99,7 +99,7 @@ export function FollowupSidebar({
 
                 {expanded[node.cadence] && (
                   <div className="space-y-1 px-2 pb-2">
-                    {node.steps.map((step) => {
+                    {(node.steps ?? []).map((step) => {
                       const isSelected =
                         selectedCadence === node.cadence && selectedStep === step.step_key
 

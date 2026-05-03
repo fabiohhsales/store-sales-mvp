@@ -56,7 +56,7 @@ export function ConversationStateCard({
         </Badge>
         <div className="flex items-center gap-1.5">
           {journeyStage && (
-            <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400">
+            <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-blue-500/30 bg-blue-500/10 text-blue-400">
               {journeyStage}
             </Badge>
           )}

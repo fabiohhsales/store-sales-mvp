@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   List,
   Loader2,
   Plus,
@@ -32,6 +33,22 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { AgendaAppointment } from '@/types/pipeline'
+
+interface ContactDetail {
+  id: string
+  name: string | null
+  phone_number: string | null
+  identifier: string | null
+  custom_data: Record<string, unknown> | null
+}
+
+interface ConversationDetail {
+  id: string
+  stage: string | null
+  status: string | null
+  summary: string | null
+  contacts: ContactDetail | ContactDetail[] | null
+}
 
 type AgendaView = 'day' | 'week' | 'month' | 'list'
 
@@ -81,19 +98,19 @@ const STATUS_OPTIONS = [
 ] as const
 
 const STATUS_BADGE: Record<string, string> = {
-  scheduled: 'bg-blue-500/10 text-blue-700 border-blue-500/20',
-  confirmed: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20',
-  attended: 'bg-green-500/10 text-green-700 border-green-500/20',
-  noshow: 'bg-red-500/10 text-red-700 border-red-500/20',
-  cancelled: 'bg-zinc-500/10 text-zinc-700 border-zinc-500/20',
-  rescheduled: 'bg-amber-500/10 text-amber-700 border-amber-500/20',
+  scheduled: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  confirmed: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  attended: 'bg-green-500/10 text-green-400 border-green-500/20',
+  noshow: 'bg-red-500/10 text-red-400 border-red-500/20',
+  cancelled: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
+  rescheduled: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
 }
 
 const SYNC_BADGE: Record<string, string> = {
-  synced: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20',
-  pending: 'bg-amber-500/10 text-amber-700 border-amber-500/20',
-  disabled: 'bg-zinc-500/10 text-zinc-700 border-zinc-500/20',
-  error: 'bg-red-500/10 text-red-700 border-red-500/20',
+  synced: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  pending: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  disabled: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
+  error: 'bg-red-500/10 text-red-400 border-red-500/20',
 }
 
 function emptyForm(now = new Date()): AppointmentFormState {
@@ -184,6 +201,23 @@ function getMonthGrid(anchorDate: string) {
   return days
 }
 
+function formatPeriodLabel(view: AgendaView, dateFrom: string, dateTo: string): string {
+  const from = new Date(`${dateFrom}T12:00:00`)
+  const to = new Date(`${dateTo}T12:00:00`)
+  const today = toDateInput(new Date())
+
+  if (view === 'day') {
+    if (dateFrom === today) return `Hoje, ${from.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}`
+    return from.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
+  }
+  if (view === 'week') {
+    const fromStr = from.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })
+    const toStr = to.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })
+    return `Semana de ${fromStr} – ${toStr}`
+  }
+  return from.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+}
+
 function badgeLabel(status: string | null) {
   return STATUS_OPTIONS.find((option) => option.value === status)?.label ?? 'Sem status'
 }
@@ -210,6 +244,7 @@ export function AgendaWorkspace({
   const [data, setData] = useState<AgendaResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<AgendaAppointment | null>(null)
+  const [convDetail, setConvDetail] = useState<ConversationDetail | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<AppointmentFormState>(emptyForm())
 
@@ -244,6 +279,21 @@ export function AgendaWorkspace({
   useEffect(() => {
     void fetchAgenda()
   }, [clientId, token, view, selectedDate, statusFilter, query])
+
+  useEffect(() => {
+    if (!detail?.conversation_id) {
+      setConvDetail(null)
+      return
+    }
+    const convId = detail.conversation_id
+    const params = new URLSearchParams(token ? { token } : { client_id: clientId })
+    fetch(`/api/desk/conversations/${convId}?${params}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        if (json?.conversation) setConvDetail(json.conversation as ConversationDetail)
+      })
+      .catch(() => {})
+  }, [detail?.conversation_id, clientId, token])
 
   function openCreateDialog() {
     setForm(emptyForm())
@@ -621,6 +671,11 @@ export function AgendaWorkspace({
       ) : appointments.length === 0 ? (
         <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl border bg-card px-6 text-center">
           <CalendarDays className="mb-3 h-10 w-10 text-muted-foreground" />
+          {data?.meta.date_from && (
+            <p className="mb-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              {formatPeriodLabel(view, data.meta.date_from, data.meta.date_to)}
+            </p>
+          )}
           <p className="font-medium">Nenhum agendamento encontrado</p>
           <p className="mt-1 text-sm text-muted-foreground">
             Ajuste os filtros ou crie um novo agendamento para este período.
@@ -724,41 +779,61 @@ export function AgendaWorkspace({
         </DialogContent>
       </Dialog>
 
-      <Sheet open={!!detail} onOpenChange={(open) => { if (!open) setDetail(null) }}>
-        <SheetContent className="w-full sm:max-w-xl">
-          <SheetHeader className="border-b">
-            <SheetTitle>Detalhes do agendamento</SheetTitle>
-            <SheetDescription>
-              Operação principal no Supabase, com sincronização externa opcional.
-            </SheetDescription>
+      <Sheet open={!!detail} onOpenChange={(open) => { if (!open) { setDetail(null); setConvDetail(null) } }}>
+        <SheetContent className="flex w-full flex-col sm:max-w-xl overflow-hidden">
+          <SheetHeader className="border-b pb-3 shrink-0">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <SheetTitle>Detalhes do agendamento</SheetTitle>
+                <SheetDescription className="mt-0.5 text-xs">
+                  {detail ? formatDateTime(detail.start_at) : ''}
+                </SheetDescription>
+              </div>
+              {detail?.conversation_id && (
+                <a
+                  href={`/desk?client_id=${clientId}&conversation=${detail.conversation_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Abrir no Desk
+                </a>
+              )}
+            </div>
           </SheetHeader>
+
           {detail ? (
             <>
-              <div className="flex-1 space-y-6 overflow-y-auto p-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <UserRound className="h-4 w-4" />
-                    Paciente
+              <div className="flex-1 space-y-4 overflow-y-auto py-4">
+                {/* Paciente */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <UserRound className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <div className="text-lg font-semibold">{detail.contact_name || 'Sem nome'}</div>
-                  <div className="text-sm text-muted-foreground">{detail.contact_phone || 'Sem telefone'}</div>
+                  <div>
+                    <p className="font-semibold leading-tight">{detail.contact_name || 'Sem nome'}</p>
+                    <p className="text-sm text-muted-foreground">{detail.contact_phone || 'Sem telefone'}</p>
+                  </div>
                 </div>
 
+                {/* Quando + Serviço */}
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border p-3">
-                    <div className="mb-1 text-xs uppercase text-muted-foreground">Quando</div>
-                    <div className="font-medium">{formatDateTime(detail.start_at)}</div>
-                    <div className="text-sm text-muted-foreground">
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Quando</div>
+                    <div className="font-medium text-sm">{formatDateTime(detail.start_at)}</div>
+                    <div className="text-xs text-muted-foreground">
                       até {new Date(detail.end_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
-                  <div className="rounded-lg border p-3">
-                    <div className="mb-1 text-xs uppercase text-muted-foreground">Serviço</div>
-                    <div className="font-medium">{detail.title || '-'}</div>
-                    <div className="text-sm text-muted-foreground">{detail.modality || 'Sem modalidade'}</div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Serviço</div>
+                    <div className="font-medium text-sm">{detail.title || '—'}</div>
+                    <div className="text-xs text-muted-foreground">{detail.modality || 'Sem modalidade'}</div>
                   </div>
                 </div>
 
+                {/* Status badges */}
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline" className={cn('border', STATUS_BADGE[detail.status ?? 'scheduled'])}>
                     {badgeLabel(detail.status)}
@@ -766,52 +841,105 @@ export function AgendaWorkspace({
                   <Badge variant="outline" className={cn('border', SYNC_BADGE[detail.sync_status])}>
                     {syncLabel(detail.sync_status)}
                   </Badge>
+                  {convDetail?.stage && (
+                    <Badge variant="outline" className="border-blue-500/20 bg-blue-500/8 text-blue-400">
+                      {convDetail.stage}
+                    </Badge>
+                  )}
                 </div>
 
-                {detail.sync_error ? (
+                {/* Confirmação */}
+                {detail.confirmation_sent_at && (
+                  <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Confirmação</div>
+                    <div className="text-muted-foreground text-xs">
+                      Enviada em {formatDateTime(detail.confirmation_sent_at)}
+                    </div>
+                    {detail.confirmation_response && (
+                      <div className="mt-1 font-medium">{detail.confirmation_response}</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Resumo da conversa */}
+                {convDetail?.summary && (
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Resumo da triagem</div>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{convDetail.summary}</p>
+                  </div>
+                )}
+
+                {/* Intake fields */}
+                {(() => {
+                  const contact = convDetail?.contacts
+                  const contactObj = Array.isArray(contact) ? contact[0] : contact
+                  const intake = contactObj?.custom_data
+                  if (!intake || typeof intake !== 'object') return null
+                  const entries = Object.entries(intake).filter(
+                    ([key, value]) => !key.startsWith('_') && value !== null && value !== ''
+                  )
+                  if (entries.length === 0) return null
+                  return (
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Dados do paciente</div>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        {entries.map(([key, value]) => (
+                          <div key={key}>
+                            <dt className="text-[10px] text-muted-foreground capitalize">{key.replace(/_/g, ' ')}</dt>
+                            <dd className="text-xs font-medium truncate">{String(value)}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  )
+                })()}
+
+                {detail.sync_error && (
                   <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
                     {detail.sync_error}
                   </div>
-                ) : null}
+                )}
 
-                {detail.notes ? (
-                  <div className="rounded-lg border p-3">
-                    <div className="mb-1 text-xs uppercase text-muted-foreground">Observações</div>
+                {detail.notes && (
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Observações</div>
                     <div className="whitespace-pre-wrap text-sm">{detail.notes}</div>
                   </div>
-                ) : null}
+                )}
 
-                {detail.meet_link ? (
-                  <div className="rounded-lg border p-3">
-                    <div className="mb-1 text-xs uppercase text-muted-foreground">Meet</div>
+                {detail.meet_link && (
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Meet</div>
                     <a className="text-sm text-primary hover:underline" href={detail.meet_link} target="_blank" rel="noreferrer">
                       Abrir link da consulta
                     </a>
                   </div>
-                ) : null}
+                )}
 
+                {/* Ações de status */}
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <Button variant="outline" onClick={() => openEditDialog(detail)}>
+                  <Button variant="outline" size="sm" onClick={() => openEditDialog(detail)}>
                     Editar agendamento
                   </Button>
-                  <Button variant="outline" onClick={() => void updateStatus(detail.id, 'confirmed')}>
+                  <Button variant="outline" size="sm" onClick={() => void updateStatus(detail.id, 'confirmed')}>
                     Confirmar
                   </Button>
-                  <Button variant="outline" onClick={() => void updateStatus(detail.id, 'attended')}>
+                  <Button variant="outline" size="sm" onClick={() => void updateStatus(detail.id, 'attended')}>
                     Marcar compareceu
                   </Button>
-                  <Button variant="outline" onClick={() => void updateStatus(detail.id, 'noshow')}>
+                  <Button variant="outline" size="sm" onClick={() => void updateStatus(detail.id, 'noshow')}>
                     Marcar não compareceu
                   </Button>
                 </div>
               </div>
-              <SheetFooter className="border-t">
+
+              <SheetFooter className="border-t pt-3 shrink-0">
                 <div className="flex w-full items-center justify-between gap-2">
-                  <Button variant="destructive" onClick={() => void cancelAppointment(detail.id)}>
+                  <Button variant="destructive" size="sm" onClick={() => void cancelAppointment(detail.id)}>
                     <Trash2 className="mr-2 h-4 w-4" />
                     Cancelar agendamento
                   </Button>
-                  <Button variant="outline" onClick={() => setDetail(null)}>
+                  <Button variant="outline" size="sm" onClick={() => setDetail(null)}>
                     Fechar
                   </Button>
                 </div>

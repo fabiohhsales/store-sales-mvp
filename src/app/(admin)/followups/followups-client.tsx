@@ -168,6 +168,7 @@ export function FollowupsPageClient({ clients, initialClientId, viewerRole }: Pr
         fetchError instanceof Error ? fetchError.message : 'Erro desconhecido ao carregar as conversas'
       setError(message)
       setConversationsData(null)
+      toast.error(message)
     } finally {
       setLoadingConversations(false)
     }

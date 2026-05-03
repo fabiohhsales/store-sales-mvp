@@ -41,7 +41,7 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
   const [modalOpen, setModalOpen] = useState(false)
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
@@ -197,6 +197,34 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
     }
   }
 
+  async function handleReorderColumn(fromIndex: number, toIndex: number) {
+    if (!data) return
+    const newColumns = [...data.columns]
+    const [moved] = newColumns.splice(fromIndex, 1)
+    newColumns.splice(toIndex, 0, moved)
+    setData({ ...data, columns: newColumns })
+
+    try {
+      const res = await fetch('/api/pipeline/stages/reorder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(token ? { token } : { client_id: clientId }),
+          from_index: fromIndex,
+          to_index: toIndex,
+        }),
+      })
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        toast.error(errBody.error || 'Erro ao reordenar etapas')
+        void fetchData()
+      }
+    } catch {
+      toast.error('Erro de conexão ao reordenar etapas')
+      void fetchData()
+    }
+  }
+
   function handleMessageSent(nextStageSlug?: string) {
     if (selectedConversation && nextStageSlug) {
       applyStageLocally(selectedConversation.id, nextStageSlug)
@@ -265,6 +293,10 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
               )}
               colorIndex={index}
               onCardClick={handleCardClick}
+              canMoveLeft={index > 0}
+              canMoveRight={index < data.columns.length - 1}
+              onMoveLeft={() => handleReorderColumn(index, index - 1)}
+              onMoveRight={() => handleReorderColumn(index, index + 1)}
             />
           ))}
         </div>

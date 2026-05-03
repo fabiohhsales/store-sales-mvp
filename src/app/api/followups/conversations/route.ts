@@ -251,7 +251,7 @@ export async function GET(request: NextRequest) {
           ? activeConversations.filter((conversation) => !conversation.waiting_response)
           : activeConversations
 
-    const tree = buildTree(config, statusScopedConversations)
+    const tree = buildTree(config, activeConversations)
 
     const filteredConversations = statusScopedConversations
       .filter((conversation) => !isCadenceType(cadenceFilter) || conversation.cadence_type === cadenceFilter)
@@ -269,8 +269,8 @@ export async function GET(request: NextRequest) {
       summary: {
         totalActive: activeConversations.length,
         filteredTotal: total,
-        waitingResponse: activeConversations.filter((conversation) => conversation.waiting_response).length,
-        responded: activeConversations.filter((conversation) => !conversation.waiting_response).length,
+        waitingResponse: statusScopedConversations.filter((conversation) => conversation.waiting_response).length,
+        responded: statusScopedConversations.filter((conversation) => !conversation.waiting_response).length,
       },
       tree,
       conversations: paginatedConversations,

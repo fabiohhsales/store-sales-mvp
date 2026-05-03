@@ -276,7 +276,7 @@ export function ConversationList({ conversations, selectedId, stageFilter, loadi
                     {conv.journey_stage && (
                       <Badge
                         variant="outline"
-                        className="mt-1.5 h-4 px-1.5 text-[10px] border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400"
+                        className="mt-1.5 h-4 px-1.5 text-[10px] border-blue-500/30 bg-blue-500/10 text-blue-400"
                       >
                         Comercial: {formatCommercialLabel(conv.journey_stage)}
                       </Badge>

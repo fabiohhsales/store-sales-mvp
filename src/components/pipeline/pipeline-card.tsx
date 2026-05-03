@@ -3,7 +3,7 @@
 import { useDraggable } from '@dnd-kit/core'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Calendar, Clock, GripVertical, MessageCircle, Thermometer } from 'lucide-react'
+import { Calendar, Clock, MessageCircle } from 'lucide-react'
 import type { PipelineBoardConversation } from '@/types/pipeline'
 
 interface PipelineCardProps {
@@ -13,9 +13,9 @@ interface PipelineCardProps {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: 'border-l-yellow-500',
-  open: 'border-l-green-500',
-  resolved: 'border-l-gray-400',
+  pending: 'bg-yellow-500',
+  open: 'bg-emerald-500',
+  resolved: 'bg-zinc-400',
 }
 
 function timeAgo(dateStr: string | null): string {
@@ -49,10 +49,16 @@ function stageAge(dateStr: string | null): string {
   return `${days}d na etapa`
 }
 
-function temperatureClass(t: PipelineBoardConversation['temperature']): string {
-  if (t === 'hot') return 'bg-red-500/10 text-red-500 border-red-500/20'
-  if (t === 'warm') return 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-  return 'bg-sky-500/10 text-sky-500 border-sky-500/20'
+const TEMP_DOT: Record<string, string> = {
+  hot: 'bg-red-500',
+  warm: 'bg-amber-400',
+  cold: 'bg-sky-400',
+}
+
+const TEMP_LABEL: Record<string, string> = {
+  hot: 'Quente',
+  warm: 'Morno',
+  cold: 'Frio',
 }
 
 export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardProps) {
@@ -70,53 +76,49 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
     ? Math.round((conversation.intake_fields_filled / conversation.intake_fields_total) * 100)
     : null
 
+  const temp = conversation.temperature ?? 'cold'
+
+  function handleClick() {
+    if (!isDragging) onClick(conversation)
+  }
+
   return (
     <Card
       ref={setNodeRef}
       style={style}
-      onClick={() => onClick(conversation)}
-      className={`
-        cursor-pointer border-l-4 p-3 transition-shadow hover:shadow-md
-        ${STATUS_COLORS[conversation.status] || 'border-l-gray-300'}
-        ${isDragging ? 'opacity-50' : ''}
-        ${isOverlay ? 'shadow-lg rotate-2' : ''}
-      `}
+      onClick={handleClick}
+      className={[
+        'relative cursor-grab p-4 transition-shadow hover:shadow-md active:cursor-grabbing select-none',
+        isDragging ? 'opacity-40' : '',
+        isOverlay ? 'shadow-xl rotate-1 cursor-grabbing' : '',
+      ].join(' ')}
+      {...(!isOverlay ? listeners : {})}
+      {...(!isOverlay ? attributes : {})}
     >
-      <div className="space-y-2">
+      {/* Status dot */}
+      <span
+        className={`absolute top-3 right-3 h-2 w-2 rounded-full ${STATUS_COLORS[conversation.status] ?? 'bg-zinc-400'}`}
+      />
+
+      <div className="space-y-2.5 pr-4">
         {/* Nome e telefone */}
-        <div className="flex items-start gap-2">
-          <button
-            type="button"
-            aria-label="Arrastar card"
-            onClick={(event) => event.stopPropagation()}
-            className={`
-              mt-0.5 inline-flex h-8 w-5 shrink-0 items-center justify-center rounded
-              text-muted-foreground/50 transition-colors
-              ${isOverlay ? 'cursor-default' : 'cursor-grab hover:bg-muted hover:text-foreground active:cursor-grabbing'}
-            `}
-            {...(!isOverlay ? listeners : {})}
-            {...(!isOverlay ? attributes : {})}
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-sm leading-tight truncate">
-              {conversation.contact_name || conversation.contact_phone || conversation.contact_identifier || 'Sem nome'}
+        <div className="min-w-0">
+          <p className="font-medium text-sm leading-tight truncate">
+            {conversation.contact_name || conversation.contact_phone || conversation.contact_identifier || 'Sem nome'}
+          </p>
+          {conversation.contact_phone && conversation.contact_name && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {conversation.contact_phone}
             </p>
-            {conversation.contact_phone && conversation.contact_name && (
-              <p className="text-xs text-muted-foreground truncate">
-                {conversation.contact_phone}
-              </p>
-            )}
-          </div>
+          )}
         </div>
 
-        {/* Última atividade + temperatura + followup */}
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Badge variant="outline" className={`text-[10px] px-1 py-0 ${temperatureClass(conversation.temperature)}`}>
-            <Thermometer className="h-2.5 w-2.5 mr-0.5" />
-            {conversation.temperature === 'hot' ? 'Quente' : conversation.temperature === 'warm' ? 'Morno' : 'Frio'}
-          </Badge>
+        {/* Temperatura + atividade + followup */}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+          <span className="flex items-center gap-1">
+            <span className={`h-1.5 w-1.5 rounded-full ${TEMP_DOT[temp]}`} />
+            {TEMP_LABEL[temp]}
+          </span>
           {lastActivity && (
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
@@ -124,8 +126,8 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
             </span>
           )}
           {conversation.followup_cadence && (
-            <Badge variant="outline" className="text-[10px] px-1 py-0">
-              <MessageCircle className="h-2.5 w-2.5 mr-0.5" />
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+              <MessageCircle className="h-2.5 w-2.5 mr-1" />
               {conversation.followup_cadence}
             </Badge>
           )}
@@ -138,30 +140,37 @@ export function PipelineCard({ conversation, onClick, isOverlay }: PipelineCardP
         )}
 
         {conversation.stage_entered_at && (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground/70">
             {stageAge(conversation.stage_entered_at)}
           </p>
         )}
 
         {intakePct !== null && (
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Intake</span>
-            <span>{conversation.intake_fields_filled}/{conversation.intake_fields_total} ({intakePct}%)</span>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Intake</span>
+              <span>{conversation.intake_fields_filled}/{conversation.intake_fields_total}</span>
+            </div>
+            <div className="h-1 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary/60 rounded-full transition-all"
+                style={{ width: `${intakePct}%` }}
+              />
+            </div>
           </div>
         )}
 
-        {/* Appointment */}
         {conversation.appointment && (
-          <div className="flex items-center gap-1 text-xs bg-muted/50 rounded px-1.5 py-1">
-            <Calendar className="h-3 w-3 text-primary" />
-            <span>{formatDate(conversation.appointment.start_at)}</span>
+          <div className="flex items-center gap-1.5 text-xs bg-muted/60 rounded-md px-2 py-1.5">
+            <Calendar className="h-3 w-3 text-primary shrink-0" />
+            <span className="truncate">{formatDate(conversation.appointment.start_at)}</span>
             {conversation.appointment.meet_link && (
               <a
                 href={conversation.appointment.meet_link}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="text-primary hover:underline ml-auto"
+                className="text-primary hover:underline ml-auto shrink-0"
               >
                 Meet
               </a>

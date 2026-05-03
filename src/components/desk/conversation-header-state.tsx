@@ -170,7 +170,7 @@ export function ConversationHeaderState({
 
           {canReturn && (
             <Button size="sm" variant="outline" onClick={() => onAction('return')} disabled={actioning}
-              className="h-7 text-xs border-orange-500/40 text-orange-500 hover:bg-orange-500/10">
+              className="h-7 text-xs">
               {actioning ? <Loader2 size={12} className="mr-1 animate-spin" /> : <Bot size={12} className="mr-1" />}
               Devolver ao bot
             </Button>

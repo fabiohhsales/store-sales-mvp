@@ -1744,8 +1744,8 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                             const displayName = (m.media_filename || m.content || 'Arquivo')
                               .replace(/^\[Documento: /, '').replace(/^\[Vídeo: /, '').replace(/\]$/, '')
                             const label = isAudio ? 'Áudio' : isVideo ? 'Vídeo' : isPdf ? 'PDF' : 'Documento'
-                            const iconColor = isAudio ? 'text-purple-500' : isVideo ? 'text-green-500' : isPdf ? 'text-red-500' : 'text-blue-500'
-                            const iconBg = isAudio ? 'bg-purple-500/10' : isVideo ? 'bg-green-500/10' : isPdf ? 'bg-red-500/10' : 'bg-blue-500/10'
+                            const iconColor = isAudio ? 'text-sky-500' : isVideo ? 'text-green-500' : isPdf ? 'text-red-500' : 'text-blue-500'
+                            const iconBg = isAudio ? 'bg-sky-500/10' : isVideo ? 'bg-green-500/10' : isPdf ? 'bg-red-500/10' : 'bg-blue-500/10'
                             return (
                               <div key={m.id} className="flex items-center gap-2.5 rounded-lg border border-border bg-card/50 px-3 py-2.5">
                                 <div className={`flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center ${iconBg}`}>
