@@ -13,13 +13,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'from_index e to_index são obrigatórios' }, { status: 400 })
     }
 
-    const context = await authenticateRequest(request, client_id, token)
+    const auth = await authenticateRequest(token ?? null, client_id ?? null)
     const supabase = createAdminClient()
 
     const { data: config, error: fetchError } = await supabase
       .from('panel_bot_config')
       .select('stage_labels')
-      .eq('client_id', context.clientId)
+      .eq('client_id', auth.client_id)
       .single()
 
     if (fetchError || !config) {
@@ -39,7 +39,7 @@ export async function PATCH(request: NextRequest) {
     const { error: updateError } = await supabase
       .from('panel_bot_config')
       .update({ stage_labels: reordered })
-      .eq('client_id', context.clientId)
+      .eq('client_id', auth.client_id)
 
     if (updateError) {
       return NextResponse.json({ error: 'Erro ao salvar ordem das etapas' }, { status: 500 })
