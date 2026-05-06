@@ -1,4 +1,3 @@
-import ffmpegStatic from 'ffmpeg-static'
 import { spawn } from 'child_process'
 import { randomUUID } from 'crypto'
 import { constants, promises as fs } from 'fs'
@@ -18,7 +17,7 @@ export type AudioConversionFailureReason =
   | 'audio_conversion_output_empty'
   | 'audio_source_truncated'
 
-export type AudioConversionBinarySource = 'env' | 'ffmpeg-static' | 'path'
+export type AudioConversionBinarySource = 'env' | 'path'
 
 export type AudioConversionResult =
   | {
@@ -255,7 +254,6 @@ async function resolveFfmpegBinary(): Promise<ResolvedBinary | BinaryResolutionF
   const requestedEnvPath = trimText(process.env.FFMPEG_PATH)
   const candidates: Array<{ source: AudioConversionBinarySource; command: string | null }> = [
     { source: 'env', command: requestedEnvPath },
-    { source: 'ffmpeg-static', command: trimText(ffmpegStatic ?? null) },
     { source: 'path', command: 'ffmpeg' },
   ]
 
