@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["ffmpeg-full"]
+nixPkgs = ["nodejs_20", "npm-9_x", "ffmpeg-full"]
 
 [phases.install]
 cmds = ["npm ci --prefer-offline --no-audit --progress=false"]
