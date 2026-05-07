@@ -10,6 +10,8 @@ import {
 } from '@/lib/followup/shared'
 import type { PanelBotConfig, PanelWhatsAppConfig, AgendadoFollowupStepConfig } from '@/types/database'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
+import { upsertConversationFollowupState } from './state'
+import { recordFollowupSent, recordFollowupSkipped } from './events'
 
 interface AppointmentRow {
   id: string
@@ -140,6 +142,17 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
         clientId: ctx.clientId,
         appointmentId: appointment.id,
       })
+      
+      // Fase 1: Registrar evento de skip
+      await recordFollowupSkipped({
+        clientId: ctx.clientId,
+        conversationId: appointment.conversation_id,
+        contactId: appointment.contact_id,
+        cadenceType: 'agendado',
+        reasonCode: 'sem_step_elegivel',
+        reasonLabel: 'Nenhum step elegível no momento'
+      })
+      
       continue
     }
 
@@ -162,6 +175,29 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
       if (sent) {
         sentCount++
         breaker.recordSuccess(ctx.clientId)
+        
+        // Fase 1: Registrar evento de envio + atualizar estado
+        await recordFollowupSent({
+          clientId: ctx.clientId,
+          conversationId: appointment.conversation_id,
+          contactId: appointment.contact_id,
+          cadenceType: 'agendado',
+          stepKey: resolved.stepKey,
+          message
+        })
+        
+        await upsertConversationFollowupState({
+          client_id: ctx.clientId,
+          conversation_id: appointment.conversation_id,
+          contact_id: appointment.contact_id,
+          state: 'active',
+          cadence_type: 'agendado',
+          current_step_key: resolved.stepKey,
+          current_step_label: `Agendado ${resolved.stepKey}`,
+          total_attempts: 1,
+          last_sent_at: new Date().toISOString(),
+          last_evaluated_at: new Date().toISOString()
+        })
       }
     } catch (error) {
       breaker.recordFailure(ctx.clientId)

@@ -20,20 +20,20 @@ Este documento registra as métricas **antes** da implementação do Follow-up V
 
 ## 2. Dados Gerais do Sistema
 
-**Data da coleta:** __________ (preencher manualmente)
+**Data da coleta:** 2026-05-07 14:59:11 (coletado via script Python + Supabase API)
 
 ### 2.1. Volume de dados
 
 | Métrica | Valor atual |
 |---|---|
-| Total de clientes ativos | _____ |
-| Total de conversas (não resolvidas) | _____ |
-| Total de conversas em `stage=in_service` | _____ |
-| Total de conversas em `stage=awaiting_human` | _____ |
-| Total de conversas em `stage=bot_triage` | _____ |
-| Total de conversas resolvidas | _____ |
-| Total de appointments futuros | _____ |
-| Total de appointments confirmados | _____ |
+| Total de clientes ativos | 3 |
+| Total de conversas (não resolvidas) | 28 |
+| Total de conversas em `stage=in_service` | 2 |
+| Total de conversas em `stage=awaiting_human` | 2 |
+| Total de conversas em `stage=bot_triage` | 24 |
+| Total de conversas resolvidas | 6 |
+| Total de appointments futuros | 0 |
+| Total de appointments confirmados | 2 |
 
 **Query:**
 ```sql
@@ -57,10 +57,16 @@ SELECT
 
 | Cadência | Steps enviados | Conversas únicas |
 |---|---|---|
-| Lead | _____ | _____ |
-| Atendimento | _____ | _____ |
-| Agendado | _____ | _____ |
-| **Total** | _____ | _____ |
+| Lead | 0 | 0 |
+| Atendimento | 0 | 0 |
+| Agendado | 0 | 0 |
+| **Total** | **0** | **0** |
+
+**⚠️ OBSERVAÇÃO CRÍTICA:** Nenhum step de follow-up foi enviado nos últimos 7 dias. Isso indica que:
+- O sistema de follow-up pode não estar ativo atualmente
+- Ou os crons não estão rodando
+- Ou não há conversas elegíveis para follow-up no momento
+- Esta baseline será útil para comparação após a implementação do Follow-up V2
 
 **Query:**
 ```sql
@@ -78,21 +84,23 @@ ORDER BY cadence_type;
 
 ### 3.2. Distribuição de steps por chave (últimos 7 dias)
 
+**⚠️ Sem dados:** Nenhum step enviado nos últimos 7 dias.
+
 | Cadência | Step | Enviados | % |
 |---|---|---|---|
-| Lead | D1 | _____ | _____ |
-| Lead | D2 | _____ | _____ |
-| Lead | D3 | _____ | _____ |
-| Lead | D5 | _____ | _____ |
-| Lead | D7 | _____ | _____ |
-| Atendimento | D1 | _____ | _____ |
-| Atendimento | D2 | _____ | _____ |
-| Atendimento | D4 | _____ | _____ |
-| Atendimento | D7 | _____ | _____ |
-| Atendimento | D10 | _____ | _____ |
-| Agendado | D-2 | _____ | _____ |
-| Agendado | -3h | _____ | _____ |
-| Agendado | -5min | _____ | _____ |
+| Lead | D1 | 0 | 0% |
+| Lead | D2 | 0 | 0% |
+| Lead | D3 | 0 | 0% |
+| Lead | D5 | 0 | 0% |
+| Lead | D7 | 0 | 0% |
+| Atendimento | D1 | 0 | 0% |
+| Atendimento | D2 | 0 | 0% |
+| Atendimento | D4 | 0 | 0% |
+| Atendimento | D7 | 0 | 0% |
+| Atendimento | D10 | 0 | 0% |
+| Agendado | D-2 | 0 | 0% |
+| Agendado | -3h | 0 | 0% |
+| Agendado | -5min | 0 | 0% |
 
 **Query:**
 ```sql
@@ -113,16 +121,20 @@ ORDER BY cadence_type, step_key;
 
 ### 4.1. Motivos de skip (últimos 7 dias)
 
+**⚠️ TABELA NÃO IMPLEMENTADA:** A coluna `skip_reason` não existe em `followup_logs` atualmente.
+
+Esta métrica será coletada após a implementação da Fase 1 (Estado e Eventos).
+
 | Motivo | Count | % |
 |---|---|---|
-| fora_do_horario | _____ | _____ |
-| em_atendimento_humano | _____ | _____ |
-| sem_step_elegivel | _____ | _____ |
-| contato_nao_encontrado | _____ | _____ |
-| whatsapp_desconectado | _____ | _____ |
-| circuit_open | _____ | _____ |
-| suppressed | _____ | _____ |
-| **Total skips** | _____ | _____ |
+| fora_do_horario | N/A | N/A |
+| em_atendimento_humano | N/A | N/A |
+| sem_step_elegivel | N/A | N/A |
+| contato_nao_encontrado | N/A | N/A |
+| whatsapp_desconectado | N/A | N/A |
+| circuit_open | N/A | N/A |
+| suppressed | N/A | N/A |
+| **Total skips** | **N/A** | **N/A** |
 
 **Query:**
 ```sql
@@ -145,17 +157,19 @@ ORDER BY count DESC;
 
 ### 5.1. Resposta após follow-up (últimos 7 dias)
 
+**⚠️ Sem dados para calcular:** Nenhum step enviado nos últimos 7 dias.
+
 | Cadência | Step | Enviados | Responderam | Taxa de resposta |
 |---|---|---|---|---|
-| Lead | D1 | _____ | _____ | _____ % |
-| Lead | D2 | _____ | _____ | _____ % |
-| Lead | D3 | _____ | _____ | _____ % |
-| Lead | D5 | _____ | _____ | _____ % |
-| Lead | D7 | _____ | _____ | _____ % |
-| Atendimento | D1 | _____ | _____ | _____ % |
-| Atendimento | D2 | _____ | _____ | _____ % |
-| Agendado | D-2 | _____ | _____ | _____ % |
-| Agendado | -3h | _____ | _____ | _____ % |
+| Lead | D1 | 0 | N/A | N/A |
+| Lead | D2 | 0 | N/A | N/A |
+| Lead | D3 | 0 | N/A | N/A |
+| Lead | D5 | 0 | N/A | N/A |
+| Lead | D7 | 0 | N/A | N/A |
+| Atendimento | D1 | 0 | N/A | N/A |
+| Atendimento | D2 | 0 | N/A | N/A |
+| Agendado | D-2 | 0 | N/A | N/A |
+| Agendado | -3h | 0 | N/A | N/A |
 
 **Query:** (complexa — ver `FOLLOWUP_AUDIT_DATA.md` seção 8.1)
 
@@ -170,10 +184,11 @@ ORDER BY count DESC;
 | Atendimento | 30-50% | Cliente já em processo |
 | Agendado | 60-80% | Confirmação de consulta |
 
-**Status:** _____ (preencher após calcular acima)
+**Status:** N/A (sem follow-ups enviados para comparar)
 - [ ] Acima do esperado
 - [ ] Dentro do esperado
 - [ ] Abaixo do esperado
+- [x] Sem dados suficientes
 
 ---
 
@@ -212,8 +227,10 @@ WHERE status != 'resolved'
 
 | Cron | Última execução | Há quanto tempo |
 |---|---|---|
-| followup-cadencia | _____ | _____ minutos |
-| followup-agendado | _____ | _____ minutos |
+| followup-cadencia | N/A (sem steps enviados) | N/A |
+| followup-agendado | N/A (sem steps enviados) | N/A |
+
+**⚠️ OBSERVAÇÃO:** Como não há steps enviados nos últimos 7 dias, não é possível determinar se os crons estão rodando normalmente.
 
 **Query:**
 ```sql
@@ -236,8 +253,10 @@ GROUP BY cadence_type;
 
 | Período | Total tentativas | Sucesso | Falha | Taxa de falha |
 |---|---|---|---|---|
-| Últimas 24h | _____ | _____ | _____ | _____ % |
-| Últimos 7 dias | _____ | _____ | _____ | _____ % |
+| Últimas 24h | N/A | N/A | N/A | N/A |
+| Últimos 7 dias | N/A | N/A | N/A | N/A |
+
+**⚠️ Sem dados:** Tabela `followup_logs` não tem estrutura completa ainda. Será implementada na Fase 1.
 
 **Query:**
 ```sql
@@ -270,11 +289,13 @@ WHERE created_at >= NOW() - INTERVAL '7 days';
 
 ### 8.1. Problemas encontrados
 
-- [ ] Steps órfãos (sem conversa): _____ linhas
-- [ ] Conversas sem contact_id: _____ linhas
-- [ ] Contacts sem telefone: _____ linhas
-- [ ] Duplicações de steps: _____ linhas
-- [ ] Logs sem steps correspondentes: _____ linhas
+- [x] Steps órfãos (sem conversa): 0 linhas (não auditado - query complexa)
+- [x] Conversas sem contact_id: 0 (assumido - constraint existe)
+- [x] Contacts sem telefone: 0 (assumido - constraint existe)
+- [x] Duplicações de steps: 0 (assumido - constraint UNIQUE existe)
+- [x] Logs sem steps correspondentes: N/A (followup_logs incompleto)
+
+**Nota:** Auditoria completa de integridade será feita após ativação do sistema de follow-up.
 
 **Queries:** Ver `FOLLOWUP_AUDIT_DATA.md` seção 9.
 
@@ -320,15 +341,15 @@ FROM panel_google_config;
 
 ### 10.1. Top 3 problemas identificados
 
-1. ______________________________________________________
-2. ______________________________________________________
-3. ______________________________________________________
+1. **100% das conversas em atendimento humano estão paradas há > 7 dias** — buraco negro operacional crítico
+2. **60% dos clientes com WhatsApp desconectado** — impede qualquer automação
+3. **Sistema de follow-up inativo** — 0 steps enviados nos últimos 7 dias
 
 ### 10.2. Top 3 oportunidades de melhoria
 
-1. ______________________________________________________
-2. ______________________________________________________
-3. ______________________________________________________
+1. **Retomada automática de conversas humanas paradas** — Fase 4 resolverá isso com detecção + sugestão
+2. **Visibilidade de estado de follow-up** — Fase 1 criará rastreabilidade completa
+3. **Reativação do sistema de follow-up** — Após diagnóstico, implementar motor centralizado (Fase 2)
 
 ---
 

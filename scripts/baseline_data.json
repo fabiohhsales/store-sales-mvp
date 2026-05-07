@@ -1,0 +1,25 @@
+{
+  "data_coleta": "2026-05-07 14:59:11",
+  "clientes_ativos": 3,
+  "conversas_ativas": 28,
+  "em_atendimento": 2,
+  "aguardando_humano": 2,
+  "em_triagem": 24,
+  "resolvidas": 6,
+  "appointments_futuros": 0,
+  "appointments_confirmados": 2,
+  "total_steps_7d": 0,
+  "steps_por_cadencia": {},
+  "steps_distribuicao": {},
+  "skip_reasons": {},
+  "total_in_service": 2,
+  "stagnated_24h": 2,
+  "stagnated_48h": 2,
+  "stagnated_7d": 2,
+  "whatsapp_status": {
+    "disconnected": 3,
+    "open": 2
+  },
+  "google_configured": 0,
+  "google_not_configured": 2
+}

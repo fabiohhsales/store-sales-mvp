@@ -9,6 +9,8 @@ import {
   isWhatsAppConnected,
 } from '@/lib/followup/shared'
 import type { PanelBotConfig, PanelWhatsAppConfig, FollowupStepConfig } from '@/types/database'
+import { upsertConversationFollowupState } from './state'
+import { recordFollowupSent, recordFollowupSkipped } from './events'
 
 interface LeadConversation {
   id: string
@@ -140,6 +142,17 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
         clientId: ctx.clientId,
         conversationId: conversation.id,
       })
+      
+      // Fase 1: Registrar evento de skip
+      await recordFollowupSkipped({
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+        contactId: conversation.contact_id,
+        cadenceType: 'lead',
+        reasonCode: 'em_atendimento_humano',
+        reasonLabel: 'Conversa em atendimento humano'
+      })
+      
       continue
     }
 
@@ -157,6 +170,17 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
         clientId: ctx.clientId,
         conversationId: conversation.id,
       })
+      
+      // Fase 1: Registrar evento de skip
+      await recordFollowupSkipped({
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+        contactId: conversation.contact_id,
+        cadenceType: 'lead',
+        reasonCode: 'sem_step_elegivel',
+        reasonLabel: 'Nenhum step elegível no momento'
+      })
+      
       continue
     }
 
@@ -166,6 +190,17 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
         clientId: ctx.clientId,
         conversationId: conversation.id,
       })
+      
+      // Fase 1: Registrar evento de skip
+      await recordFollowupSkipped({
+        clientId: ctx.clientId,
+        conversationId: conversation.id,
+        contactId: conversation.contact_id,
+        cadenceType: 'lead',
+        reasonCode: 'contato_nao_encontrado',
+        reasonLabel: 'Contato não encontrado'
+      })
+      
       continue
     }
 
@@ -192,6 +227,29 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
       if (wasSent) {
         sentCount++
         breaker.recordSuccess(ctx.clientId)
+        
+        // Fase 1: Registrar evento de envio + atualizar estado
+        await recordFollowupSent({
+          clientId: ctx.clientId,
+          conversationId: conversation.id,
+          contactId: conversation.contact_id,
+          cadenceType: 'lead',
+          stepKey: resolved.stepKey,
+          message
+        })
+        
+        await upsertConversationFollowupState({
+          client_id: ctx.clientId,
+          conversation_id: conversation.id,
+          contact_id: conversation.contact_id,
+          state: 'active',
+          cadence_type: 'lead',
+          current_step_key: resolved.stepKey,
+          current_step_label: `Lead ${resolved.stepKey}`,
+          total_attempts: 1,
+          last_sent_at: new Date().toISOString(),
+          last_evaluated_at: new Date().toISOString()
+        })
       }
     } catch (error) {
       breaker.recordFailure(ctx.clientId)
