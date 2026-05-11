@@ -128,7 +128,7 @@ Quando o bot detecta handoff necessário por sentimento negativo, urgência, `ma
 
 | Serviço | URL pública |
 |---|---|
-| Painel Admin | https://panel-testeworkflow.yvssrw.easypanel.host |
+| Painel Admin | https://painel.chatsales.com.br |
 | Evolution API | https://chatsales-evolution-api.yvssrw.easypanel.host |
 | n8n (legado) | https://chatsales-n8n.yvssrw.easypanel.host |
 | Chatwoot (legado) | https://chatsales-chatwoot.yvssrw.easypanel.host |
