@@ -219,11 +219,11 @@ export async function GET(request: NextRequest) {
       if (conversation.followup_cadence === 'agendado' && suppressedAgendado.has(conversation.id)) continue
 
       const groupedSteps = stepGroups.get(`${conversation.id}::${conversation.followup_cadence}`) ?? []
-      if (!groupedSteps.length) continue
-
-      const latestStep = groupedSteps[0]
+      const latestStep = groupedSteps[0] ?? null
       const contact = getContact(conversation)
-      const currentStepLabel = stepLabels.get(latestStep.step_key) ?? latestStep.step_key
+      const currentStepLabel = latestStep
+        ? (stepLabels.get(latestStep.step_key) ?? latestStep.step_key)
+        : 'Aguardando 1º envio'
 
       activeConversations.push({
         conversation_id: conversation.id,
@@ -232,14 +232,14 @@ export async function GET(request: NextRequest) {
         contact_name: contact?.name ?? 'Sem nome',
         contact_phone: contact?.phone_number ?? '',
         cadence_type: conversation.followup_cadence,
-        current_step: latestStep.step_key,
+        current_step: latestStep?.step_key ?? 'pending',
         current_step_label: currentStepLabel,
-        step_sent_at: latestStep.sent_at,
+        step_sent_at: latestStep?.sent_at ?? null,
         total_attempts: groupedSteps.length,
         waiting_response: waitingResponse(conversation),
         last_incoming_at: conversation.last_incoming_at,
         last_outgoing_at: conversation.last_outgoing_at,
-        last_message_preview: latestStep.message_sent?.slice(0, 180) ?? null,
+        last_message_preview: latestStep?.message_sent?.slice(0, 180) ?? null,
         stage: conversation.stage,
       })
     }
@@ -257,7 +257,9 @@ export async function GET(request: NextRequest) {
       .filter((conversation) => !isCadenceType(cadenceFilter) || conversation.cadence_type === cadenceFilter)
       .filter((conversation) => !stepFilter || conversation.current_step === stepFilter)
       .sort((left, right) => {
-        return new Date(right.step_sent_at).getTime() - new Date(left.step_sent_at).getTime()
+        const lTime = left.step_sent_at ? new Date(left.step_sent_at).getTime() : 0
+        const rTime = right.step_sent_at ? new Date(right.step_sent_at).getTime() : 0
+        return rTime - lTime
       })
 
     const total = filteredConversations.length

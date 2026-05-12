@@ -270,7 +270,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         summary: {
-          activeFlows: conversations.filter((c) => !!c.followup_cadence).length,
+          activeFlows: conversations.filter((c) => ['lead', 'atendimento', 'agendado'].includes(c.followup_cadence ?? '')).length,
           sentStepsInWindow: steps.length,
           waitingResponseConversations: waitingResponseConversations.length,
           waitingResponseAttempts,

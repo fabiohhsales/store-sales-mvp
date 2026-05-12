@@ -67,9 +67,13 @@ export function FollowupConversationCard({ clientId, conversation, onSend, onCan
                   : 'Agendado'}
             </Badge>
             <Badge variant="outline">{conversation.current_step_label}</Badge>
-            <span className="text-muted-foreground">
-              Enviado em {formatDate(conversation.step_sent_at)}
-            </span>
+            {conversation.step_sent_at ? (
+              <span className="text-muted-foreground">
+                Enviado em {formatDate(conversation.step_sent_at)}
+              </span>
+            ) : (
+              <span className="text-yellow-500/80">Nenhum envio ainda</span>
+            )}
           </div>
 
           <p className="rounded-xl bg-background/60 px-3 py-2 text-sm text-muted-foreground">

@@ -35,7 +35,7 @@ export interface FollowupConversation {
   cadence_type: CadenceType
   current_step: string
   current_step_label: string
-  step_sent_at: string
+  step_sent_at: string | null
   total_attempts: number
   waiting_response: boolean
   last_incoming_at: string | null
