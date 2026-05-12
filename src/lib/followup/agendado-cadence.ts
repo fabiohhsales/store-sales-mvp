@@ -10,7 +10,7 @@ import {
 } from '@/lib/followup/shared'
 import type { PanelBotConfig, PanelWhatsAppConfig, AgendadoFollowupStepConfig } from '@/types/database'
 import { normalizeAgendaStatus } from '@/lib/agenda/constants'
-import { upsertConversationFollowupState } from './state'
+import { getConversationFollowupState, upsertConversationFollowupState } from './state'
 import { recordFollowupSent, recordFollowupSkipped } from './events'
 
 interface AppointmentRow {
@@ -186,6 +186,7 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
           message
         })
         
+        const existingAgendadoState = await getConversationFollowupState(appointment.conversation_id)
         await upsertConversationFollowupState({
           client_id: ctx.clientId,
           conversation_id: appointment.conversation_id,
@@ -194,7 +195,7 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
           cadence_type: 'agendado',
           current_step_key: resolved.stepKey,
           current_step_label: `Agendado ${resolved.stepKey}`,
-          total_attempts: 1,
+          total_attempts: (existingAgendadoState?.total_attempts ?? 0) + 1,
           last_sent_at: new Date().toISOString(),
           last_evaluated_at: new Date().toISOString()
         })

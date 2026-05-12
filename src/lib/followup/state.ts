@@ -136,8 +136,6 @@ export async function transitionFollowupState(
   metadata?: Partial<ConversationFollowupState>
 ): Promise<ConversationFollowupState | null> {
   try {
-    const current = await getConversationFollowupState(conversationId)
-    
     // Validar transição (opcional: adicionar state machine)
     // Por ora, permite qualquer transição
     

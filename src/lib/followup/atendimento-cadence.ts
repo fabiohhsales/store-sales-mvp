@@ -14,7 +14,7 @@ import {
   isWhatsAppConnected,
 } from '@/lib/followup/shared'
 import type { PanelBotConfig, PanelWhatsAppConfig, FollowupStepConfig } from '@/types/database'
-import { upsertConversationFollowupState } from './state'
+import { getConversationFollowupState, upsertConversationFollowupState } from './state'
 import { recordFollowupSent, recordFollowupSkipped } from './events'
 
 interface AtendimentoConversation {
@@ -296,6 +296,7 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
           message
         })
         
+        const existingAtendimentoState = await getConversationFollowupState(conversation.id)
         await upsertConversationFollowupState({
           client_id: ctx.clientId,
           conversation_id: conversation.id,
@@ -304,7 +305,7 @@ async function processClient(ctx: ClientFollowupContext, breaker: FollowupCircui
           cadence_type: 'atendimento',
           current_step_key: resolved.stepKey,
           current_step_label: `Atendimento ${resolved.stepKey}`,
-          total_attempts: 1,
+          total_attempts: (existingAtendimentoState?.total_attempts ?? 0) + 1,
           last_sent_at: new Date().toISOString(),
           last_evaluated_at: new Date().toISOString()
         })
