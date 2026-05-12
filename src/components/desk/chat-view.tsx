@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Send, Check, CheckCheck, Loader2, Trash2, UserCheck, Bot, StickyNote, MessageSquare, Paperclip, Zap, FileText, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X, Images, Clock } from 'lucide-react'
+import { Send, Check, CheckCheck, Loader2, Trash2, UserCheck, Bot, StickyNote, MessageSquare, Paperclip, Zap, FileText, AlertTriangle, RefreshCw, Download, Play, Pause, Square, Mic, X, Images, Clock, Activity } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -90,7 +90,17 @@ interface Props {
   onConversationUpdate: () => void
 }
 
-type ActiveView = 'messages' | 'notes' | 'media'
+type ActiveView = 'messages' | 'notes' | 'media' | 'activity'
+
+interface ActivityItem {
+  id: string
+  type: 'stage' | 'followup' | 'appointment' | 'note'
+  label: string
+  detail?: string
+  actor?: string
+  color?: string
+  timestamp: string
+}
 
 function normalizeCustomData(customData: Record<string, unknown> | null | undefined): Record<string, string> {
   if (!customData) return {}
@@ -630,6 +640,8 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
   const [notesLoading, setNotesLoading] = useState(false)
   const [noteInput, setNoteInput] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
+  const [activityItems, setActivityItems] = useState<ActivityItem[]>([])
+  const [activityLoading, setActivityLoading] = useState(false)
 
   // Upload de mídia (B8)
   const [uploadLoading, setUploadLoading] = useState(false)
@@ -786,6 +798,19 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     }
   }, [conversationId])
 
+  const loadActivity = useCallback(async () => {
+    setActivityLoading(true)
+    try {
+      const res = await fetch(`/api/desk/conversations/${conversationId}/activity`)
+      if (res.ok) {
+        const data = await res.json()
+        setActivityItems(Array.isArray(data.items) ? data.items : [])
+      }
+    } finally {
+      setActivityLoading(false)
+    }
+  }, [conversationId])
+
   const loadCannedResponses = useCallback(async () => {
     try {
       const res = await fetch(`/api/clients/${clientId}/canned-responses`)
@@ -827,10 +852,11 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
     void loadProfile(true)
     void loadAssign()
     void loadNotes(true)
+    void loadActivity()
     void loadCannedResponses()
     void loadPersonalCannedResponses()
     void loadContext()
-  }, [load, loadProfile, loadAssign, loadNotes, loadCannedResponses, loadPersonalCannedResponses, loadContext])
+  }, [load, loadProfile, loadAssign, loadNotes, loadActivity, loadCannedResponses, loadPersonalCannedResponses, loadContext])
 
   // Polling de fallback
   useEffect(() => {
@@ -1419,6 +1445,22 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
             </span>
           )}
         </button>
+        <button
+          onClick={() => { setActiveView('activity'); void loadActivity() }}
+          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+            activeView === 'activity'
+              ? 'border-primary text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Activity size={12} />
+          Atividades
+          {activityItems.length > 0 && (
+            <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {activityItems.length}
+            </span>
+          )}
+        </button>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -1790,6 +1832,47 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                   </>
                 )
               })()}
+            </div>
+          ) : activeView === 'activity' ? (
+            /* Feed de Atividades */
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {activityLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 size={13} className="animate-spin" />
+                  Carregando atividades...
+                </div>
+              ) : activityItems.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-center">
+                  <Activity size={24} className="text-muted-foreground/30 mb-2" />
+                  <p className="text-xs text-muted-foreground">Nenhuma atividade registrada ainda.</p>
+                </div>
+              ) : (
+                activityItems.map((item) => {
+                  const dotMap = {
+                    stage: 'bg-sky-500',
+                    followup: 'bg-violet-500',
+                    appointment: 'bg-emerald-500',
+                    note: 'bg-amber-500',
+                  }
+                  return (
+                    <div key={item.id} className="flex items-start gap-2.5 rounded-lg border border-border bg-card/40 px-3 py-2">
+                      <span className={`mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 ${dotMap[item.type]}`} />
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-foreground leading-tight">{item.label}</span>
+                          <span className="text-[10px] text-muted-foreground flex-shrink-0">{relativeTime(item.timestamp)}</span>
+                        </div>
+                        {item.detail && (
+                          <p className="text-[11px] text-muted-foreground leading-snug">{item.detail}</p>
+                        )}
+                        {item.actor && (
+                          <p className="text-[10px] text-muted-foreground/60">{item.actor}</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
             </div>
           ) : (
             /* View de Notas internas */
