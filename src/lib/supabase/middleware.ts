@@ -43,9 +43,10 @@ export async function updateSession(request: NextRequest) {
   const isEmbedAuthApi = request.nextUrl.pathname === '/api/chatwoot/auth'
   const isPipelineApi = request.nextUrl.pathname.startsWith('/api/pipeline/')
   const isAgendaApi = request.nextUrl.pathname.startsWith('/api/agenda/')
+  const isPaymentsWebhook = request.nextUrl.pathname === '/api/webhooks/payments'
 
   // Allow public routes
-  if (isAuthCallback || isAuthGoogleCallback || isAuthGooglePublic || isHealthApi || isPublicConnect || isPublicQRApi || isChatwootWebhook || isEvolutionWebhook || isChatwootEmbed || isEmbedAuthApi || isPipelineApi || isAgendaApi || isDeskApi) {
+  if (isAuthCallback || isAuthGoogleCallback || isAuthGooglePublic || isHealthApi || isPublicConnect || isPublicQRApi || isChatwootWebhook || isEvolutionWebhook || isChatwootEmbed || isEmbedAuthApi || isPipelineApi || isAgendaApi || isDeskApi || isPaymentsWebhook) {
     return supabaseResponse
   }
 
