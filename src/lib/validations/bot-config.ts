@@ -1,7 +1,7 @@
 import { z } from 'zod/v4'
 
 const aiToneValues = ['formal', 'professional_friendly', 'casual', 'empathetic'] as const
-const businessSegmentValues = ['medicina', 'odontologia', 'psicologia', 'fisioterapia', 'estetica', 'outro'] as const
+const businessSegmentValues = ['medicina', 'odontologia', 'psicologia', 'fisioterapia', 'estetica', 'outro', 'loja'] as const
 const serviceModalityValues = ['presencial', 'teleconsulta', 'ambos'] as const
 
 const serviceSchema = z.object({

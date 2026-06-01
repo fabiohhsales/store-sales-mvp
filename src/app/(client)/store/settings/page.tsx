@@ -7,8 +7,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, Settings, Sparkles, AlertCircle } from 'lucide-react'
+import { Loader2, Settings, Sparkles, AlertCircle, Kanban, Send } from 'lucide-react'
 import { toast } from 'sonner'
+import { StagesLabelsSection } from '@/components/bot-config/stages-labels-section'
+import { FollowupSection } from '@/components/bot-config/followup-section'
 
 export default function StoreSettingsPage() {
   const [loading, setLoading] = useState(true)
@@ -22,14 +24,31 @@ export default function StoreSettingsPage() {
   const [ragEnabled, setRagEnabled] = useState(true)
   const [fallbackMessage, setFallbackMessage] = useState('')
 
+  // Bot Config states (stages & followups)
+  const [botConfig, setBotConfig] = useState<any>({
+    stage_labels: [],
+    lead_followup_enabled: false,
+    lead_followup_steps: [],
+    atendimento_followup_enabled: false,
+    atendimento_followup_steps: [],
+  })
+
   useEffect(() => {
     fetchSettings()
   }, [])
 
+  function handleBotConfigChange(updates: any) {
+    setBotConfig((prev: any) => ({ ...prev, ...updates }))
+  }
+
   async function fetchSettings() {
     try {
       setLoading(true)
-      const res = await fetch('/api/store/settings')
+      const searchParams = new URLSearchParams(window.location.search)
+      const clientIdParam = searchParams.get('client_id')
+      const url = clientIdParam ? `/api/store/settings?client_id=${clientIdParam}` : '/api/store/settings'
+
+      const res = await fetch(url)
       if (!res.ok) throw new Error('Falha ao carregar configurações.')
       const data = await res.json()
       
@@ -43,6 +62,15 @@ export default function StoreSettingsPage() {
         setRagEnabled(data.settings.rag_enabled !== false)
         setFallbackMessage(data.settings.fallback_message || '')
       }
+      if (data.botConfig) {
+        setBotConfig({
+          stage_labels: data.botConfig.stage_labels || [],
+          lead_followup_enabled: data.botConfig.lead_followup_enabled || false,
+          lead_followup_steps: data.botConfig.lead_followup_steps || [],
+          atendimento_followup_enabled: data.botConfig.atendimento_followup_enabled || false,
+          atendimento_followup_steps: data.botConfig.atendimento_followup_steps || [],
+        })
+      }
     } catch (err: any) {
       setError(err.message || 'Erro inesperado')
     } finally {
@@ -53,16 +81,26 @@ export default function StoreSettingsPage() {
   async function handleSave() {
     try {
       setSaving(true)
+      const searchParams = new URLSearchParams(window.location.search)
+      const clientIdParam = searchParams.get('client_id')
+
       const res = await fetch('/api/store/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          client_id: clientIdParam || undefined,
           name,
           agent_name: agentName,
           tone_of_voice: tone,
           auto_reply_enabled: autoReply,
           rag_enabled: ragEnabled,
           fallback_message: fallbackMessage,
+          // Bot Config fields
+          stage_labels: botConfig.stage_labels,
+          lead_followup_enabled: botConfig.lead_followup_enabled,
+          lead_followup_steps: botConfig.lead_followup_steps,
+          atendimento_followup_enabled: botConfig.atendimento_followup_enabled,
+          atendimento_followup_steps: botConfig.atendimento_followup_steps,
         }),
       })
 
@@ -168,6 +206,44 @@ export default function StoreSettingsPage() {
                   rows={3}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Kanban Stage Customization Card */}
+          <Card className="border border-border/40 bg-card/60 backdrop-blur-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-foreground/90">
+                <Kanban className="h-5 w-5 text-primary" />
+                Etapas do Funil (Kanban Board)
+              </CardTitle>
+              <CardDescription>
+                Customize as colunas do seu Kanban e os respectivos gatilhos de follow-up automáticos por etapa.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <StagesLabelsSection
+                config={botConfig}
+                onChange={handleBotConfigChange}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Follow-up steps customization Card */}
+          <Card className="border border-border/40 bg-card/60 backdrop-blur-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-foreground/90">
+                <Send className="h-5 w-5 text-primary" />
+                Mensagens de Follow-up (Cobrança)
+              </CardTitle>
+              <CardDescription>
+                Configure as mensagens de lembrete enviadas se o cliente sumir ou não responder.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FollowupSection
+                config={botConfig}
+                onChange={handleBotConfigChange}
+              />
             </CardContent>
           </Card>
         </div>

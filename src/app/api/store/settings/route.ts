@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     .eq('client_id', targetClientId)
 
   if (!stores || stores.length === 0) {
-    return NextResponse.json({ store: null, settings: null })
+    return NextResponse.json({ store: null, settings: null, botConfig: null })
   }
 
   const store = stores[0]
@@ -41,7 +41,14 @@ export async function GET(req: NextRequest) {
     .eq('store_id', store.id)
     .maybeSingle()
 
-  return NextResponse.json({ store, settings })
+  // 3. Fetch bot config (stages & followups)
+  const { data: botConfig } = await supabase
+    .from('panel_bot_config')
+    .select('stage_labels, lead_followup_enabled, lead_followup_steps, atendimento_followup_enabled, atendimento_followup_steps')
+    .eq('client_id', targetClientId)
+    .maybeSingle()
+
+  return NextResponse.json({ store, settings, botConfig })
 }
 
 export async function POST(req: NextRequest) {
@@ -66,12 +73,17 @@ export async function POST(req: NextRequest) {
       human_handoff_enabled,
       fallback_message,
       whatsapp_config_id,
+      stage_labels,
+      lead_followup_enabled,
+      lead_followup_steps,
+      atendimento_followup_enabled,
+      atendimento_followup_steps,
     } = body
 
     const targetClientId = clientId || body.client_id
 
-    if (!targetClientId || !name) {
-      return NextResponse.json({ error: 'Campos obrigatórios ausentes: client_id, name' }, { status: 400 })
+    if (!targetClientId) {
+      return NextResponse.json({ error: 'Campos obrigatórios ausentes: client_id' }, { status: 400 })
     }
 
     const supabase = createAdminClient()
@@ -84,11 +96,22 @@ export async function POST(req: NextRequest) {
       .eq('client_id', targetClientId)
       .limit(1)
 
+    // Se o nome não foi passado, tenta usar o nome do cliente
+    let storeName = name
+    if (!storeName) {
+      const { data: clientData } = await supabase
+        .from('panel_clients')
+        .select('name')
+        .eq('id', targetClientId)
+        .maybeSingle()
+      storeName = clientData ? `Loja - ${clientData.name}` : 'Minha Loja'
+    }
+
     if (existingStores && existingStores.length > 0) {
       storeId = existingStores[0].id
       await supabase
         .from('stores')
-        .update({ name, updated_at: new Date().toISOString() })
+        .update({ name: storeName, updated_at: new Date().toISOString() })
         .eq('id', storeId)
     } else {
       const { data: newStore, error: storeErr } = await supabase
@@ -96,7 +119,7 @@ export async function POST(req: NextRequest) {
         .insert({
           id: crypto.randomUUID(),
           client_id: targetClientId,
-          name,
+          name: storeName,
         })
         .select()
         .single()
@@ -170,6 +193,50 @@ export async function POST(req: NextRequest) {
 
       if (setErr) throw setErr
       resultSettings = created
+    }
+
+    // 4. Create or Update panel_bot_config (stages & followups)
+    const updates: any = {}
+    if (stage_labels) updates.stage_labels = stage_labels
+    if (typeof lead_followup_enabled === 'boolean') updates.lead_followup_enabled = lead_followup_enabled
+    if (lead_followup_steps) updates.lead_followup_steps = lead_followup_steps
+    if (typeof atendimento_followup_enabled === 'boolean') updates.atendimento_followup_enabled = atendimento_followup_enabled
+    if (atendimento_followup_steps) updates.atendimento_followup_steps = atendimento_followup_steps
+
+    if (Object.keys(updates).length > 0) {
+      const { data: existingBotConfig } = await supabase
+        .from('panel_bot_config')
+        .select('id')
+        .eq('client_id', targetClientId)
+        .maybeSingle()
+
+      if (existingBotConfig) {
+        await supabase
+          .from('panel_bot_config')
+          .update(updates)
+          .eq('client_id', targetClientId)
+      } else {
+        const defaultWorkingHours = {
+          monday: { enabled: true, start: '08:00', end: '18:00', break_start: null, break_end: null },
+          tuesday: { enabled: true, start: '08:00', end: '18:00', break_start: null, break_end: null },
+          wednesday: { enabled: true, start: '08:00', end: '18:00', break_start: null, break_end: null },
+          thursday: { enabled: true, start: '08:00', end: '18:00', break_start: null, break_end: null },
+          friday: { enabled: true, start: '08:00', end: '18:00', break_start: null, break_end: null },
+          saturday: { enabled: false, start: '08:00', end: '12:00', break_start: null, break_end: null },
+          sunday: { enabled: false, start: '08:00', end: '12:00', break_start: null, break_end: null },
+        }
+
+        await supabase
+          .from('panel_bot_config')
+          .insert({
+            id: crypto.randomUUID(),
+            client_id: targetClientId,
+            professional_name: 'Vendedor Virtual',
+            working_hours: defaultWorkingHours,
+            business_segment: 'loja',
+            ...updates,
+          })
+      }
     }
 
     return NextResponse.json({ store_id: storeId, settings: resultSettings })

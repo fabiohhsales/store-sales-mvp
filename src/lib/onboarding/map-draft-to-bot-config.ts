@@ -1,5 +1,5 @@
 import type { PanelBotConfigInsert, IntakeFieldConfig, ServiceConfig } from '@/types/database'
-import { DEFAULT_STAGE_LABELS } from '@/lib/bot/stage-labels'
+import { DEFAULT_STAGE_LABELS, DEFAULT_STORE_STAGE_LABELS } from '@/lib/bot/stage-labels'
 import type { OnboardingDraft, HandoffReason } from '@/types/onboarding'
 
 // ── Label maps ────────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ export function mapOnboardingDraftToPanelBotConfig(
 
     // ── Services ─────────────────────────────────────────────────────────────
     services: mappedServices,
-    stage_labels: DEFAULT_STAGE_LABELS,
+    stage_labels: business.segment === 'loja' ? DEFAULT_STORE_STAGE_LABELS : DEFAULT_STAGE_LABELS,
 
     // ── Working hours ─────────────────────────────────────────────────────────
     working_hours: workingHours,

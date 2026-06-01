@@ -10,6 +10,16 @@ export const DEFAULT_STAGE_LABELS: StageLabelConfig[] = [
   { slug: 'etapa_inativo', display_name: 'Inativo', followup_cadence: null },
 ]
 
+export const DEFAULT_STORE_STAGE_LABELS: StageLabelConfig[] = [
+  { slug: 'etapa_novo_lead', display_name: 'Novo Lead', followup_cadence: 'lead' },
+  { slug: 'etapa_em_atendimento', display_name: 'Em Atendimento', followup_cadence: 'atendimento' },
+  { slug: 'etapa_orcamento', display_name: 'Orçamento Enviado', followup_cadence: 'atendimento' },
+  { slug: 'etapa_negociacao', display_name: 'Em Negociação', followup_cadence: 'atendimento' },
+  { slug: 'etapa_aguardando_pagamento', display_name: 'Aguardando Pagamento', followup_cadence: 'lead' },
+  { slug: 'etapa_pedido_pago', display_name: 'Pedido Pago', followup_cadence: null },
+  { slug: 'etapa_inativo', display_name: 'Inativo', followup_cadence: null },
+]
+
 function sanitizeFollowupCadence(value: unknown): StageLabelConfig['followup_cadence'] {
   if (value === 'lead' || value === 'atendimento' || value === 'agendado') {
     return value
@@ -29,8 +39,12 @@ export function normalizeStageSlug(value: string): string {
     .replace(/^_+|_+$/g, '')
 }
 
-export function sanitizeStageLabels(labels: StageLabelConfig[] | null | undefined): StageLabelConfig[] {
-  const source = labels && labels.length > 0 ? labels : DEFAULT_STAGE_LABELS
+export function sanitizeStageLabels(
+  labels: StageLabelConfig[] | null | undefined,
+  segment?: string
+): StageLabelConfig[] {
+  const defaultLabels = segment === 'loja' ? DEFAULT_STORE_STAGE_LABELS : DEFAULT_STAGE_LABELS
+  const source = labels && labels.length > 0 ? labels : defaultLabels
   const deduped = new Map<string, StageLabelConfig>()
 
   for (const item of source) {
@@ -44,10 +58,10 @@ export function sanitizeStageLabels(labels: StageLabelConfig[] | null | undefine
     }
   }
 
-  if (deduped.size === 0) return [...DEFAULT_STAGE_LABELS]
+  if (deduped.size === 0) return [...defaultLabels]
   return [...deduped.values()]
 }
 
-export function stageLabelSlugs(labels: StageLabelConfig[] | null | undefined): string[] {
-  return sanitizeStageLabels(labels).map((item) => item.slug)
+export function stageLabelSlugs(labels: StageLabelConfig[] | null | undefined, segment?: string): string[] {
+  return sanitizeStageLabels(labels, segment).map((item) => item.slug)
 }

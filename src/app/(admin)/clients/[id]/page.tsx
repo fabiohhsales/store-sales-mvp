@@ -6,10 +6,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowLeft, CalendarDays, Headphones } from 'lucide-react'
 import { getClientById } from '@/lib/db/clients'
 import { listAuditLogsByClientId } from '@/lib/db/audit-log'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { StatusCards } from '@/components/client-detail/status-cards'
 import { ClientActions } from '@/components/client-detail/client-actions'
 import { GoogleReconnect } from '@/components/client-detail/google-reconnect'
 import { WhatsAppConnectionPanel } from '@/components/client-detail/whatsapp-connection-panel'
+import { StoreModulePanel } from '@/components/client-detail/store-module-panel'
 import { ClientAuditLog } from '@/components/client-detail/client-audit-log'
 import { ClientMetrics } from '@/components/client-detail/client-metrics'
 import { ChatwootAppsSetup } from '@/components/client-detail/chatwoot-apps-setup'
@@ -46,6 +48,15 @@ export default async function ClientDetailPage({
     process.env.NEXT_PUBLIC_CHATWOOT_URL?.replace(/\/$/, '') ??
     ''
 
+  const adminDb = createAdminClient()
+  const { data: stores } = await adminDb
+    .from('stores')
+    .select('id, name')
+    .eq('client_id', id)
+    .limit(1)
+
+  const store = stores && stores.length > 0 ? stores[0] : null
+
   return (
     <div className="space-y-6">
       <div>
@@ -80,6 +91,13 @@ export default async function ClientDetailPage({
             clientId={id}
             initialInstanceName={client.panel_whatsapp_config?.evolution_instance_name}
             clientName={client.name}
+          />
+
+          <StoreModulePanel
+            clientId={id}
+            clientName={client.name}
+            hasWhatsAppConfig={!!client.panel_whatsapp_config}
+            initialStore={store}
           />
 
           {/* Google Calendar — sempre visível */}

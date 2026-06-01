@@ -18,6 +18,7 @@ export type BusinessSegment =
   | 'fisioterapia'
   | 'estetica'
   | 'outro'
+  | 'loja'
 
 export type ServiceModality = 'presencial' | 'teleconsulta' | 'ambos'
 

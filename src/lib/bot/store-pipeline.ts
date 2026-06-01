@@ -8,6 +8,7 @@ import {
 } from './pipeline'
 import type { NormalizedEvolutionMessage, BotContact, BotConversation, BotMessage } from '@/types/bot'
 import type { StoreContext, StorePipelineResult, StoreAgentSettings } from '@/types/store'
+import { stageLabelSlugs } from './stage-labels'
 
 const MESSAGE_DEBOUNCE_MS = 3000
 
@@ -111,8 +112,17 @@ export async function runStorePipeline(
 
   const supabase = createAdminClient()
 
+  const { data: botConfig } = await supabase
+    .from('panel_bot_config')
+    .select('stage_labels')
+    .eq('client_id', storeContext.clientId)
+    .maybeSingle()
+
+  const slugs = stageLabelSlugs(botConfig?.stage_labels, 'loja')
+  const defaultStage = slugs[0] || 'etapa_novo_lead'
+
   const contact = await upsertEvolutionContact(supabase, msg, storeContext.clientId)
-  const conversation = await upsertEvolutionConversation(supabase, contact, storeContext.clientId, 'etapa_triagem')
+  const conversation = await upsertEvolutionConversation(supabase, contact, storeContext.clientId, defaultStage)
 
   // Se a conversa está sendo atendida por humano, apenas salva a mensagem e encerra
   if (conversation.stage === 'in_service' || conversation.stage === 'awaiting_human') {

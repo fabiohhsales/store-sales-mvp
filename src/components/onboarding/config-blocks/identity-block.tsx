@@ -26,6 +26,7 @@ const SEGMENTS: { value: BusinessSegment; label: string }[] = [
   { value: 'psicologia', label: 'Psicologia' },
   { value: 'fisioterapia', label: 'Fisioterapia' },
   { value: 'estetica', label: 'Estética' },
+  { value: 'loja', label: 'Loja (Comércio)' },
   { value: 'outro', label: 'Outro' },
 ]
 
