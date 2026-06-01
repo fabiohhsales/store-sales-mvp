@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
  */
 async function processPaymentSuccess(
   orderId: string | null,
-  providerPaymentId: string,
+  providerPaymentId: string | null,
   providerType: string
 ): Promise<boolean> {
   const supabase = createAdminClient()
@@ -111,8 +111,10 @@ async function processPaymentSuccess(
   let query = supabase.from('store_orders').select('*')
   if (orderId) {
     query = query.eq('id', orderId)
-  } else {
+  } else if (providerPaymentId) {
     query = query.eq('provider_payment_id', providerPaymentId)
+  } else {
+    return false
   }
 
   const { data: order } = await query.maybeSingle()
