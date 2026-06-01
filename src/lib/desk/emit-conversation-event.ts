@@ -23,6 +23,7 @@ export type ConversationEventType =
   | 'bot_resume_skipped'
   | 'bot_resume_failed'
   | 'stage_changed'
+  | 'payment_received'
 
 export async function emitConversationEvent(
   conversationId: string,

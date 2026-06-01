@@ -1,4 +1,5 @@
-import type { PanelWhatsAppConfig, BotContact, BotConversation, BotMessage } from './bot'
+import type { PanelWhatsAppConfig } from './database'
+import type { BotContact, BotConversation, BotMessage } from './bot'
 
 export interface Store {
   id: string

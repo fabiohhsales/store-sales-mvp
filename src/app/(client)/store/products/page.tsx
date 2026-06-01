@@ -38,6 +38,7 @@ interface Product {
   assembly_included: boolean
   status: string
   main_image_url: string | null
+  description_long: string | null
 }
 
 export default function StoreProductsPage() {
@@ -176,11 +177,11 @@ export default function StoreProductsPage() {
 
         {storeId && (
           <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
+            <DialogTrigger render={
               <Button className="font-bold shadow-lg shadow-primary/20">
                 <Plus className="mr-2 h-4 w-4" /> Novo Produto
               </Button>
-            </DialogTrigger>
+            } />
             <DialogContent className="max-w-2xl bg-card border-border/40 max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Cadastrar Novo Produto</DialogTitle>
@@ -204,7 +205,7 @@ export default function StoreProductsPage() {
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-2">
                     <Label htmlFor="price-type">Tipo de Preço</Label>
-                    <Select value={priceType} onValueChange={setPriceType}>
+                    <Select value={priceType} onValueChange={(val) => setPriceType(val || 'fixed')}>
                       <SelectTrigger id="price-type">
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
