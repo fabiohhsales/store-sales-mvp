@@ -166,9 +166,13 @@ export async function runStorePipelineRoute(msg: NormalizedEvolutionMessage): Pr
 }
 
 /**
- * Placeholder for Store Conversation Turn. Will be implemented in Phase 3.
+ * Runs the Store Conversation Turn (queries AI Agent and dispatches response actions).
  */
 async function runStoreConversationBotTurn(result: StorePipelineResult): Promise<void> {
+  const { runStoreAgent } = await import('./store-agent')
+  const { dispatchStoreAgent } = await import('./store-dispatcher')
+
   console.log(`[Store-Agent] Executando turno da IA para conv=${result.conversation.id} (RAG / Loja)`)
-  // TODO: Implement Agent turn with RAG and Stripe/AbacatePay checkout link triggers.
+  const output = await runStoreAgent(result)
+  await dispatchStoreAgent(result, output)
 }
