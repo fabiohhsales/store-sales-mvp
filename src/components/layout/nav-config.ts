@@ -8,6 +8,7 @@ import {
   Shield,
   UserCircle,
   Users,
+  ShoppingBag,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -31,6 +32,8 @@ export const clientNavItems: NavItem[] = [
   { href: '/pipeline', label: 'Pipeline', icon: Kanban },
   { href: '/agenda', label: 'Agenda', icon: Calendar },
   { href: '/followups', label: 'Follow Ups', icon: Send },
+  { href: '/store/products', label: 'Loja Catálogo', icon: ShoppingBag },
+  { href: '/store/settings', label: 'Loja Config', icon: Settings },
   { href: '/account', label: 'Minha Conta', icon: UserCircle },
 ]
 
