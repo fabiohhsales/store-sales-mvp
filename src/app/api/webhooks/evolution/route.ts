@@ -4,6 +4,7 @@ import { runEvolutionPipeline } from '@/lib/bot/pipeline'
 import { runConversationBotTurn } from '@/lib/bot/run-conversation-turn'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncConnectionStateFromWebhook } from '@/lib/whatsapp/connection-state'
+import { checkIfStoreInstance, runStorePipelineRoute } from '@/lib/bot/store-pipeline'
 import type { EvolutionWebhookPayload } from '@/types/bot'
 
 /** How long to wait for additional messages before running the AI. */
@@ -67,6 +68,13 @@ async function hasNewerLeadMessages(conversationId: string, afterIso: string): P
 
 async function runPipeline(msg: import('@/types/bot').NormalizedEvolutionMessage) {
   try {
+    // 0. Route to store pipeline if this is a store instance
+    const isStore = await checkIfStoreInstance(msg.instanceName)
+    if (isStore) {
+      await runStorePipelineRoute(msg)
+      return
+    }
+
     // 1. Save message and resolve pipeline context
     const result = await runEvolutionPipeline(msg)
     if (!result) return

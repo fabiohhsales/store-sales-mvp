@@ -214,7 +214,7 @@ async function saveMessage(
   return saved as BotMessage
 }
 
-async function getMessageHistory(
+export async function getMessageHistory(
   supabase: ReturnType<typeof createAdminClient>,
   conversationId: string,
   limit = 20
@@ -277,7 +277,7 @@ async function resolveClientByInstance(instanceName: string): Promise<ClientCont
   }
 }
 
-async function upsertEvolutionContact(
+export async function upsertEvolutionContact(
   supabase: ReturnType<typeof createAdminClient>,
   msg: NormalizedEvolutionMessage,
   clientId: string
@@ -360,7 +360,7 @@ async function upsertEvolutionContact(
   return created as BotContact
 }
 
-async function upsertEvolutionConversation(
+export async function upsertEvolutionConversation(
   supabase: ReturnType<typeof createAdminClient>,
   contact: BotContact,
   clientId: string,
