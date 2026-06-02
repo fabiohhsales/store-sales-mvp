@@ -43,6 +43,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
 
+  if (session.role === 'operator' && session.clientRole === 'agent') {
+    return NextResponse.json({ error: 'Acesso negado: apenas administradores do cliente podem gerenciar produtos.' }, { status: 403 })
+  }
+
   const clientId = session.clientId
   if (!clientId && session.role !== 'admin') {
     return NextResponse.json({ error: 'Nenhum cliente associado' }, { status: 400 })

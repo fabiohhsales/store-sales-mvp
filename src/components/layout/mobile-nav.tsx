@@ -15,12 +15,13 @@ import { getNavItems, type LayoutAudience } from './nav-config'
 
 interface MobileNavProps {
   audience: LayoutAudience
+  clientRole?: 'admin' | 'agent' | null
 }
 
-export function MobileNav({ audience }: MobileNavProps) {
+export function MobileNav({ audience, clientRole }: MobileNavProps) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
-  const navItems = getNavItems(audience)
+  const navItems = getNavItems(audience, clientRole)
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>

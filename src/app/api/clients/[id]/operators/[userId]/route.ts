@@ -20,6 +20,13 @@ export async function PATCH(
   const allowed: Record<string, unknown> = {}
   if ('display_name' in body) allowed.display_name = body.display_name
   if ('is_active' in body) allowed.is_active = Boolean(body.is_active)
+  if ('client_role' in body) {
+    if (body.client_role === 'admin' || body.client_role === 'agent') {
+      allowed.client_role = body.client_role
+    } else {
+      return NextResponse.json({ error: 'Papel de acesso do cliente inválido' }, { status: 400 })
+    }
+  }
 
   if (Object.keys(allowed).length === 0) {
     return NextResponse.json({ error: 'Nenhum campo válido para atualizar' }, { status: 400 })
@@ -33,7 +40,7 @@ export async function PATCH(
     .eq('id', userId)
     .eq('client_id', clientId)
     .eq('role', 'operator')
-    .select('id, email, display_name, is_active, created_at')
+    .select('id, email, display_name, client_role, is_active, created_at')
     .single()
 
   if (error) {

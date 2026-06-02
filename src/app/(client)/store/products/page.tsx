@@ -162,6 +162,10 @@ export default function StoreProductsPage() {
       // 1. Fetch store ID
       const settingsUrl = clientIdParam ? `/api/store/settings?client_id=${clientIdParam}` : '/api/store/settings'
       const storeRes = await fetch(settingsUrl)
+      if (storeRes.status === 403) {
+        setError('Acesso negado: apenas administradores do cliente possuem autorização para gerenciar o catálogo de produtos.')
+        return
+      }
       if (!storeRes.ok) throw new Error('Falha ao carregar dados da loja.')
       const storeData = await storeRes.json()
       

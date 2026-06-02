@@ -8,6 +8,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
 
+  if (session.role === 'operator' && session.clientRole === 'agent') {
+    return NextResponse.json({ error: 'Acesso negado: apenas administradores do cliente podem gerenciar configurações.' }, { status: 403 })
+  }
+
   const clientId = session.clientId
   if (!clientId && session.role !== 'admin') {
     return NextResponse.json({ error: 'Nenhum cliente associado' }, { status: 400 })
@@ -55,6 +59,10 @@ export async function POST(req: NextRequest) {
   const session = await getPanelSession()
   if (!session) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  }
+
+  if (session.role === 'operator' && session.clientRole === 'agent') {
+    return NextResponse.json({ error: 'Acesso negado: apenas administradores do cliente podem gerenciar configurações.' }, { status: 403 })
   }
 
   const clientId = session.clientId

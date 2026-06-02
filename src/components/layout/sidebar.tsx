@@ -8,12 +8,13 @@ import { getNavItems, type LayoutAudience } from './nav-config'
 
 interface SidebarProps {
   audience: LayoutAudience
+  clientRole?: 'admin' | 'agent' | null
 }
 
-export function Sidebar({ audience }: SidebarProps) {
+export function Sidebar({ audience, clientRole }: SidebarProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
-  const navItems = getNavItems(audience)
+  const navItems = getNavItems(audience, clientRole)
 
   return (
     <aside

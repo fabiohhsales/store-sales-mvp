@@ -6,14 +6,6 @@ import { Loader2, PencilLine, RefreshCw, ShieldPlus, UserRound } from 'lucide-re
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -26,6 +18,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import {
   Table,
   TableBody,
   TableCell,
@@ -33,6 +32,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface OperatorsSectionProps {
   clientId: string
@@ -42,6 +48,7 @@ interface OperatorRecord {
   id: string
   email: string
   display_name: string | null
+  client_role: 'admin' | 'agent'
   is_active: boolean
   created_at: string | null
 }
@@ -77,8 +84,10 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
     display_name: '',
     email: '',
     password: '',
+    client_role: 'agent',
   })
   const [editDisplayName, setEditDisplayName] = useState('')
+  const [editClientRole, setEditClientRole] = useState<'admin' | 'agent'>('agent')
 
   const activeCount = useMemo(
     () => operators.filter((operator) => operator.is_active).length,
@@ -98,7 +107,7 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
       if (!res.ok) {
         throw new Error(body.error || 'Erro ao carregar operadores')
       }
-      setOperators(Array.isArray(body) ? body as OperatorRecord[] : [])
+      setOperators(Array.isArray(body) ? (body as OperatorRecord[]) : [])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erro ao carregar operadores')
     } finally {
@@ -116,6 +125,7 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
       display_name: '',
       email: '',
       password: '',
+      client_role: 'agent',
     })
   }
 
@@ -152,6 +162,7 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
           email,
           password,
           display_name: displayName || null,
+          client_role: createForm.client_role,
         }),
       })
 
@@ -174,9 +185,10 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
   function openEditDialog(operator: OperatorRecord) {
     setEditingOperator(operator)
     setEditDisplayName(operator.display_name ?? '')
+    setEditClientRole(operator.client_role ?? 'agent')
   }
 
-  async function handleSaveDisplayName() {
+  async function handleSaveOperator() {
     if (!editingOperator) return
 
     setEditLoading(true)
@@ -184,7 +196,10 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
       const res = await fetch(`/api/clients/${clientId}/operators/${editingOperator.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: editDisplayName.trim() || null }),
+        body: JSON.stringify({
+          display_name: editDisplayName.trim() || null,
+          client_role: editClientRole,
+        }),
       })
 
       const body = await res.json().catch(() => ({}))
@@ -193,11 +208,11 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
       }
 
       setOperators((prev) => prev.map((operator) => (
-        operator.id === editingOperator.id ? body as OperatorRecord : operator
+        operator.id === editingOperator.id ? (body as OperatorRecord) : operator
       )))
       setEditingOperator(null)
       setEditDisplayName('')
-      toast.success('Nome do operador atualizado')
+      toast.success('Operador atualizado com sucesso')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erro ao atualizar operador')
     } finally {
@@ -220,7 +235,7 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
       }
 
       setOperators((prev) => prev.map((item) => (
-        item.id === operator.id ? body as OperatorRecord : item
+        item.id === operator.id ? (body as OperatorRecord) : item
       )))
       toast.success(nextChecked ? 'Operador ativado' : 'Operador desativado')
     } catch (err) {
@@ -232,14 +247,14 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div>
           <CardTitle>Operadores do Desk</CardTitle>
           <CardDescription>
             Crie acessos por cliente para o atendimento humano. A senha inicial precisa ser definida e compartilhada manualmente.
           </CardDescription>
         </div>
-        <CardAction className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <Badge variant="outline">{activeCount} ativos</Badge>
           <Badge variant="secondary">{operators.length} total</Badge>
           <Button
@@ -257,7 +272,7 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
               <ShieldPlus className="mr-1 h-3.5 w-3.5" />
               Novo operador
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-md bg-card border-border/40">
               <DialogHeader>
                 <DialogTitle>Criar operador</DialogTitle>
                 <DialogDescription>
@@ -283,6 +298,21 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
                     value={createForm.email}
                     onChange={(e) => setCreateForm((prev) => ({ ...prev, email: e.target.value }))}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="operator-role">Papel de Acesso (Cliente)</Label>
+                  <Select
+                    value={createForm.client_role}
+                    onValueChange={(val) => setCreateForm((prev) => ({ ...prev, client_role: val || 'agent' }))}
+                  >
+                    <SelectTrigger id="operator-role">
+                      <SelectValue placeholder="Selecione o papel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">Administrador da Loja (Configurações + Catálogo + Chat)</SelectItem>
+                      <SelectItem value="agent">Atendente/Agente da Loja (Chat apenas)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
@@ -314,7 +344,7 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </CardAction>
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-4">
@@ -339,6 +369,7 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
               <TableRow>
                 <TableHead>Nome</TableHead>
                 <TableHead>E-mail</TableHead>
+                <TableHead>Papel</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Criado em</TableHead>
                 <TableHead className="text-right">Acoes</TableHead>
@@ -352,7 +383,12 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
                   </TableCell>
                   <TableCell className="text-muted-foreground">{operator.email}</TableCell>
                   <TableCell>
-                    <Badge variant={operator.is_active ? 'default' : 'outline'}>
+                    <Badge variant={operator.client_role === 'admin' ? 'default' : 'secondary'} className="font-semibold">
+                      {operator.client_role === 'admin' ? 'Administrador' : 'Agente'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={operator.is_active ? 'outline' : 'destructive'}>
                       {operator.is_active ? 'Ativo' : 'Inativo'}
                     </Badge>
                   </TableCell>
@@ -387,21 +423,38 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
           setEditDisplayName('')
         }
       }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md bg-card border-border/40">
           <DialogHeader>
             <DialogTitle>Editar operador</DialogTitle>
             <DialogDescription>
-              Ajuste o nome exibido para a equipe neste cliente.
+              Ajuste o nome exibido e o papel de acesso do operador.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="edit-operator-name">Nome de exibição</Label>
-            <Input
-              id="edit-operator-name"
-              value={editDisplayName}
-              onChange={(e) => setEditDisplayName(e.target.value)}
-              placeholder="Ex.: Maria Souza"
-            />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-operator-name">Nome de exibição</Label>
+              <Input
+                id="edit-operator-name"
+                value={editDisplayName}
+                onChange={(e) => setEditDisplayName(e.target.value)}
+                placeholder="Ex.: Maria Souza"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-operator-role">Papel de Acesso (Cliente)</Label>
+              <Select
+                value={editClientRole}
+                onValueChange={(val) => setEditClientRole(val as 'admin' | 'agent')}
+              >
+                <SelectTrigger id="edit-operator-role">
+                  <SelectValue placeholder="Selecione o papel" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Administrador da Loja (Configurações + Catálogo + Chat)</SelectItem>
+                  <SelectItem value="agent">Atendente/Agente da Loja (Chat apenas)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -414,9 +467,9 @@ export function OperatorsSection({ clientId }: OperatorsSectionProps) {
             >
               Cancelar
             </Button>
-            <Button type="button" onClick={handleSaveDisplayName} disabled={editLoading}>
+            <Button type="button" onClick={handleSaveOperator} disabled={editLoading}>
               {editLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Salvar nome
+              Salvar alterações
             </Button>
           </DialogFooter>
         </DialogContent>

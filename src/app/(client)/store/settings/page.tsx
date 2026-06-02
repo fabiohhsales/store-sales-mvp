@@ -49,6 +49,10 @@ export default function StoreSettingsPage() {
       const url = clientIdParam ? `/api/store/settings?client_id=${clientIdParam}` : '/api/store/settings'
 
       const res = await fetch(url)
+      if (res.status === 403) {
+        setError('Acesso negado: apenas administradores do cliente possuem autorização para gerenciar as configurações da loja.')
+        return
+      }
       if (!res.ok) throw new Error('Falha ao carregar configurações.')
       const data = await res.json()
       

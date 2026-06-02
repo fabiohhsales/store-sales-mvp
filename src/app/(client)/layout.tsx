@@ -16,9 +16,9 @@ export default async function ClientLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar audience="client" />
+      <Sidebar audience="client" clientRole={session.clientRole} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header userEmail={session.user.email ?? ''} audience="client" />
+        <Header userEmail={session.user.email ?? ''} audience="client" clientRole={session.clientRole} />
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>

@@ -18,7 +18,7 @@ export async function GET(
 
   const { data, error } = await admin
     .from('panel_users')
-    .select('id, email, display_name, is_active, created_at')
+    .select('id, email, display_name, client_role, is_active, created_at')
     .eq('client_id', clientId)
     .eq('role', 'operator')
     .order('created_at', { ascending: true })
@@ -44,7 +44,7 @@ export async function POST(
 
   const { id: clientId } = await params
   const body = await request.json()
-  const { email, display_name, password } = body
+  const { email, display_name, password, client_role } = body
 
   if (!email || !password) {
     return NextResponse.json({ error: 'email e password são obrigatórios' }, { status: 400 })
@@ -74,9 +74,10 @@ export async function POST(
       role: 'operator',
       client_id: clientId,
       display_name: display_name ?? null,
+      client_role: client_role || 'agent',
       is_active: true,
     })
-    .select('id, email, display_name, is_active, created_at')
+    .select('id, email, display_name, client_role, is_active, created_at')
     .single()
 
   if (insertError) {

@@ -18,16 +18,17 @@ import type { LayoutAudience } from './nav-config'
 interface HeaderProps {
   userEmail: string
   audience: LayoutAudience
+  clientRole?: 'admin' | 'agent' | null
 }
 
-export function Header({ userEmail, audience }: HeaderProps) {
+export function Header({ userEmail, audience, clientRole }: HeaderProps) {
   const [newConvOpen, setNewConvOpen] = useState(false)
 
   return (
     <>
       <header className="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-background/60 backdrop-blur-xl z-30 sticky top-0 shadow-sm transition-all duration-300">
         <div className="flex items-center gap-3">
-          <MobileNav audience={audience} />
+          <MobileNav audience={audience} clientRole={clientRole} />
           <div className="relative w-80 hidden md:block">
             <Search
               size={16}

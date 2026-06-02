@@ -8,7 +8,7 @@ export default async function DeskGroupLayout({ children }: { children: React.Re
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar audience="client" />
+      <Sidebar audience="client" clientRole={session.clientRole} />
       <div className="flex flex-1 overflow-hidden">
         {children}
       </div>

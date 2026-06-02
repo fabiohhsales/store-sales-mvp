@@ -37,6 +37,14 @@ export const clientNavItems: NavItem[] = [
   { href: '/account', label: 'Minha Conta', icon: UserCircle },
 ]
 
-export function getNavItems(audience: LayoutAudience) {
-  return audience === 'admin' ? adminNavItems : clientNavItems
+export function getNavItems(audience: LayoutAudience, clientRole?: 'admin' | 'agent' | null) {
+  if (audience === 'admin') return adminNavItems
+
+  if (clientRole === 'agent') {
+    return clientNavItems.filter(
+      (item) => item.href !== '/store/settings' && item.href !== '/store/products'
+    )
+  }
+
+  return clientNavItems
 }
