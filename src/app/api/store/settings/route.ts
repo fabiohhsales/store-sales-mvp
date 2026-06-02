@@ -1,36 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getPanelSession } from '@/lib/auth/panel-session'
+import { getStoreSession } from '@/lib/auth/store-session'
 
 export async function GET(req: NextRequest) {
-  const session = await getPanelSession()
+  const session = await getStoreSession()
   if (!session) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
 
-  if (session.role === 'operator' && session.clientRole === 'agent') {
+  if (session.role === 'seller' || session.role === 'viewer') {
     return NextResponse.json({ error: 'Acesso negado: apenas administradores do cliente podem gerenciar configurações.' }, { status: 403 })
   }
 
-  const clientId = session.clientId
-  if (!clientId && session.role !== 'admin') {
-    return NextResponse.json({ error: 'Nenhum cliente associado' }, { status: 400 })
+  const accountId = session.accountId
+  if (!accountId && session.role !== 'system_admin') {
+    return NextResponse.json({ error: 'Nenhuma conta associada' }, { status: 400 })
   }
 
   const { searchParams } = new URL(req.url)
-  const targetClientId = clientId || searchParams.get('client_id')
+  const targetAccountId = accountId || searchParams.get('client_id') || searchParams.get('account_id')
 
-  if (!targetClientId) {
-    return NextResponse.json({ error: 'client_id é obrigatório' }, { status: 400 })
+  if (!targetAccountId) {
+    return NextResponse.json({ error: 'account_id é obrigatório' }, { status: 400 })
   }
 
   const supabase = createAdminClient()
 
   // 1. Fetch stores
   const { data: stores } = await supabase
-    .from('stores')
+    .from('store_stores')
     .select('*')
-    .eq('client_id', targetClientId)
+    .eq('account_id', targetAccountId)
 
   if (!stores || stores.length === 0) {
     return NextResponse.json({ store: null, settings: null, botConfig: null })
@@ -49,25 +49,40 @@ export async function GET(req: NextRequest) {
   const { data: botConfig } = await supabase
     .from('panel_bot_config')
     .select('stage_labels, lead_followup_enabled, lead_followup_steps, atendimento_followup_enabled, atendimento_followup_steps')
-    .eq('client_id', targetClientId)
+    .eq('client_id', targetAccountId)
     .maybeSingle()
 
-  return NextResponse.json({ store, settings, botConfig })
+  // 4. Fetch payment integrations
+  const { data: integrations } = await supabase
+    .from('store_payment_integrations')
+    .select('provider, api_key, webhook_secret, is_active')
+    .eq('account_id', targetAccountId)
+
+  const maskedIntegrations = (integrations || []).map((integration) => ({
+    provider: integration.provider,
+    is_active: integration.is_active,
+    api_key_configured: !!integration.api_key,
+    webhook_secret_configured: !!integration.webhook_secret,
+    api_key: integration.api_key ? `${integration.api_key.slice(0, 8)}...` : '',
+    webhook_secret: integration.webhook_secret ? `${integration.webhook_secret.slice(0, 8)}...` : '',
+  }))
+
+  return NextResponse.json({ store, settings, botConfig, integrations: maskedIntegrations })
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getPanelSession()
+  const session = await getStoreSession()
   if (!session) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
 
-  if (session.role === 'operator' && session.clientRole === 'agent') {
+  if (session.role === 'seller' || session.role === 'viewer') {
     return NextResponse.json({ error: 'Acesso negado: apenas administradores do cliente podem gerenciar configurações.' }, { status: 403 })
   }
 
-  const clientId = session.clientId
-  if (!clientId && session.role !== 'admin') {
-    return NextResponse.json({ error: 'Nenhum cliente associado' }, { status: 400 })
+  const accountId = session.accountId
+  if (!accountId && session.role !== 'system_admin') {
+    return NextResponse.json({ error: 'Nenhuma conta associada' }, { status: 400 })
   }
 
   try {
@@ -86,12 +101,18 @@ export async function POST(req: NextRequest) {
       lead_followup_steps,
       atendimento_followup_enabled,
       atendimento_followup_steps,
+      stripe_api_key,
+      stripe_webhook_secret,
+      stripe_active,
+      abacate_api_key,
+      abacate_webhook_secret,
+      abacate_active,
     } = body
 
-    const targetClientId = clientId || body.client_id
+    const targetAccountId = accountId || body.client_id || body.account_id
 
-    if (!targetClientId) {
-      return NextResponse.json({ error: 'Campos obrigatórios ausentes: client_id' }, { status: 400 })
+    if (!targetAccountId) {
+      return NextResponse.json({ error: 'Campos obrigatórios ausentes: account_id' }, { status: 400 })
     }
 
     const supabase = createAdminClient()
@@ -99,34 +120,45 @@ export async function POST(req: NextRequest) {
     // 1. Create or Update Store
     let storeId: string
     const { data: existingStores } = await supabase
-      .from('stores')
+      .from('store_stores')
       .select('id')
-      .eq('client_id', targetClientId)
+      .eq('account_id', targetAccountId)
       .limit(1)
 
     // Se o nome não foi passado, tenta usar o nome do cliente
     let storeName = name
     if (!storeName) {
-      const { data: clientData } = await supabase
-        .from('panel_clients')
+      const { data: accountData } = await supabase
+        .from('store_accounts')
         .select('name')
-        .eq('id', targetClientId)
+        .eq('id', targetAccountId)
         .maybeSingle()
-      storeName = clientData ? `Loja - ${clientData.name}` : 'Minha Loja'
+      
+      if (!accountData) {
+        // Fallback para panel_clients
+        const { data: clientData } = await supabase
+          .from('panel_clients')
+          .select('name')
+          .eq('id', targetAccountId)
+          .maybeSingle()
+        storeName = clientData ? `Loja - ${clientData.name}` : 'Minha Loja'
+      } else {
+        storeName = `Loja - ${accountData.name}`
+      }
     }
 
     if (existingStores && existingStores.length > 0) {
       storeId = existingStores[0].id
       await supabase
-        .from('stores')
+        .from('store_stores')
         .update({ name: storeName, updated_at: new Date().toISOString() })
         .eq('id', storeId)
     } else {
       const { data: newStore, error: storeErr } = await supabase
-        .from('stores')
+        .from('store_stores')
         .insert({
           id: crypto.randomUUID(),
-          client_id: targetClientId,
+          account_id: targetAccountId,
           name: storeName,
         })
         .select()
@@ -137,21 +169,28 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Find WhatsApp Config (if not provided, default to the first one)
+    // Tenta encontrar em store_channels ou no panel_whatsapp_config legado para compatibilidade
     let wConfigId = whatsapp_config_id
     if (!wConfigId) {
-      const { data: whatsappConfigs } = await supabase
-        .from('panel_whatsapp_config')
+      const { data: channelConfigs } = await supabase
+        .from('store_channels')
         .select('id')
-        .eq('client_id', targetClientId)
+        .eq('account_id', targetAccountId)
         .limit(1)
 
-      if (whatsappConfigs && whatsappConfigs.length > 0) {
-        wConfigId = whatsappConfigs[0].id
-      }
-    }
+      if (channelConfigs && channelConfigs.length > 0) {
+        wConfigId = channelConfigs[0].id
+      } else {
+        const { data: whatsappConfigs } = await supabase
+          .from('panel_whatsapp_config')
+          .select('id')
+          .eq('client_id', targetAccountId)
+          .limit(1)
 
-    if (!wConfigId) {
-      return NextResponse.json({ error: 'Nenhum canal de WhatsApp (Evolution) conectado para este cliente.' }, { status: 400 })
+        if (whatsappConfigs && whatsappConfigs.length > 0) {
+          wConfigId = whatsappConfigs[0].id
+        }
+      }
     }
 
     // 3. Create or Update Settings
@@ -172,7 +211,7 @@ export async function POST(req: NextRequest) {
           rag_enabled: rag_enabled !== false,
           human_handoff_enabled: human_handoff_enabled !== false,
           fallback_message,
-          whatsapp_config_id: wConfigId,
+          channel_id: wConfigId || null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', existingSettings.id)
@@ -186,9 +225,9 @@ export async function POST(req: NextRequest) {
         .from('store_agent_settings')
         .insert({
           id: crypto.randomUUID(),
-          client_id: targetClientId,
+          account_id: targetAccountId,
           store_id: storeId,
-          whatsapp_config_id: wConfigId,
+          channel_id: wConfigId || null,
           agent_name: agent_name || 'Assistente da Loja',
           tone_of_voice: tone_of_voice || 'consultivo, objetivo e cordial',
           auto_reply_enabled: auto_reply_enabled !== false,
@@ -215,14 +254,14 @@ export async function POST(req: NextRequest) {
       const { data: existingBotConfig } = await supabase
         .from('panel_bot_config')
         .select('id')
-        .eq('client_id', targetClientId)
+        .eq('client_id', targetAccountId)
         .maybeSingle()
 
       if (existingBotConfig) {
         await supabase
           .from('panel_bot_config')
           .update(updates)
-          .eq('client_id', targetClientId)
+          .eq('client_id', targetAccountId)
       } else {
         const defaultWorkingHours = {
           monday: { enabled: true, start: '08:00', end: '18:00', break_start: null, break_end: null },
@@ -238,12 +277,62 @@ export async function POST(req: NextRequest) {
           .from('panel_bot_config')
           .insert({
             id: crypto.randomUUID(),
-            client_id: targetClientId,
+            client_id: targetAccountId,
             professional_name: 'Vendedor Virtual',
             working_hours: defaultWorkingHours,
             business_segment: 'loja',
             ...updates,
           })
+      }
+    }
+
+    // 5. Stripe Integration upsert
+    if (stripe_api_key !== undefined || stripe_webhook_secret !== undefined || stripe_active !== undefined) {
+      const { data: currentStripe } = await supabase
+        .from('store_payment_integrations')
+        .select('*')
+        .eq('account_id', targetAccountId)
+        .eq('provider', 'stripe')
+        .maybeSingle()
+
+      const apiKeyToSave = stripe_api_key && !stripe_api_key.includes('...') ? stripe_api_key : currentStripe?.api_key
+      const webhookSecretToSave = stripe_webhook_secret && !stripe_webhook_secret.includes('...') ? stripe_webhook_secret : currentStripe?.webhook_secret
+      const activeToSave = stripe_active !== undefined ? stripe_active : (currentStripe?.is_active ?? true)
+
+      if (apiKeyToSave || webhookSecretToSave) {
+        await supabase.from('store_payment_integrations').upsert({
+          account_id: targetAccountId,
+          provider: 'stripe',
+          api_key: apiKeyToSave || null,
+          webhook_secret: webhookSecretToSave || null,
+          is_active: activeToSave,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'account_id,provider' })
+      }
+    }
+
+    // 6. AbacatePay Integration upsert
+    if (abacate_api_key !== undefined || abacate_webhook_secret !== undefined || abacate_active !== undefined) {
+      const { data: currentAbacate } = await supabase
+        .from('store_payment_integrations')
+        .select('*')
+        .eq('account_id', targetAccountId)
+        .eq('provider', 'abacatepay')
+        .maybeSingle()
+
+      const apiKeyToSave = abacate_api_key && !abacate_api_key.includes('...') ? abacate_api_key : currentAbacate?.api_key
+      const webhookSecretToSave = abacate_webhook_secret && !abacate_webhook_secret.includes('...') ? abacate_webhook_secret : currentAbacate?.webhook_secret
+      const activeToSave = abacate_active !== undefined ? abacate_active : (currentAbacate?.is_active ?? true)
+
+      if (apiKeyToSave || webhookSecretToSave) {
+        await supabase.from('store_payment_integrations').upsert({
+          account_id: targetAccountId,
+          provider: 'abacatepay',
+          api_key: apiKeyToSave || null,
+          webhook_secret: webhookSecretToSave || null,
+          is_active: activeToSave,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'account_id,provider' })
       }
     }
 

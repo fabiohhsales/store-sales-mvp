@@ -1,6 +1,6 @@
 {
-  "name": "painel-admin",
-  "version": "0.1.0",
+  "name": "store-sales-mvp",
+  "version": "0.2.0",
   "private": true,
   "engines": {
     "node": ">=20.19.0 <21",

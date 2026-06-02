@@ -2,9 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
 import { isAuthError } from '@/lib/auth/request-context'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getStoreSession } from '@/lib/auth/store-session'
 import { sendTextMessage } from '@/lib/api/evolution'
-import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
-import { updateConversationLabels } from '@/lib/api/chatwoot'
+
+const RETAIL_STAGES = [
+  'new_lead',
+  'product_discovery',
+  'product_recommended',
+  'price_requested',
+  'quote_requested',
+  'payment_link_sent',
+  'negotiation',
+  'won',
+  'lost',
+]
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,78 +30,91 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'content é obrigatório' }, { status: 400 })
     }
 
-    const auth = await authenticateRequest(token || null, client_id || null)
+    let accountId: string | null = null
+
+    if (token || client_id) {
+      const auth = await authenticateRequest(token || null, client_id || null)
+      accountId = auth.client_id
+    } else {
+      const session = await getStoreSession()
+      if (session) {
+        accountId = session.accountId
+      }
+    }
+
+    if (!accountId) {
+      return NextResponse.json({ error: 'Não autorizado ou conta não identificada' }, { status: 401 })
+    }
+
     const admin = createAdminClient()
 
-    const { data: conversation } = await admin
-      .from('conversations')
-      .select('id, client_id, contact_id, labels, chatwoot_conversation_id')
+    // 1. Fetch conversation
+    const { data: conversation, error: convError } = await admin
+      .from('store_conversations')
+      .select('id, account_id, store_id, contact_id, commercial_stage')
       .eq('id', conversation_id)
-      .eq('client_id', auth.client_id)
+      .eq('account_id', accountId)
       .maybeSingle()
 
+    if (convError) throw convError
     if (!conversation) {
       return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
     }
 
-    const [{ data: contact }, { data: whatsappConfig }] = await Promise.all([
+    // 2. Fetch contact and channel configs
+    const [{ data: contact }, { data: channel }] = await Promise.all([
       admin
-        .from('contacts')
-        .select('identifier, phone_number')
+        .from('store_contacts')
+        .select('phone_number, remote_jid')
         .eq('id', conversation.contact_id)
         .maybeSingle(),
       admin
-        .from('panel_whatsapp_config')
+        .from('store_channels')
         .select('evolution_instance_name')
-        .eq('client_id', auth.client_id)
+        .eq('account_id', accountId)
+        .eq('status', 'active')
+        .limit(1)
         .maybeSingle(),
     ])
 
-    const recipient = contact?.identifier ?? contact?.phone_number
-    const instanceName = whatsappConfig?.evolution_instance_name
+    // Fallback para panel_whatsapp_config legado se nenhum store_channel ativo estiver configurado
+    let instanceName = channel?.evolution_instance_name
+    if (!instanceName) {
+      const { data: whatsappConfig } = await admin
+        .from('panel_whatsapp_config')
+        .select('evolution_instance_name')
+        .eq('client_id', accountId)
+        .maybeSingle()
+      instanceName = whatsappConfig?.evolution_instance_name
+    }
+
+    const recipient = contact?.phone_number
 
     if (!recipient || !instanceName) {
-      return NextResponse.json({ error: 'Configuração de envio indisponível para a conversa' }, { status: 422 })
+      return NextResponse.json({ error: 'Configuração de envio Evolution indisponível para a conversa' }, { status: 422 })
     }
 
     const shouldAutoMove = Boolean(
       auto_move_enabled &&
       typeof auto_move_to_stage === 'string' &&
-      auto_move_to_stage.trim()
+      RETAIL_STAGES.includes(auto_move_to_stage)
     )
 
-    let nextLabels: string[] | null = null
-    if (shouldAutoMove) {
-      const targetStage = auto_move_to_stage as string
-
-      const { data: botConfigRow } = await admin
-        .from('panel_bot_config')
-        .select('stage_labels')
-        .eq('client_id', auth.client_id)
-        .maybeSingle()
-
-      const stageLabels = sanitizeStageLabels(botConfigRow?.stage_labels)
-      const validStageSlugs = new Set(stageLabels.map((item) => item.slug))
-      if (targetStage !== '_sem_etapa' && !validStageSlugs.has(targetStage)) {
-        return NextResponse.json({ error: 'auto_move_to_stage inválido para o cliente' }, { status: 400 })
-      }
-
-      const stageSlugsForLabels = new Set([...validStageSlugs, '_sem_etapa'])
-      const currentLabels = (conversation.labels as string[]) || []
-      const baseLabels = currentLabels.filter((label) => !stageSlugsForLabels.has(label))
-      nextLabels = targetStage === '_sem_etapa' ? baseLabels : [...baseLabels, targetStage]
-    }
-
+    // Enviar mensagem de texto pelo Evolution API
     const text = content.trim()
     await sendTextMessage(instanceName, recipient, text)
 
     const now = new Date().toISOString()
+    
+    // 3. Insert into store_messages
     const { data: message, error: insertError } = await admin
-      .from('messages')
+      .from('store_messages')
       .insert({
         id: crypto.randomUUID(),
+        account_id: accountId,
+        store_id: conversation.store_id || null,
         conversation_id,
-        client_id: auth.client_id,
+        contact_id: conversation.contact_id,
         content: text,
         content_type: 'text',
         sender_type: 'operator',
@@ -104,58 +128,33 @@ export async function POST(request: NextRequest) {
       throw insertError
     }
 
-    if (nextLabels) {
-      // Resposta inline pode reposicionar o funil, mas não altera o stage operacional.
-      const { error: updateError } = await admin
-        .from('conversations')
-        .update({
-          labels: nextLabels,
-          last_outgoing_at: now,
-          last_outgoing_by: 'operator',
-        })
-        .eq('id', conversation_id)
+    // 4. Update store_conversations timestamps and stage
+    const updates: any = {
+      last_outgoing_at: now,
+      updated_at: now,
+    }
 
-      if (updateError) {
-        throw updateError
+    if (shouldAutoMove) {
+      const targetStage = auto_move_to_stage as string
+      updates.commercial_stage = targetStage
+      
+      if (targetStage === 'won') {
+        updates.won_at = now;
+        updates.operational_status = 'resolved';
+      } else if (targetStage === 'lost') {
+        updates.operational_status = 'resolved';
+      } else if (conversation.commercial_stage === 'won' || conversation.commercial_stage === 'lost') {
+        updates.operational_status = 'bot_active';
       }
+    }
 
-      if (conversation.chatwoot_conversation_id) {
-        try {
-          const [{ data: whatsappConfigRow }, { data: clientRow }] = await Promise.all([
-            admin
-              .from('panel_whatsapp_config')
-              .select('chatwoot_account_id, chatwoot_agent_token')
-              .eq('client_id', auth.client_id)
-              .maybeSingle(),
-            admin
-              .from('panel_clients')
-              .select('chatwoot_account_id, chatwoot_agent_token')
-              .eq('id', auth.client_id)
-              .maybeSingle(),
-          ])
+    const { error: updateError } = await admin
+      .from('store_conversations')
+      .update(updates)
+      .eq('id', conversation_id)
 
-          const accountId = whatsappConfigRow?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null
-          const agentToken = whatsappConfigRow?.chatwoot_agent_token ?? clientRow?.chatwoot_agent_token ?? null
-
-          if (accountId && agentToken) {
-            await updateConversationLabels(accountId, agentToken, conversation.chatwoot_conversation_id, nextLabels)
-          }
-        } catch (chatwootErr) {
-          console.warn('[pipeline/reply] Chatwoot sync falhou (ignorado):', chatwootErr)
-        }
-      }
-    } else {
-      const { error: updateError } = await admin
-        .from('conversations')
-        .update({
-          last_outgoing_at: now,
-          last_outgoing_by: 'operator',
-        })
-        .eq('id', conversation_id)
-
-      if (updateError) {
-        throw updateError
-      }
+    if (updateError) {
+      throw updateError
     }
 
     return NextResponse.json(message)

@@ -28,10 +28,10 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 /**
- * Queries Supabase using match_product_chunks RPC to find similar product chunks.
+ * Queries Supabase using match_store_product_chunks RPC to find similar product chunks.
  */
 export async function queryProductChunks(
-  clientId: string,
+  accountId: string,
   storeId: string,
   queryText: string,
   topK = 5,
@@ -41,8 +41,8 @@ export async function queryProductChunks(
     const queryEmbedding = await generateEmbedding(queryText)
     const supabase = createAdminClient()
 
-    const { data, error } = await supabase.rpc('match_product_chunks', {
-      p_client_id: clientId,
+    const { data, error } = await supabase.rpc('match_store_product_chunks', {
+      p_account_id: accountId,
       p_store_id: storeId,
       query_embedding: queryEmbedding,
       match_threshold: threshold,
@@ -81,7 +81,7 @@ function chunkText(text: string, size = 800, overlap = 150): string[] {
  * Chunks, embeds, and saves a product document into Supabase.
  */
 export async function ingestProductDocument(
-  clientId: string,
+  accountId: string,
   storeId: string,
   productId: string,
   rawText: string,
@@ -91,16 +91,15 @@ export async function ingestProductDocument(
 
   // 1. Save Document record
   const { data: doc, error: docError } = await supabase
-    .from('product_documents')
+    .from('store_product_documents')
     .insert({
       id: crypto.randomUUID(),
-      client_id: clientId,
+      account_id: accountId,
       store_id: storeId,
       product_id: productId,
       title: title || 'Descrição de Produto',
       raw_text: rawText,
-      normalized_text: rawText.trim(),
-      status: 'ready',
+      metadata: {},
     })
     .select()
     .single()
@@ -117,10 +116,10 @@ export async function ingestProductDocument(
     
     // Save Chunk record
     const { data: chunk, error: chunkError } = await supabase
-      .from('product_chunks')
+      .from('store_product_chunks')
       .insert({
         id: crypto.randomUUID(),
-        client_id: clientId,
+        account_id: accountId,
         store_id: storeId,
         product_id: productId,
         document_id: doc.id,
@@ -139,15 +138,15 @@ export async function ingestProductDocument(
     try {
       const embedding = await generateEmbedding(chunkTextStr)
       const { error: embError } = await supabase
-        .from('product_embeddings')
+        .from('store_product_embeddings')
         .insert({
           id: crypto.randomUUID(),
-          client_id: clientId,
+          account_id: accountId,
           store_id: storeId,
           product_id: productId,
           chunk_id: chunk.id,
           embedding,
-          embedding_model: EMBEDDING_MODEL,
+          model: EMBEDDING_MODEL,
         })
       
       if (embError) {

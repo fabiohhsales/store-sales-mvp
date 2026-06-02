@@ -1,34 +1,29 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import {
-  upsertEvolutionContact,
-  upsertEvolutionConversation,
-  saveEvolutionMessage,
-  getMessageHistory,
-  refreshMessageHistory,
-} from './pipeline'
-import type { NormalizedEvolutionMessage, BotContact, BotConversation, BotMessage } from '@/types/bot'
+import { uploadMediaToStorage } from './media-storage'
+import { processDownloadedMultimodalMessage } from './multimodal'
+import type { NormalizedEvolutionMessage } from '@/types/bot'
 import type { StoreContext, StorePipelineResult, StoreAgentSettings } from '@/types/store'
-import { stageLabelSlugs } from './stage-labels'
 
 const MESSAGE_DEBOUNCE_MS = 3000
 
 /**
- * Checks if a given Evolution WhatsApp instance is mapped as a Store Sales channel.
+ * Checks if a given Evolution WhatsApp instance is mapped as an active Store Sales channel.
  */
 export async function checkIfStoreInstance(instanceName: string): Promise<boolean> {
   const supabase = createAdminClient()
-  const { data: wConfig } = await supabase
-    .from('panel_whatsapp_config')
+  const { data: channel } = await supabase
+    .from('store_channels')
     .select('id')
     .eq('evolution_instance_name', instanceName)
+    .eq('status', 'active')
     .maybeSingle()
 
-  if (!wConfig) return false
+  if (!channel) return false
 
   const { count } = await supabase
     .from('store_agent_settings')
     .select('id', { count: 'exact', head: true })
-    .eq('whatsapp_config_id', wConfig.id)
+    .eq('channel_id', channel.id)
     .eq('status', 'active')
 
   return (count ?? 0) > 0
@@ -40,48 +35,48 @@ export async function checkIfStoreInstance(instanceName: string): Promise<boolea
 export async function resolveStoreContext(instanceName: string): Promise<StoreContext | null> {
   const supabase = createAdminClient()
 
-  // 1. Get WhatsApp Config
-  const { data: wConfig } = await supabase
-    .from('panel_whatsapp_config')
+  // 1. Get Store Channel
+  const { data: channel } = await supabase
+    .from('store_channels')
     .select('*')
     .eq('evolution_instance_name', instanceName)
+    .eq('status', 'active')
     .maybeSingle()
 
-  if (!wConfig) {
-    console.warn(`[Store-Pipeline] Instância WhatsApp não encontrada: ${instanceName}`)
+  if (!channel) {
+    console.warn(`[Store-Pipeline] Canal da loja não encontrado ou inativo: ${instanceName}`)
     return null
   }
 
-  // 2. Get client status
-  const { data: clientRow } = await supabase
-    .from('panel_clients')
+  // 2. Get Account
+  const { data: account } = await supabase
+    .from('store_accounts')
     .select('status')
-    .eq('id', wConfig.client_id)
+    .eq('id', channel.account_id)
     .maybeSingle()
 
-  const ALLOWED_STATUSES = ['active', 'pending_google', 'configuring']
-  if (!ALLOWED_STATUSES.includes(clientRow?.status ?? '')) {
-    console.log(`[Store-Pipeline] client=${wConfig.client_id} status=${clientRow?.status} — bot pausado`)
+  if (!account || account.status !== 'active') {
+    console.log(`[Store-Pipeline] account=${channel.account_id} status=${account?.status} — bot pausado`)
     return null
   }
 
-  // 3. Get Store Agent Settings and Store Info
+  // 3. Get Store Agent Settings
   const { data: storeSettings } = await supabase
     .from('store_agent_settings')
     .select('*')
-    .eq('whatsapp_config_id', wConfig.id)
+    .eq('channel_id', channel.id)
     .eq('status', 'active')
     .maybeSingle()
 
   if (!storeSettings) {
-    console.warn(`[Store-Pipeline] Configurações de agente de loja não encontradas para whatsapp_config=${wConfig.id}`)
+    console.warn(`[Store-Pipeline] Configurações de agente de loja não encontradas para o canal=${channel.id}`)
     return null
   }
 
   return {
-    clientId: wConfig.client_id as string,
-    storeId: storeSettings.store_id as string,
-    whatsappConfig: wConfig,
+    clientId: channel.account_id as string,
+    storeId: channel.store_id as string,
+    whatsappConfig: channel as any,
     storeSettings: storeSettings as unknown as StoreAgentSettings,
   }
 }
@@ -92,13 +87,262 @@ export async function resolveStoreContext(instanceName: string): Promise<StoreCo
 async function hasNewerStoreLeadMessages(conversationId: string, afterIso: string): Promise<boolean> {
   const supabase = createAdminClient()
   const { count } = await supabase
-    .from('messages')
+    .from('store_messages')
     .select('id', { count: 'exact', head: true })
     .eq('conversation_id', conversationId)
     .eq('from_who', 'lead')
     .gt('created_at', afterIso)
 
   return (count ?? 0) > 0
+}
+
+/**
+ * Upserts a store contact.
+ */
+async function upsertStoreContact(
+  supabase: ReturnType<typeof createAdminClient>,
+  msg: NormalizedEvolutionMessage,
+  accountId: string,
+  storeId: string | null
+): Promise<any> {
+  const { data: existing } = await supabase
+    .from('store_contacts')
+    .select('*')
+    .eq('account_id', accountId)
+    .eq('phone_number', msg.phoneNumber)
+    .maybeSingle()
+
+  if (existing) {
+    if (existing.name !== msg.contactName && msg.contactName) {
+      const { data: updated } = await supabase
+        .from('store_contacts')
+        .update({ name: msg.contactName, remote_jid: msg.remoteJid })
+        .eq('id', existing.id)
+        .select()
+        .single()
+      return updated ?? existing
+    }
+    return existing
+  }
+
+  const { data: created, error } = await supabase
+    .from('store_contacts')
+    .insert({
+      id: crypto.randomUUID(),
+      account_id: accountId,
+      store_id: storeId,
+      name: msg.contactName || msg.phoneNumber,
+      phone_number: msg.phoneNumber,
+      remote_jid: msg.remoteJid,
+      created_at: new Date().toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) {
+    if (error.code === '23505') {
+      const { data: retry } = await supabase
+        .from('store_contacts')
+        .select('*')
+        .eq('account_id', accountId)
+        .eq('phone_number', msg.phoneNumber)
+        .maybeSingle()
+      if (retry) return retry
+    }
+    throw new Error(`Failed to upsert store contact: ${error.message}`)
+  }
+
+  return created
+}
+
+/**
+ * Upserts a store conversation.
+ */
+async function upsertStoreConversation(
+  supabase: ReturnType<typeof createAdminClient>,
+  contact: any,
+  accountId: string,
+  storeId: string | null,
+  channelId: string | null
+): Promise<any> {
+  const { data: existing } = await supabase
+    .from('store_conversations')
+    .select('*')
+    .eq('contact_id', contact.id)
+    .eq('account_id', accountId)
+    .neq('operational_status', 'resolved')
+    .order('last_incoming_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (existing) {
+    const { data: updated } = await supabase
+      .from('store_conversations')
+      .update({
+        last_incoming_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .select()
+      .single()
+    return updated ?? existing
+  }
+
+  const { data: created, error } = await supabase
+    .from('store_conversations')
+    .insert({
+      id: crypto.randomUUID(),
+      account_id: accountId,
+      store_id: storeId,
+      channel_id: channelId,
+      contact_id: contact.id,
+      operational_status: 'bot_active',
+      commercial_stage: 'new_lead',
+      last_incoming_at: new Date().toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to upsert store conversation: ${error.message}`)
+  return created
+}
+
+/**
+ * Saves an evolution message to store_messages.
+ */
+async function saveStoreMessage(
+  supabase: ReturnType<typeof createAdminClient>,
+  msg: NormalizedEvolutionMessage,
+  conversation: any,
+  accountId: string,
+  storeId: string | null
+): Promise<any> {
+  const { data: existing } = await supabase
+    .from('store_messages')
+    .select('*')
+    .eq('evolution_message_id', msg.messageId)
+    .maybeSingle()
+
+  if (existing) {
+    if (existing.conversation_id === conversation.id) {
+      return existing
+    }
+    if (existing.account_id === accountId) {
+      const { data: migrated } = await supabase
+        .from('store_messages')
+        .update({ conversation_id: conversation.id })
+        .eq('id', existing.id)
+        .select()
+        .single()
+      return migrated ?? existing
+    }
+    return existing
+  }
+
+  const processingRequired = msg.contentType === 'audio' || msg.contentType === 'image'
+  const { data: saved, error } = await supabase
+    .from('store_messages')
+    .insert({
+      id: crypto.randomUUID(),
+      account_id: accountId,
+      store_id: storeId,
+      conversation_id: conversation.id,
+      contact_id: conversation.contact_id,
+      evolution_message_id: msg.messageId,
+      remote_jid: msg.remoteJid,
+      from_who: 'lead',
+      sender_type: 'contact',
+      content: msg.content,
+      content_type: msg.contentType,
+      raw_payload: msg.rawPayload,
+      ai_input_text: msg.content,
+      created_at: msg.timestamp.toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) {
+    if (error.code === '23505') {
+      const { data: retry } = await supabase
+        .from('store_messages')
+        .select('*')
+        .eq('evolution_message_id', msg.messageId)
+        .maybeSingle()
+      if (retry) return retry
+    }
+    throw new Error(`Failed to save store message: ${error.message}`)
+  }
+
+  const message = saved
+
+  // Handle multimodal media downloads (audio, image, document, video)
+  if (msg.contentType === 'image' || msg.contentType === 'document' || msg.contentType === 'audio' || msg.contentType === 'video') {
+    const mimetype = msg.mediaMimetype ?? (
+      msg.contentType === 'image' ? 'image/jpeg' :
+      msg.contentType === 'audio' ? 'audio/ogg' :
+      msg.contentType === 'video' ? 'video/mp4' :
+      'application/octet-stream'
+    )
+    
+    try {
+      const { storagePath, buffer: mediaBuffer, resolvedMime, oggTruncated } = await uploadMediaToStorage(
+        msg.instanceName,
+        msg.remoteJid,
+        msg.messageId,
+        accountId,
+        conversation.id,
+        mimetype,
+        msg.mediaUrl
+      )
+
+      const mediaUpdate: Record<string, any> = {}
+      if (storagePath) mediaUpdate.media_url = storagePath
+      mediaUpdate.media_mime_type = resolvedMime
+
+      if (processingRequired && mediaBuffer) {
+        const processed = await processDownloadedMultimodalMessage({
+          contentType: msg.contentType,
+          content: msg.content,
+          buffer: mediaBuffer,
+          resolvedMime,
+          oggTruncated,
+        })
+        mediaUpdate.content = processed.derivedText || msg.content
+        mediaUpdate.ai_input_text = processed.aiInputText
+      }
+
+      if (Object.keys(mediaUpdate).length > 0) {
+        const { data: updated } = await supabase
+          .from('store_messages')
+          .update(mediaUpdate)
+          .eq('id', message.id)
+          .select()
+          .single()
+        return updated ?? message
+      }
+    } catch (mediaErr) {
+      console.error('[Store-Pipeline] Error processing media upload:', mediaErr)
+    }
+  }
+
+  return message
+}
+
+/**
+ * Gets conversation message history from store_messages.
+ */
+async function getStoreMessageHistory(
+  supabase: ReturnType<typeof createAdminClient>,
+  conversationId: string,
+  limit = 20
+): Promise<any[]> {
+  const { data } = await supabase
+    .from('store_messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  return ((data ?? []) as any[]).reverse()
 }
 
 /**
@@ -112,32 +356,28 @@ export async function runStorePipeline(
 
   const supabase = createAdminClient()
 
-  const { data: botConfig } = await supabase
-    .from('panel_bot_config')
-    .select('stage_labels')
-    .eq('client_id', storeContext.clientId)
-    .maybeSingle()
+  const contact = await upsertStoreContact(supabase, msg, storeContext.clientId, storeContext.storeId)
+  const conversation = await upsertStoreConversation(supabase, contact, storeContext.clientId, storeContext.storeId, storeContext.whatsappConfig.id)
 
-  const slugs = stageLabelSlugs(botConfig?.stage_labels, 'loja')
-  const defaultStage = slugs[0] || 'etapa_novo_lead'
-
-  const contact = await upsertEvolutionContact(supabase, msg, storeContext.clientId)
-  const conversation = await upsertEvolutionConversation(supabase, contact, storeContext.clientId, defaultStage)
+  const returnedConv = {
+    ...conversation,
+    stage: conversation.operational_status // Map operational_status to stage for compatibility
+  }
 
   // Se a conversa está sendo atendida por humano, apenas salva a mensagem e encerra
-  if (conversation.stage === 'in_service' || conversation.stage === 'awaiting_human') {
-    console.log(`[Store-Pipeline] conv=${conversation.id} stage=${conversation.stage} — bot silenciado`)
-    await saveEvolutionMessage(supabase, msg, conversation, storeContext.clientId)
+  if (returnedConv.stage === 'in_service' || returnedConv.stage === 'awaiting_human') {
+    console.log(`[Store-Pipeline] conv=${conversation.id} stage=${returnedConv.stage} — bot silenciado`)
+    await saveStoreMessage(supabase, msg, conversation, storeContext.clientId, storeContext.storeId)
     return null
   }
 
-  const message = await saveEvolutionMessage(supabase, msg, conversation, storeContext.clientId)
-  const messageHistory = await getMessageHistory(supabase, conversation.id)
+  const message = await saveStoreMessage(supabase, msg, conversation, storeContext.clientId, storeContext.storeId)
+  const messageHistory = await getStoreMessageHistory(supabase, conversation.id)
 
   return {
     storeContext,
     contact,
-    conversation,
+    conversation: returnedConv,
     message,
     messageHistory,
   }
@@ -155,8 +395,16 @@ export async function runStorePipelineRoute(msg: NormalizedEvolutionMessage): Pr
     const { storeContext, contact, conversation, message } = result
     console.log(
       `[Store-Route] client=${storeContext.clientId} store=${storeContext.storeId}` +
-        ` contact=${contact.id} conv=${conversation.id}`
+      ` contact=${contact.id} conv=${conversation.id}`
     )
+
+    // Trigger entity extraction asynchronously
+    try {
+      const { runStoreEntityExtraction } = await import('./store-intelligence')
+      void runStoreEntityExtraction(message, conversation, storeContext)
+    } catch (extractErr) {
+      console.error('[Store-Route] Failed to import/run store entity extraction:', extractErr)
+    }
 
     // 2. Debounce: wait 3s for user to finish typing multiple messages
     await new Promise((resolve) => setTimeout(resolve, MESSAGE_DEBOUNCE_MS))

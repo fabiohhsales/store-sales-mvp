@@ -2,39 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
 import { isAuthError } from '@/lib/auth/request-context'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getBotConfigByClientId } from '@/lib/db/bot-config'
-import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
+import { getStoreSession } from '@/lib/auth/store-session'
 import type { PipelineBoardConversation } from '@/types/pipeline'
 
-interface ConversationRow {
+interface StoreConversationRow {
   id: string
-  chatwoot_conversation_id: number | null
-  status: 'pending' | 'open' | 'resolved' | null
-  stage: string | null
-  labels: string[] | null
+  operational_status: string | null
+  commercial_stage: string | null
   last_incoming_at: string | null
   last_outgoing_at: string | null
-  followup_cadence: string | null
-  appointment_status: string | null
   summary: string | null
-  contacts: Array<{
+  contact: {
     name: string | null
     phone_number: string | null
-    identifier: string | null
-  }> | {
-    name: string | null
-    phone_number: string | null
-    identifier: string | null
   } | null
-}
-
-interface AppointmentRow {
-  id: string
-  conversation_id: string
-  start_at: string
-  end_at: string
-  status: string | null
-  meet_link: string | null
 }
 
 function classifyPipelineTemperature(lastIncomingAt: string | null): 'hot' | 'warm' | 'cold' {
@@ -48,43 +29,49 @@ function classifyPipelineTemperature(lastIncomingAt: string | null): 'hot' | 'wa
 export async function GET(request: NextRequest) {
   try {
     const token = request.nextUrl.searchParams.get('token')
-    const clientId = request.nextUrl.searchParams.get('client_id')
+    const clientIdParam = request.nextUrl.searchParams.get('client_id')
     const statusFilter = request.nextUrl.searchParams.get('status')
 
-    const auth = await authenticateRequest(token, clientId)
-    const admin = createAdminClient()
+    let accountId: string | null = null
 
-    // Busca stage_labels do bot config
-    const botConfig = await getBotConfigByClientId(auth.client_id)
-    const stageLabels = sanitizeStageLabels(botConfig?.stage_labels)
-    const stageSlugs = new Set(stageLabels.map((s) => s.slug))
+    if (token || clientIdParam) {
+      const auth = await authenticateRequest(token, clientIdParam)
+      accountId = auth.client_id
+    } else {
+      const session = await getStoreSession()
+      if (session) {
+        accountId = session.accountId
+      }
+    }
+
+    if (!accountId) {
+      return NextResponse.json({ error: 'Não autorizado ou nenhuma conta associada.' }, { status: 401 })
+    }
+
+    const admin = createAdminClient()
 
     const conversationSelect = `
       id,
-      chatwoot_conversation_id,
-      status,
-      stage,
-      labels,
+      operational_status,
+      commercial_stage,
+      summary,
       last_incoming_at,
       last_outgoing_at,
-      followup_cadence,
-      appointment_status,
-      summary,
-      contacts(name, phone_number, identifier)
+      contact:store_contacts(name, phone_number)
     `
 
     let query = admin
-      .from('conversations')
+      .from('store_conversations')
       .select(conversationSelect)
-      .eq('client_id', auth.client_id)
+      .eq('account_id', accountId)
 
     if (statusFilter === 'resolved') {
-      query = query.eq('stage', 'resolved')
-    } else {
-      query = query.or('stage.neq.resolved,stage.is.null')
-      if (statusFilter && statusFilter !== 'all') {
-        query = query.eq('status', statusFilter)
-      }
+      query = query.eq('commercial_stage', 'won')
+    } else if (statusFilter === 'all') {
+      // Retorna todos os que não são ganhas/perdidas de preferência, ou todos mesmo
+    } else if (statusFilter) {
+      // Mapeia status operacional
+      query = query.eq('operational_status', statusFilter)
     }
 
     const { data: conversations, error: convError } = await query
@@ -92,69 +79,49 @@ export async function GET(request: NextRequest) {
 
     if (convError) throw convError
 
-    const typedConversations = (conversations ?? []) as ConversationRow[]
-    const conversationIds = typedConversations.map((conversation) => conversation.id)
-    const appointmentsMap: Record<string, AppointmentRow> = {}
+    const typedConversations = (conversations ?? []) as unknown as StoreConversationRow[]
 
-    if (conversationIds.length > 0) {
-      const { data: appointments } = await admin
-        .from('appointments')
-        .select('id, conversation_id, start_at, end_at, status, meet_link')
-        .in('conversation_id', conversationIds)
-        .order('start_at', { ascending: false })
+    const pipelineConversations: PipelineBoardConversation[] = typedConversations.map((conv) => {
+      const contactName = conv.contact?.name || 'Cliente Sem Nome'
+      const contactPhone = conv.contact?.phone_number || ''
+      const lastIncomingAt = conv.last_incoming_at
 
-      for (const appointment of (appointments ?? []) as AppointmentRow[]) {
-        if (!appointmentsMap[appointment.conversation_id]) {
-          appointmentsMap[appointment.conversation_id] = appointment
-        }
-      }
-    }
-
-    const pipelineConversations: PipelineBoardConversation[] = typedConversations.map((conversation) => {
-      const labels = conversation.labels ?? []
-      const contact = Array.isArray(conversation.contacts)
-        ? conversation.contacts[0] ?? null
-        : conversation.contacts ?? null
-
-      // Posição no funil é determinada apenas por labels[].
-      // conversations.stage permanece reservado ao estado operacional do Desk.
-      const funnelLabel = labels.find((label) => stageSlugs.has(label))
-      const appointment = appointmentsMap[conversation.id] ?? null
-      const lastIncomingAt = conversation.last_incoming_at
+      const stageSlug = conv.commercial_stage || 'new_lead'
 
       return {
-        id: conversation.id,
-        chatwoot_conversation_id: conversation.chatwoot_conversation_id ?? null,
-        contact_name: contact?.name ?? null,
-        contact_phone: contact?.phone_number ?? null,
-        contact_identifier: contact?.identifier ?? null,
-        status: conversation.status ?? 'open',
-        stage_slug: funnelLabel ?? '_sem_etapa',
-        labels,
+        id: conv.id,
+        chatwoot_conversation_id: null,
+        contact_name: contactName,
+        contact_phone: contactPhone,
+        contact_identifier: contactPhone,
+        status: conv.operational_status === 'resolved' ? 'resolved' : 'open',
+        stage_slug: stageSlug,
+        labels: [stageSlug],
         last_incoming_at: lastIncomingAt,
-        last_outgoing_at: conversation.last_outgoing_at ?? null,
+        last_outgoing_at: conv.last_outgoing_at ?? null,
         stage_entered_at: null,
-        followup_cadence: conversation.followup_cadence ?? null,
-        summary: conversation.summary ?? null,
+        followup_cadence: null,
+        summary: conv.summary ?? null,
         intake_fields_filled: 0,
         intake_fields_total: 0,
         temperature: classifyPipelineTemperature(lastIncomingAt),
-        appointment_status: conversation.appointment_status ?? null,
-        appointment: appointment
-          ? {
-              id: appointment.id,
-              start_at: appointment.start_at,
-              end_at: appointment.end_at,
-              status: appointment.status ?? null,
-              meet_link: appointment.meet_link ?? null,
-            }
-          : null,
+        appointment_status: null,
+        appointment: null,
       }
     })
 
+    // Colunas fixas do Kanban comercial de loja
     const columns = [
-      { slug: '_sem_etapa', display_name: 'Sem etapa', followup_cadence: null },
-      ...stageLabels,
+      { slug: 'new_lead', display_name: 'Novo Lead', followup_cadence: null },
+      { slug: 'product_discovery', display_name: 'Descoberta', followup_cadence: null },
+      { slug: 'product_recommended', display_name: 'Recomendação', followup_cadence: null },
+      { slug: 'offer_formatting', display_name: 'Formatação de Oferta', followup_cadence: null },
+      { slug: 'price_requested', display_name: 'Preço Solicitado', followup_cadence: null },
+      { slug: 'quote_requested', display_name: 'Orçamento', followup_cadence: null },
+      { slug: 'payment_link_sent', display_name: 'Link Enviado', followup_cadence: null },
+      { slug: 'negotiation', display_name: 'Negociação', followup_cadence: null },
+      { slug: 'won', display_name: 'Ganha', followup_cadence: null },
+      { slug: 'lost', display_name: 'Perdida', followup_cadence: null },
     ]
 
     return NextResponse.json({

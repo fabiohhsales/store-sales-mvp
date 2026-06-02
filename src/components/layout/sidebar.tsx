@@ -8,7 +8,7 @@ import { getNavItems, type LayoutAudience } from './nav-config'
 
 interface SidebarProps {
   audience: LayoutAudience
-  clientRole?: 'admin' | 'agent' | null
+  clientRole?: string | null
 }
 
 export function Sidebar({ audience, clientRole }: SidebarProps) {

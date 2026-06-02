@@ -1,9 +1,26 @@
 // GET /api/desk/conversations/[id]
-// Retorna a conversa com histórico completo de mensagens e dados do contato.
+// Retorna a conversa da loja com histórico completo de mensagens e dados do contato.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
+
+interface StoreConvDetailRow {
+  id: string
+  operational_status: string | null
+  commercial_stage: string | null
+  summary: string | null
+  assigned_user_id: string | null
+  last_incoming_at: string | null
+  last_outgoing_at: string | null
+  account_id: string
+  contact: {
+    id: string
+    name: string | null
+    phone_number: string | null
+    custom_data: any
+  } | null
+}
 
 export async function GET(
   request: NextRequest,
@@ -18,15 +35,19 @@ export async function GET(
 
   const admin = createAdminClient()
 
-  const { data: conversation, error } = await admin
-    .from('conversations')
+  // Busca conversa na tabela store_conversations
+  const { data: rawConversation, error } = await admin
+    .from('store_conversations')
     .select(`
-      id, stage, status, labels, summary,
-      assigned_operator_id, last_incoming_at, last_outgoing_at, stage_changed_at,
-      client_id,
-      journey_stage, handoff_reason_code, handoff_reason_label,
-      handoff_transferred_at, handoff_returned_to_bot_at, last_system_action,
-      contacts ( id, name, phone_number, identifier, custom_data )
+      id,
+      operational_status,
+      commercial_stage,
+      summary,
+      assigned_user_id,
+      last_incoming_at,
+      last_outgoing_at,
+      account_id,
+      contact:store_contacts ( id, name, phone_number, custom_data )
     `)
     .eq('id', id)
     .maybeSingle()
@@ -35,34 +56,52 @@ export async function GET(
     console.error('[desk/conversations] detail error:', error)
     return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
-  if (!conversation) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
+  if (!rawConversation) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
 
-  // Valida que o operador tem acesso a este cliente
-  if (!deskUser.isAdmin && conversation.client_id !== deskUser.clientId) {
+  const conversationRow = rawConversation as unknown as StoreConvDetailRow
+
+  // Valida que o operador tem acesso a esta conta
+  if (!deskUser.isAdmin && conversationRow.account_id !== deskUser.clientId) {
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
+  }
+
+  // Mapeia para o formato esperado pelo frontend
+  const conversation = {
+    id: conversationRow.id,
+    stage: conversationRow.operational_status === 'bot_active' ? 'bot_triage' : conversationRow.operational_status,
+    status: conversationRow.operational_status === 'resolved' ? 'resolved' : 'open',
+    labels: conversationRow.commercial_stage ? [conversationRow.commercial_stage] : [],
+    summary: conversationRow.summary,
+    assigned_operator_id: conversationRow.assigned_user_id,
+    last_incoming_at: conversationRow.last_incoming_at,
+    last_outgoing_at: conversationRow.last_outgoing_at,
+    client_id: conversationRow.account_id,
+    contacts: conversationRow.contact
+      ? [
+          {
+            id: conversationRow.contact.id,
+            name: conversationRow.contact.name,
+            phone_number: conversationRow.contact.phone_number,
+            identifier: conversationRow.contact.phone_number,
+            custom_data: conversationRow.contact.custom_data,
+          },
+        ]
+      : [],
   }
 
   // Cursor-based pagination: ?before=<message_id>&limit=50
   const beforeId = request.nextUrl.searchParams.get('before')
   const limit = Math.min(Math.max(Number(request.nextUrl.searchParams.get('limit') ?? '50'), 1), 100)
 
-  // Inclui mensagens com client_id null para não esconder históricos antigos/bugados.
-  // A segurança já está garantida pelo filtro de conversation_id + validação de acesso acima.
-  const msgSelect = 'id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url, media_mime_type, media_filename, media_size_bytes, media_duration_seconds, media_transcript, whatsapp_status, derived_text, derived_kind, processing_status, processing_error, ai_input_text, sent_to_agent_at'
-
   let msgQuery = admin
-    .from('messages')
-    .select(msgSelect)
+    .from('store_messages')
+    .select('id, content, content_type, sender_type, from_who, created_at, evolution_message_id, media_url, media_mime_type, whatsapp_status, ai_input_text')
     .eq('conversation_id', id)
 
-  if (conversation.client_id) {
-    msgQuery = msgQuery.or(`client_id.eq.${conversation.client_id},client_id.is.null`)
-  }
-
   if (beforeId) {
-    // Fetch the cursor message's timestamp
+    // Busca timestamp da mensagem de cursor
     const { data: cursorMsg } = await admin
-      .from('messages')
+      .from('store_messages')
       .select('created_at')
       .eq('id', beforeId)
       .maybeSingle()
@@ -72,7 +111,7 @@ export async function GET(
     }
   }
 
-  // Fetch limit+1 to determine hasMore, ordered DESC (newest first in query)
+  // Busca limit+1 para determinar hasMore
   const { data: rawMessages, error: msgError } = await msgQuery
     .order('created_at', { ascending: false })
     .limit(limit + 1)
@@ -85,8 +124,16 @@ export async function GET(
   const fetched = rawMessages ?? []
   const hasMore = fetched.length > limit
   const sliced = hasMore ? fetched.slice(0, limit) : fetched
-  // Reverse to chronological order (oldest first)
-  const messages = sliced.reverse()
+  
+  // Mapeamento mínimo para compatibilidade com o frontend
+  const messages = sliced.reverse().map((msg) => ({
+    ...msg,
+    // Garante que campos que o front lê existam
+    derived_text: null,
+    derived_kind: null,
+    processing_status: 'ready',
+    processing_error: null,
+  }))
 
   console.log(`[desk/conversations/${id}] ${messages.length} mensagem(ns) retornada(s), hasMore=${hasMore}`)
 

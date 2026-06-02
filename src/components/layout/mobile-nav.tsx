@@ -15,7 +15,7 @@ import { getNavItems, type LayoutAudience } from './nav-config'
 
 interface MobileNavProps {
   audience: LayoutAudience
-  clientRole?: 'admin' | 'agent' | null
+  clientRole?: string | null
 }
 
 export function MobileNav({ audience, clientRole }: MobileNavProps) {

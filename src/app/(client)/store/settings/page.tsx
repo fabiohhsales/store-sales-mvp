@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, Settings, Sparkles, AlertCircle, Kanban, Send } from 'lucide-react'
+import { Loader2, Settings, Sparkles, AlertCircle, Kanban, Send, CreditCard } from 'lucide-react'
 import { toast } from 'sonner'
 import { StagesLabelsSection } from '@/components/bot-config/stages-labels-section'
 import { FollowupSection } from '@/components/bot-config/followup-section'
@@ -23,6 +23,15 @@ export default function StoreSettingsPage() {
   const [autoReply, setAutoReply] = useState(true)
   const [ragEnabled, setRagEnabled] = useState(true)
   const [fallbackMessage, setFallbackMessage] = useState('')
+
+  // Stripe & AbacatePay integration credentials
+  const [stripeApiKey, setStripeApiKey] = useState('')
+  const [stripeWebhookSecret, setStripeWebhookSecret] = useState('')
+  const [stripeActive, setStripeActive] = useState(true)
+
+  const [abacateApiKey, setAbacateApiKey] = useState('')
+  const [abacateWebhookSecret, setAbacateWebhookSecret] = useState('')
+  const [abacateActive, setAbacateActive] = useState(true)
 
   // Bot Config states (stages & followups)
   const [botConfig, setBotConfig] = useState<any>({
@@ -75,6 +84,21 @@ export default function StoreSettingsPage() {
           atendimento_followup_steps: data.botConfig.atendimento_followup_steps || [],
         })
       }
+      if (data.integrations) {
+        const stripe = data.integrations.find((i: any) => i.provider === 'stripe')
+        const abacate = data.integrations.find((i: any) => i.provider === 'abacatepay')
+
+        if (stripe) {
+          setStripeApiKey(stripe.api_key || '')
+          setStripeWebhookSecret(stripe.webhook_secret || '')
+          setStripeActive(stripe.is_active !== false)
+        }
+        if (abacate) {
+          setAbacateApiKey(abacate.api_key || '')
+          setAbacateWebhookSecret(abacate.webhook_secret || '')
+          setAbacateActive(abacate.is_active !== false)
+        }
+      }
     } catch (err: any) {
       setError(err.message || 'Erro inesperado')
     } finally {
@@ -105,6 +129,13 @@ export default function StoreSettingsPage() {
           lead_followup_steps: botConfig.lead_followup_steps,
           atendimento_followup_enabled: botConfig.atendimento_followup_enabled,
           atendimento_followup_steps: botConfig.atendimento_followup_steps,
+          // Payment credentials
+          stripe_api_key: stripeApiKey,
+          stripe_webhook_secret: stripeWebhookSecret,
+          stripe_active: stripeActive,
+          abacate_api_key: abacateApiKey,
+          abacate_webhook_secret: abacateWebhookSecret,
+          abacate_active: abacateActive,
         }),
       })
 
@@ -209,6 +240,78 @@ export default function StoreSettingsPage() {
                   onChange={(e) => setFallbackMessage(e.target.value)}
                   rows={3}
                 />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Payment integrations Tab card */}
+          <Card className="border border-border/40 bg-card/60 backdrop-blur-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-primary" />
+                Métodos de Pagamento (Stripe / AbacatePay)
+              </CardTitle>
+              <CardDescription>Conecte e configure as chaves de API da Stripe ou do AbacatePay para os checkouts.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4 rounded-lg border border-border/40 p-4 bg-background/20">
+                <div className="flex items-center justify-between">
+                  <Label className="font-bold text-base">Stripe Integration</Label>
+                  <Switch checked={stripeActive} onCheckedChange={setStripeActive} />
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">Use cartões e boletos de forma segura.</p>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="stripe-api-key" className="text-xs">Stripe Secret Key (sk_...)</Label>
+                    <Input
+                      id="stripe-api-key"
+                      type="password"
+                      placeholder="sk_live_..."
+                      value={stripeApiKey}
+                      onChange={(e) => setStripeApiKey(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="stripe-webhook" className="text-xs">Stripe Webhook Secret (whsec_...)</Label>
+                    <Input
+                      id="stripe-webhook"
+                      type="password"
+                      placeholder="whsec_..."
+                      value={stripeWebhookSecret}
+                      onChange={(e) => setStripeWebhookSecret(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 rounded-lg border border-border/40 p-4 bg-background/20">
+                <div className="flex items-center justify-between">
+                  <Label className="font-bold text-base">AbacatePay Integration (Pix)</Label>
+                  <Switch checked={abacateActive} onCheckedChange={setAbacateActive} />
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">Receba via Pix instantâneo brasileiro.</p>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="abacate-api-key" className="text-xs">AbacatePay API Key</Label>
+                    <Input
+                      id="abacate-api-key"
+                      type="password"
+                      placeholder="abc_..."
+                      value={abacateApiKey}
+                      onChange={(e) => setAbacateApiKey(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="abacate-webhook" className="text-xs">AbacatePay Webhook Secret</Label>
+                    <Input
+                      id="abacate-webhook"
+                      type="password"
+                      placeholder="whsec_..."
+                      value={abacateWebhookSecret}
+                      onChange={(e) => setAbacateWebhookSecret(e.target.value)}
+                    />
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

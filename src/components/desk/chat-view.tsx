@@ -25,6 +25,8 @@ import { ConversationIntakeCard } from './conversation-intake-card'
 import { ConversationHistoryCard } from './conversation-history-card'
 import { ConversationTimelineCard } from './conversation-timeline-card'
 import type { ConversationContext } from '@/types/conversation-context'
+import { CatalogDrawer } from './CatalogDrawer'
+import { ShoppingBag } from 'lucide-react'
 
 export interface Message {
   id: string
@@ -668,6 +670,7 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
   const [personalCannedResponses, setPersonalCannedResponses] = useState<CannedResponse[]>([])
   const [cannedPopoverOpen, setCannedPopoverOpen] = useState(false)
   const [cannedHighlight, setCannedHighlight] = useState(0)
+  const [catalogOpen, setCatalogOpen] = useState(false)
 
   // Contexto consolidado (Fase 2)
   const [context, setContext] = useState<ConversationContext | null>(null)
@@ -1677,6 +1680,16 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
                         <Button
                           size="icon"
                           variant="outline"
+                          onClick={() => setCatalogOpen(true)}
+                          disabled={uploadLoading || sending}
+                          className="h-11 w-11 flex-shrink-0"
+                          title="Enviar produto do catálogo"
+                        >
+                          <ShoppingBag size={16} />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="outline"
                           onClick={() => fileInputRef.current?.click()}
                           disabled={uploadLoading || sending}
                           className="h-11 w-11 flex-shrink-0"
@@ -2077,6 +2090,13 @@ export function ChatView({ conversationId, clientId, currentUserId, onConversati
           )}
         </DialogContent>
       </Dialog>
+      <CatalogDrawer
+        clientId={clientId}
+        conversationId={conversationId}
+        open={catalogOpen}
+        onOpenChange={setCatalogOpen}
+        onProductSent={() => load(false)}
+      />
     </div>
   )
 }

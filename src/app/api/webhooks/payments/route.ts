@@ -146,11 +146,11 @@ async function processPaymentSuccess(
 
   console.log(`[Payment-Webhook] Pedido ${order.id} atualizado para status=paid!`)
 
-  // 3. Emit Conduction/Conversation Event
+  // 3. Emit Conduction/Conversation Event (if tracking is used)
   if (order.conversation_id) {
     emitConversationEvent(
       order.conversation_id,
-      order.client_id,
+      order.account_id,
       'payment_received',
       'system',
       {
@@ -162,32 +162,92 @@ async function processPaymentSuccess(
     )
   }
 
-  // 4. Fetch Contact and WhatsApp Config to send WhatsApp alert
+  // 3.5 Auto-advance conversation commercial stage to 'won'
+  if (order.conversation_id) {
+    const { error: convErr } = await supabase
+      .from('store_conversations')
+      .update({
+        commercial_stage: 'won',
+        won_at: new Date().toISOString(),
+      })
+      .eq('id', order.conversation_id)
+
+    if (convErr) {
+      console.error(`[Payment-Webhook] Falha ao atualizar o estágio comercial da conversa ${order.conversation_id} para won:`, convErr.message)
+    }
+  }
+
+  // 3.8 Promote contact profile to 'customer' lifecycle stage and tag as first purchase
+  try {
+    const { data: profile } = await supabase
+      .from('store_contact_profiles')
+      .select('*')
+      .eq('contact_id', order.contact_id)
+      .eq('account_id', order.account_id)
+      .maybeSingle()
+
+    const nowStr = new Date().toISOString()
+    if (profile) {
+      const currentTags = profile.tags || []
+      const updatedTags = currentTags.includes('primeira_compra')
+        ? currentTags
+        : [...currentTags, 'primeira_compra']
+
+      await supabase
+        .from('store_contact_profiles')
+        .update({
+          lifecycle_stage: 'customer',
+          last_purchase_at: nowStr,
+          tags: updatedTags,
+          updated_at: nowStr,
+        })
+        .eq('id', profile.id)
+    } else {
+      await supabase.from('store_contact_profiles').insert({
+        id: crypto.randomUUID(),
+        account_id: order.account_id,
+        store_id: order.store_id || null,
+        contact_id: order.contact_id,
+        lifecycle_stage: 'customer',
+        last_purchase_at: nowStr,
+        tags: ['primeira_compra'],
+      })
+    }
+    console.log(`[Payment-Webhook] Perfil do contato ${order.contact_id} promovido para customer com tag primeira_compra.`)
+  } catch (profErr) {
+    console.error(`[Payment-Webhook] Falha ao promover perfil do contato ${order.contact_id}:`, profErr)
+  }
+
+  // 4. Fetch Contact and Store Channel to send WhatsApp alert
   const { data: contact } = await supabase
-    .from('contacts')
-    .select('identifier, phone_number')
+    .from('store_contacts')
+    .select('remote_jid, phone_number')
     .eq('id', order.contact_id)
     .maybeSingle()
 
-  const { data: wConfig } = await supabase
-    .from('panel_whatsapp_config')
+  const { data: channel } = await supabase
+    .from('store_channels')
     .select('evolution_instance_name')
-    .eq('client_id', order.client_id)
+    .eq('account_id', order.account_id)
+    .eq('status', 'active')
+    .limit(1)
     .maybeSingle()
 
-  if (contact && wConfig?.evolution_instance_name) {
-    const recipient = contact.identifier || contact.phone_number
+  if (contact && channel?.evolution_instance_name) {
+    const recipient = contact.remote_jid || contact.phone_number
     if (recipient) {
       const confirmMessage = `Obrigado! Identificamos o seu pagamento de *R$ ${Number(order.total_amount).toFixed(2)}*. 💳\nJá estamos preparando o seu pedido e em breve nossa equipe entrará em contato para agendar a entrega!`
       try {
-        await sendTextMessage(wConfig.evolution_instance_name, recipient, confirmMessage)
+        await sendTextMessage(channel.evolution_instance_name, recipient, confirmMessage)
         
         // Save confirmation message in conversation history
         if (order.conversation_id) {
-          await supabase.from('messages').insert({
+          await supabase.from('store_messages').insert({
             id: crypto.randomUUID(),
+            account_id: order.account_id,
+            store_id: order.store_id || null,
             conversation_id: order.conversation_id,
-            client_id: order.client_id,
+            contact_id: order.contact_id,
             content: confirmMessage,
             content_type: 'text',
             sender_type: 'agent_bot',

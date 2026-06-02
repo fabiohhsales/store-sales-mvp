@@ -3,6 +3,7 @@ import type { StageLabelConfig } from '@/types/database'
 export const DEFAULT_STAGE_LABELS: StageLabelConfig[] = [
   { slug: 'etapa_triagem', display_name: 'Triagem', followup_cadence: 'lead' },
   { slug: 'etapa_qualificacao', display_name: 'Qualificação', followup_cadence: 'atendimento' },
+  { slug: 'etapa_formatacao_oferta', display_name: 'Formatação de Oferta', followup_cadence: 'atendimento', goal: 'Apresentar a proposta comercial detalhada e atrativa ao cliente.', transition_trigger: 'Quando o cliente pedir preço, orçamento ou detalhes de produtos, a IA deve formatar a proposta comercial com preços, condições de pagamento e emojis/negrito, movendo para esta etapa.' },
   { slug: 'etapa_agendando', display_name: 'Agendando', followup_cadence: null },
   { slug: 'etapa_agendado', display_name: 'Agendado', followup_cadence: 'agendado' },
   { slug: 'etapa_confirmado', display_name: 'Confirmado', followup_cadence: 'agendado' },
@@ -13,6 +14,7 @@ export const DEFAULT_STAGE_LABELS: StageLabelConfig[] = [
 export const DEFAULT_STORE_STAGE_LABELS: StageLabelConfig[] = [
   { slug: 'etapa_novo_lead', display_name: 'Novo Lead', followup_cadence: 'lead' },
   { slug: 'etapa_em_atendimento', display_name: 'Em Atendimento', followup_cadence: 'atendimento' },
+  { slug: 'etapa_formatacao_oferta', display_name: 'Formatação de Oferta', followup_cadence: 'atendimento', goal: 'Apresentar a proposta comercial detalhada e atrativa ao cliente.', transition_trigger: 'Quando o cliente pedir preço, orçamento ou detalhes de produtos, a IA deve formatar a proposta comercial com preços, condições de pagamento e emojis/negrito, movendo para esta etapa.' },
   { slug: 'etapa_orcamento', display_name: 'Orçamento Enviado', followup_cadence: 'atendimento' },
   { slug: 'etapa_negociacao', display_name: 'Em Negociação', followup_cadence: 'atendimento' },
   { slug: 'etapa_aguardando_pagamento', display_name: 'Aguardando Pagamento', followup_cadence: 'lead' },
@@ -54,7 +56,13 @@ export function sanitizeStageLabels(
 
     if (!slug || !displayName) continue
     if (!deduped.has(slug)) {
-      deduped.set(slug, { slug, display_name: displayName, followup_cadence: followupCadence })
+      deduped.set(slug, {
+        slug,
+        display_name: displayName,
+        followup_cadence: followupCadence,
+        goal: typeof item.goal === 'string' ? item.goal.trim() : undefined,
+        transition_trigger: typeof item.transition_trigger === 'string' ? item.transition_trigger.trim() : undefined,
+      })
     }
   }
 

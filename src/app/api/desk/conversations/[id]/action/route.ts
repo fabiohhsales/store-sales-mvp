@@ -1,13 +1,10 @@
 // POST /api/desk/conversations/[id]/action
-// Ações do operador: assume | return | resolve
-// Body: { action: 'assume' | 'return' | 'resolve' }
+// Ações do operador: assume | return | resolve no Desk (Store Sales).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
 import { RATE_LIMITS } from '@/lib/desk/rate-limit'
-import { emitConversationEvent } from '@/lib/desk/emit-conversation-event'
-import { resumeConversationFromDesk } from '@/lib/bot/resume-from-desk'
 
 export async function POST(
   request: NextRequest,
@@ -27,37 +24,29 @@ export async function POST(
 
   const admin = createAdminClient()
   const { data: conv } = await admin
-    .from('conversations')
-    .select('id, client_id, stage')
+    .from('store_conversations')
+    .select('id, account_id, operational_status, commercial_stage')
     .eq('id', id)
     .maybeSingle()
 
   if (!conv) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
-  if (!deskUser.isAdmin && conv.client_id !== deskUser.clientId) {
+  if (!deskUser.isAdmin && conv.account_id !== deskUser.clientId) {
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
-  let newStage: string = conv.stage
-  let autoReply = { attempted: false, sent: false, reason: null as string | null }
+  let newStatus: string = conv.operational_status || 'bot_active'
+  const nowStr = new Date().toISOString()
 
   if (action === 'assume') {
-    await admin.from('ai_pauses').upsert({
-      conversation_id: id,
-      paused_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      paused_reason: 'operator_assumed',
-      paused_by: deskUser.userId,
-      updated_at: new Date().toISOString(),
-      client_id: conv.client_id,
-    })
-
-    const { data, error } = await admin.from('conversations')
+    const { data, error } = await admin
+      .from('store_conversations')
       .update({
-        stage: 'in_service',
-        last_system_action: 'operator_assumed',
-        handoff_assumed_at: new Date().toISOString(),
+        operational_status: 'in_service',
+        assigned_user_id: deskUser.userId,
+        updated_at: nowStr,
       })
       .eq('id', id)
-      .select('stage')
+      .select('operational_status')
       .single()
 
     if (error) {
@@ -65,24 +54,19 @@ export async function POST(
       return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
     }
 
-    newStage = data.stage
-
-    void emitConversationEvent(id, conv.client_id, 'handoff_assumed', 'operator', {
-      previous_stage: conv.stage,
-    }, deskUser.userId)
+    newStatus = data.operational_status
   }
 
   if (action === 'return') {
-    await admin.from('ai_pauses').delete().eq('conversation_id', id)
-
-    const { data, error } = await admin.from('conversations')
+    const { data, error } = await admin
+      .from('store_conversations')
       .update({
-        stage: 'bot_triage',
-        handoff_returned_to_bot_at: new Date().toISOString(),
-        last_system_action: 'returned_to_bot',
+        operational_status: 'bot_active',
+        assigned_user_id: null,
+        updated_at: nowStr,
       })
       .eq('id', id)
-      .select('stage')
+      .select('operational_status')
       .single()
 
     if (error) {
@@ -90,30 +74,20 @@ export async function POST(
       return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
     }
 
-    newStage = data.stage
-
-    void emitConversationEvent(id, conv.client_id, 'returned_to_bot', 'operator', {
-      previous_stage: conv.stage,
-    }, deskUser.userId)
-
-    autoReply = await resumeConversationFromDesk(id, {
-      triggeredBy: deskUser.userId,
-      previousStage: conv.stage,
-    })
+    newStatus = data.operational_status
   }
 
   if (action === 'resolve') {
-    await admin.from('ai_pauses').delete().eq('conversation_id', id)
-
-    const { data, error } = await admin.from('conversations')
+    const { data, error } = await admin
+      .from('store_conversations')
       .update({
-        stage: 'resolved',
-        status: 'resolved',
-        resolved_at: new Date().toISOString(),
-        last_system_action: 'conversation_resolved',
+        operational_status: 'resolved',
+        commercial_stage: conv.commercial_stage === 'won' ? 'won' : 'resolved_conversation', // fallback or keep as won
+        resolved_at: nowStr,
+        updated_at: nowStr,
       })
       .eq('id', id)
-      .select('stage')
+      .select('operational_status')
       .single()
 
     if (error) {
@@ -121,13 +95,16 @@ export async function POST(
       return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
     }
 
-    newStage = data.stage
-
-    void emitConversationEvent(id, conv.client_id, 'conversation_resolved', 'operator', {
-      previous_stage: conv.stage,
-    }, deskUser.userId)
+    newStatus = data.operational_status
   }
 
-  console.log(`[desk/action] conv=${id} action=${action} stage=${newStage}`)
-  return NextResponse.json({ ok: true, action, stage: newStage, auto_reply: autoReply })
+  console.log(`[desk/action] conv=${id} action=${action} status=${newStatus}`)
+  
+  // Retorna no formato esperado pelo Desk UI
+  return NextResponse.json({
+    ok: true,
+    action,
+    stage: newStatus === 'bot_active' ? 'bot_triage' : newStatus,
+    auto_reply: { attempted: false, sent: false, reason: null },
+  })
 }

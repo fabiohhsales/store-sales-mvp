@@ -1,8 +1,6 @@
 // PATCH /api/desk/conversations/[id]/assign
-// Atribui ou remove operador de uma conversa.
+// Atribui ou remove operador de uma conversa para o Desk (Store Sales).
 // Body: { operator_id: string | null }
-//   - operator_id: UUID de panel_users (role=operator, client_id=cliente)
-//   - null: desatribui (campo fica null)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -18,50 +16,45 @@ export async function PATCH(
 
   const body = await request.json()
 
-  // operator_id pode ser string (UUID) ou null para desatribuir
   if (!('operator_id' in body)) {
     return NextResponse.json({ error: 'operator_id é obrigatório (null para desatribuir)' }, { status: 400 })
   }
 
   const operatorId: string | null = body.operator_id ?? null
-
   const admin = createAdminClient()
 
   // Valida acesso à conversa
   const { data: conv } = await admin
-    .from('conversations')
-    .select('id, client_id')
+    .from('store_conversations')
+    .select('id, account_id')
     .eq('id', conversationId)
     .maybeSingle()
 
   if (!conv) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
-  if (!deskUser.isAdmin && conv.client_id !== deskUser.clientId) {
+  if (!deskUser.isAdmin && conv.account_id !== deskUser.clientId) {
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
-  // Se atribuindo um operador, valida que ele pertence ao mesmo cliente
+  // Se atribuindo um operador, valida que ele pertence à mesma conta
   if (operatorId !== null) {
     const { data: op } = await admin
-      .from('panel_users')
+      .from('store_account_memberships')
       .select('id, is_active')
-      .eq('id', operatorId)
-      .eq('client_id', conv.client_id)
-      .eq('role', 'operator')
+      .eq('user_id', operatorId)
+      .eq('account_id', conv.account_id)
+      .eq('is_active', true)
       .maybeSingle()
 
     if (!op) {
-      return NextResponse.json({ error: 'Operador não encontrado neste cliente' }, { status: 404 })
-    }
-    if (!op.is_active) {
-      return NextResponse.json({ error: 'Operador inativo' }, { status: 422 })
+      return NextResponse.json({ error: 'Operador não encontrado nesta conta' }, { status: 404 })
     }
   }
 
   const { data, error } = await admin
-    .from('conversations')
-    .update({ assigned_operator_id: operatorId })
+    .from('store_conversations')
+    .update({ assigned_user_id: operatorId })
     .eq('id', conversationId)
-    .select('id, assigned_operator_id')
+    .select('id, assigned_user_id')
     .single()
 
   if (error) {
@@ -70,11 +63,16 @@ export async function PATCH(
   }
 
   console.log(`[desk/assign] conv=${conversationId} operator=${operatorId ?? 'none'}`)
-  return NextResponse.json(data)
+  
+  // Retorna no formato esperado pelo frontend
+  return NextResponse.json({
+    id: data.id,
+    assigned_operator_id: data.assigned_user_id,
+  })
 }
 
 // GET /api/desk/conversations/[id]/assign
-// Lista operadores disponíveis para este cliente (para popular o select na UI)
+// Lista operadores disponíveis para esta conta (para popular o select na UI)
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -85,33 +83,43 @@ export async function GET(
 
   const admin = createAdminClient()
 
-  // Valida acesso e descobre o client_id da conversa
+  // Valida acesso e descobre o account_id da conversa
   const { data: conv } = await admin
-    .from('conversations')
-    .select('id, client_id, assigned_operator_id')
+    .from('store_conversations')
+    .select('id, account_id, assigned_user_id')
     .eq('id', conversationId)
     .maybeSingle()
 
   if (!conv) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
-  if (!deskUser.isAdmin && conv.client_id !== deskUser.clientId) {
+  if (!deskUser.isAdmin && conv.account_id !== deskUser.clientId) {
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
-  const { data: operators, error } = await admin
-    .from('panel_users')
-    .select('id, email, display_name')
-    .eq('client_id', conv.client_id)
-    .eq('role', 'operator')
+  // Busca membros da conta com perfil detalhado
+  const { data: memberships, error } = await admin
+    .from('store_account_memberships')
+    .select(`
+      user_id,
+      profile:store_user_profiles(id, email, display_name)
+    `)
+    .eq('account_id', conv.account_id)
     .eq('is_active', true)
-    .order('display_name', { ascending: true, nullsFirst: false })
 
   if (error) {
     console.error('[desk/assign] operators error:', error)
     return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
 
+  const operators = (memberships ?? [])
+    .map((m: any) => ({
+      id: m.user_id,
+      email: m.profile?.email || '',
+      display_name: m.profile?.display_name || '',
+    }))
+    .sort((a, b) => a.display_name.localeCompare(b.display_name))
+
   return NextResponse.json({
-    assigned_operator_id: conv.assigned_operator_id,
-    operators: operators ?? [],
+    assigned_operator_id: conv.assigned_user_id,
+    operators,
   })
 }

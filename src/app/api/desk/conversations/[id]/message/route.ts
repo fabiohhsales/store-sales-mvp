@@ -1,13 +1,11 @@
 // POST /api/desk/conversations/[id]/message
-// Operador envia mensagem manual via Evolution API e persiste no Supabase.
-// Body: { content: string }
+// Operador envia mensagem manual via Evolution API e persiste no Supabase para o Desk (Store Sales).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
 import { RATE_LIMITS } from '@/lib/desk/rate-limit'
 import { sendTextMessage } from '@/lib/api/evolution'
-import { extractEvolutionInstanceName, extractFirstContact } from '@/lib/desk/conversation-row'
 
 export async function POST(
   request: NextRequest,
@@ -25,73 +23,84 @@ export async function POST(
 
   const admin = createAdminClient()
 
-  // Carrega conversa + contato + instância Evolution
-  const { data: conv } = await admin
-    .from('conversations')
-    .select(`
-      id, client_id, stage, status,
-      contacts ( phone_number, identifier ),
-      panel_clients!client_id (
-        panel_whatsapp_config ( evolution_instance_name )
-      )
-    `)
+  // 1. Carrega conversa da nova tabela
+  const { data: conv, error: convError } = await admin
+    .from('store_conversations')
+    .select('id, account_id, store_id, contact_id, operational_status')
     .eq('id', id)
     .maybeSingle()
 
+  if (convError) throw convError
   if (!conv) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
-  if (!deskUser.isAdmin && conv.client_id !== deskUser.clientId) {
+  if (!deskUser.isAdmin && conv.account_id !== deskUser.clientId) {
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
-  const contact = extractFirstContact(conv)
-  const instanceName = extractEvolutionInstanceName(conv)
+  // 2. Carrega contato e canais
+  const [{ data: contact }, { data: channel }] = await Promise.all([
+    admin
+      .from('store_contacts')
+      .select('phone_number, remote_jid')
+      .eq('id', conv.contact_id)
+      .maybeSingle(),
+    admin
+      .from('store_channels')
+      .select('evolution_instance_name')
+      .eq('account_id', conv.account_id)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle(),
+  ])
 
+  // Fallback para panel_whatsapp_config legado se nenhum store_channel ativo estiver configurado
+  let instanceName = channel?.evolution_instance_name
   if (!instanceName) {
-    return NextResponse.json({ error: 'Instância WhatsApp não configurada' }, { status: 422 })
+    const { data: whatsappConfig } = await admin
+      .from('panel_whatsapp_config')
+      .select('evolution_instance_name')
+      .eq('client_id', conv.account_id)
+      .maybeSingle()
+    instanceName = whatsappConfig?.evolution_instance_name
   }
 
-  const identifier = contact?.identifier ?? contact?.phone_number
-  if (!identifier) {
-    return NextResponse.json({ error: 'Contato sem número WhatsApp' }, { status: 422 })
+  const recipient = contact?.phone_number
+
+  if (!recipient || !instanceName) {
+    return NextResponse.json({ error: 'Instância WhatsApp ou Contato indisponível para envio' }, { status: 422 })
   }
 
-  // Política de takeover humano: toda mensagem de operador renova o ai_pause
-  // por +24h. O bot só volta a responder via /action?action=return ou /resolve.
-  // Sem renovação por mensagem, o lock expirava no meio de uma conversa em
-  // andamento e o bot voltava a falar por cima do humano.
-  await admin.from('ai_pauses').upsert({
-    conversation_id: id,
-    paused_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    paused_reason: 'operator_assumed',
-    paused_by: deskUser.userId,
-    updated_at: new Date().toISOString(),
-    client_id: conv.client_id,
-  })
+  const now = new Date().toISOString()
 
-  // Auto-assume: a transição de stage só acontece na primeira mensagem.
-  if (conv.stage !== 'in_service') {
-    await admin.from('conversations').update({
-      stage: 'in_service',
-      ...(conv.status === 'resolved' ? { status: 'open' } : {}),
-    }).eq('id', id)
+  // Auto-assume para takeover humano se não estiver em atendimento
+  if (conv.operational_status !== 'in_service') {
+    await admin
+      .from('store_conversations')
+      .update({
+        operational_status: 'in_service',
+        assigned_user_id: deskUser.userId,
+        updated_at: now,
+      })
+      .eq('id', id)
   }
 
-  // Envia via Evolution API — captura o message ID para rastreamento de entrega
-  const evolutionMsgId = await sendTextMessage(instanceName, identifier, content.trim())
+  // Envia via Evolution API
+  const evolutionMsgId = await sendTextMessage(instanceName, recipient, content.trim())
 
-  // Persiste no Supabase
+  // Persiste no Supabase (store_messages)
   const { data: message, error } = await admin
-    .from('messages')
+    .from('store_messages')
     .insert({
       id: crypto.randomUUID(),
+      account_id: conv.account_id,
+      store_id: conv.store_id || null,
       conversation_id: id,
-      client_id: conv.client_id,
+      contact_id: conv.contact_id,
       content: content.trim(),
       content_type: 'text',
       sender_type: 'operator',
       from_who: 'human',
       evolution_message_id: evolutionMsgId ?? null,
-      created_at: new Date().toISOString(),
+      created_at: now,
     })
     .select()
     .single()
@@ -102,10 +111,22 @@ export async function POST(
   }
 
   // Atualiza timestamps da conversa
-  await admin.from('conversations').update({
-    last_outgoing_at: new Date().toISOString(),
-    last_outgoing_by: 'operator',
-  }).eq('id', id)
+  await admin
+    .from('store_conversations')
+    .update({
+      last_outgoing_at: now,
+      updated_at: now,
+    })
+    .eq('id', id)
 
-  return NextResponse.json(message)
+  // Mapeia para compatibilidade
+  const mappedMessage = {
+    ...message,
+    derived_text: null,
+    derived_kind: null,
+    processing_status: 'ready',
+    processing_error: null,
+  }
+
+  return NextResponse.json(mappedMessage)
 }

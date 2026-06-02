@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import { KanbanBoard } from '@/components/pipeline/kanban-board'
 import { Button } from '@/components/ui/button'
-import { MessageSquarePlus } from 'lucide-react'
+import { MessageSquarePlus, Upload } from 'lucide-react'
 import { NewConversationModal } from '@/components/layout/new-conversation-modal'
+import { ImportContactsDialog } from '@/components/desk/ImportContactsDialog'
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ interface Props {
 export function PipelinePageClient({ clients, initialClientId, viewerRole }: Props) {
   const [clientId, setClientId] = useState(initialClientId)
   const [newConversationOpen, setNewConversationOpen] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
   const isAdmin = viewerRole === 'admin'
 
@@ -35,6 +37,10 @@ export function PipelinePageClient({ clients, initialClientId, viewerRole }: Pro
       <div className={`flex items-center ${isAdmin ? 'justify-between' : 'justify-center'} min-h-[40px] gap-3`}>
         <h1 className="text-3xl font-semibold tracking-tight text-foreground/90">Pipeline</h1>
         <div className="ml-auto flex items-center gap-3">
+          <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Importar Contatos
+          </Button>
           <Button onClick={() => setNewConversationOpen(true)}>
             <MessageSquarePlus className="h-4 w-4 mr-2" />
             Nova conversa
@@ -74,6 +80,12 @@ export function PipelinePageClient({ clients, initialClientId, viewerRole }: Pro
         onOpenChange={setNewConversationOpen}
         onSuccess={() => setRefreshToken((v) => v + 1)}
         clientId={clientId}
+      />
+      <ImportContactsDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        clientId={clientId}
+        onSuccess={() => setRefreshToken((v) => v + 1)}
       />
     </div>
   )

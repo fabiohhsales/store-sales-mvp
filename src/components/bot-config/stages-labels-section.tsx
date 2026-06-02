@@ -23,6 +23,8 @@ const EMPTY_STAGE: StageLabelConfig = {
   slug: '',
   display_name: '',
   followup_cadence: null,
+  goal: '',
+  transition_trigger: '',
 }
 
 const FOLLOWUP_CADENCE_OPTIONS: Array<{
@@ -103,7 +105,7 @@ export function StagesLabelsSection({ config, onChange }: SectionProps) {
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label>Follow Up com IA</Label>
               <Select
                 value={stage.followup_cadence ?? 'none'}
@@ -130,6 +132,28 @@ export function StagesLabelsSection({ config, onChange }: SectionProps) {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor={`stage-goal-${index}`}>Objetivo da Etapa</Label>
+              <Input
+                id={`stage-goal-${index}`}
+                placeholder="Ex: Identificar a necessidade do cliente e qualificar o contato."
+                value={stage.goal ?? ''}
+                onChange={(e) => updateStage(index, { goal: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor={`stage-trigger-${index}`}>Como a IA identifica para mover automaticamente (Gatilho)</Label>
+              <textarea
+                id={`stage-trigger-${index}`}
+                rows={2}
+                className="flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                placeholder="Ex: Quando o cliente pedir preço, orçamento ou detalhes de produtos, a IA deve formatar a proposta comercial com preços, condições de pagamento e emojis/negrito, movendo para esta etapa."
+                value={stage.transition_trigger ?? ''}
+                onChange={(e) => updateStage(index, { transition_trigger: e.target.value })}
+              />
             </div>
           </div>
         </div>

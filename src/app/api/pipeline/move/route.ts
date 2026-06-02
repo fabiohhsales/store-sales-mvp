@@ -2,19 +2,31 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth/embed-token'
 import { isAuthError } from '@/lib/auth/request-context'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { updateConversationLabels } from '@/lib/api/chatwoot'
-import { sanitizeStageLabels } from '@/lib/bot/stage-labels'
+import { getStoreSession } from '@/lib/auth/store-session'
+
+const RETAIL_STAGES = [
+  'new_lead',
+  'product_discovery',
+  'product_recommended',
+  'offer_formatting',
+  'price_requested',
+  'quote_requested',
+  'payment_link_sent',
+  'negotiation',
+  'won',
+  'lost',
+]
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
       client_id,
-      conversation_id,         // UUID (novo modelo Evolution)
-      chatwoot_conversation_id, // int (legado Chatwoot)
+      conversation_id,
       from_stage,
       to_stage,
       token,
+      lost_reason,
     } = body
 
     if (!from_stage || !to_stage) {
@@ -24,93 +36,91 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!conversation_id && !chatwoot_conversation_id) {
+    if (!conversation_id) {
       return NextResponse.json(
-        { error: 'conversation_id ou chatwoot_conversation_id são obrigatórios' },
+        { error: 'conversation_id é obrigatório' },
         { status: 400 }
       )
     }
 
-    const auth = await authenticateRequest(token || null, client_id || null)
-    const admin = createAdminClient()
-
-    const { data: botConfigRow } = await admin
-      .from('panel_bot_config')
-      .select('stage_labels')
-      .eq('client_id', auth.client_id)
-      .maybeSingle()
-
-    const stageLabels = sanitizeStageLabels(botConfigRow?.stage_labels)
-    const validStageSlugs = new Set(stageLabels.map((s) => s.slug))
-    const stageSlugsForLabels = new Set([...validStageSlugs, '_sem_etapa'])
-
-    if (from_stage !== '_sem_etapa' && !validStageSlugs.has(from_stage)) {
-      return NextResponse.json({ error: 'from_stage inválido para o cliente' }, { status: 400 })
+    if (!RETAIL_STAGES.includes(to_stage)) {
+      return NextResponse.json(
+        { error: `to_stage inválida: ${to_stage}` },
+        { status: 400 }
+      )
     }
 
-    if (to_stage !== '_sem_etapa' && !validStageSlugs.has(to_stage)) {
-      return NextResponse.json({ error: 'to_stage inválido para o cliente' }, { status: 400 })
+    if (to_stage === 'lost' && !lost_reason) {
+      return NextResponse.json(
+        { error: 'Motivo da perda (lost_reason) é obrigatório ao mover para lost' },
+        { status: 400 }
+      )
     }
 
-    // Busca a conversa — prioriza UUID, fallback para chatwoot_conversation_id
-    let conversation: { id: string; labels: string[]; chatwoot_conversation_id: number | null } | null = null
+    let accountId: string | null = null
+    let operatorUserId: string | null = null
 
-    if (conversation_id) {
-      const { data } = await admin
-        .from('conversations')
-        .select('id, labels, chatwoot_conversation_id')
-        .eq('id', conversation_id)
-        .eq('client_id', auth.client_id)
-        .maybeSingle()
-      conversation = data
+    if (token || client_id) {
+      const auth = await authenticateRequest(token || null, client_id || null)
+      accountId = auth.client_id
     } else {
-      // Legado: busca por chatwoot_conversation_id
-      const [{ data: whatsappConfig }, { data: clientRow }] = await Promise.all([
-        admin
-          .from('panel_whatsapp_config')
-          .select('chatwoot_account_id')
-          .eq('client_id', auth.client_id)
-          .maybeSingle(),
-        admin
-          .from('panel_clients')
-          .select('chatwoot_account_id')
-          .eq('id', auth.client_id)
-          .maybeSingle(),
-      ])
-      const accountId = whatsappConfig?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null
-
-      if (accountId) {
-        const { data } = await admin
-          .from('conversations')
-          .select('id, labels, chatwoot_conversation_id')
-          .eq('chatwoot_conversation_id', chatwoot_conversation_id)
-          .eq('account_id', accountId)
-          .maybeSingle()
-        conversation = data
+      const session = await getStoreSession()
+      if (session) {
+        accountId = session.accountId
+        operatorUserId = session.user.id
       }
     }
+
+    if (!accountId) {
+      return NextResponse.json({ error: 'Não autorizado ou conta não identificada' }, { status: 401 })
+    }
+
+    const admin = createAdminClient()
+
+    // 1. Fetch conversation
+    const { data: conversation, error: fetchError } = await admin
+      .from('store_conversations')
+      .select('id, commercial_stage')
+      .eq('id', conversation_id)
+      .eq('account_id', accountId)
+      .maybeSingle()
+
+    if (fetchError) throw fetchError
 
     if (!conversation) {
       return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
     }
 
-    // Remove labels de etapa antigas e aplica a nova etapa.
-    // Kanban/funil é rastreado APENAS via labels[]; conversations.stage
-    // é reservado para o estado operacional (bot_triage|awaiting_human|in_service|resolved)
-    // e possui CHECK constraint no banco.
-    const currentLabels = (conversation.labels as string[]) || []
-    const baseLabels = currentLabels.filter((label) => !stageSlugsForLabels.has(label))
-    const newLabels = to_stage === '_sem_etapa' ? baseLabels : [...baseLabels, to_stage]
+    // 2. Update commercial stage
+    const updates: any = {
+      commercial_stage: to_stage,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (to_stage === 'won') {
+      updates.won_at = new Date().toISOString()
+      updates.operational_status = 'resolved'
+      if (operatorUserId) {
+        updates.assigned_user_id = operatorUserId
+      }
+    } else if (to_stage === 'lost') {
+      updates.operational_status = 'resolved'
+      updates.lost_reason = lost_reason
+      if (operatorUserId) {
+        updates.assigned_user_id = operatorUserId
+      }
+    } else if (conversation.commercial_stage === 'won' || conversation.commercial_stage === 'lost') {
+      // Re-opening from won/lost back to active conversation
+      updates.operational_status = 'bot_active'
+    }
 
     const { error: updateError } = await admin
-      .from('conversations')
-      .update({
-        labels: newLabels,
-      })
+      .from('store_conversations')
+      .update(updates)
       .eq('id', conversation.id)
 
     if (updateError) {
-      console.error('[pipeline/move] Falha ao atualizar conversa:', {
+      console.error('[pipeline/move] Falha ao atualizar etapa:', {
         conversationId: conversation.id,
         from_stage,
         to_stage,
@@ -123,44 +133,10 @@ export async function POST(request: NextRequest) {
       conversationId: conversation.id,
       from_stage,
       to_stage,
-      newLabels,
-      authSource: auth.source ?? 'session',
+      accountId,
     })
 
-    // Sincroniza com Chatwoot se a conversa tiver chatwoot_conversation_id (fallback)
-    if (conversation.chatwoot_conversation_id) {
-      try {
-        const [{ data: whatsappConfig }, { data: clientRow }] = await Promise.all([
-          admin
-            .from('panel_whatsapp_config')
-            .select('chatwoot_account_id, chatwoot_agent_token')
-            .eq('client_id', auth.client_id)
-            .maybeSingle(),
-          admin
-            .from('panel_clients')
-            .select('chatwoot_account_id, chatwoot_agent_token')
-            .eq('id', auth.client_id)
-            .maybeSingle(),
-        ])
-
-        const accountId = whatsappConfig?.chatwoot_account_id ?? clientRow?.chatwoot_account_id ?? null
-        const agentToken = whatsappConfig?.chatwoot_agent_token ?? clientRow?.chatwoot_agent_token ?? null
-
-        if (accountId && agentToken) {
-          await updateConversationLabels(
-            accountId,
-            agentToken,
-            conversation.chatwoot_conversation_id,
-            newLabels
-          )
-        }
-      } catch (chatwootErr) {
-        // Chatwoot sync falhou — não interrompe (é fallback)
-        console.warn('[pipeline/move] Chatwoot sync falhou (ignorado):', chatwootErr)
-      }
-    }
-
-    return NextResponse.json({ success: true, labels: newLabels })
+    return NextResponse.json({ success: true, commercial_stage: to_stage })
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: error.message }, { status: error.status })

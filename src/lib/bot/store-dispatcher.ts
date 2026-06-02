@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendTextMessage } from '@/lib/api/evolution'
+import { sendTextMessage, sendMediaByUrl } from '@/lib/api/evolution'
 import { createCheckoutSession } from '@/lib/payments/client'
 import type { StoreAgentOutput } from './store-agent'
 import type { StorePipelineResult } from '@/types/store'
@@ -7,19 +7,32 @@ import type { StorePipelineResult } from '@/types/store'
 async function saveAiMessage(
   conversationId: string,
   clientId: string,
-  reply: string
+  reply: string,
+  mediaUrl?: string | null
 ): Promise<void> {
   const supabase = createAdminClient()
-  const { error } = await supabase.from('messages').insert({
+  
+  const { data: conv } = await supabase
+    .from('store_conversations')
+    .select('contact_id, store_id')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  const { error } = await supabase.from('store_messages').insert({
     id: crypto.randomUUID(),
+    account_id: clientId,
+    store_id: conv?.store_id || null,
     conversation_id: conversationId,
-    client_id: clientId,
+    contact_id: conv?.contact_id || null,
     content: reply,
     content_type: 'text',
     sender_type: 'agent_bot',
     from_who: 'ai',
+    media_url: mediaUrl || null,
+    media_mime_type: mediaUrl ? 'image/jpeg' : null,
     created_at: new Date().toISOString(),
   })
+
   if (error) {
     console.error(`[Store-Dispatcher] Falha ao salvar mensagem da IA na conversa ${conversationId}: ${error.message}`)
   }
@@ -38,7 +51,7 @@ async function handleHandoff(
     || storeSettings.fallback_message
     || 'Vou te transferir para um vendedor. Um momento, por favor.'
 
-  const identifier = contact.identifier ?? contact.phone_number
+  const identifier = contact.remote_jid ?? contact.phone_number
   if (identifier && whatsappConfig.evolution_instance_name) {
     try {
       await sendTextMessage(whatsappConfig.evolution_instance_name, identifier, messageToSend)
@@ -47,14 +60,12 @@ async function handleHandoff(
     }
   }
 
-  // Update conversation stage
+  // Update conversation stage to awaiting_human
   await supabase
-    .from('conversations')
+    .from('store_conversations')
     .update({
-      stage: 'awaiting_human',
-      handoff_reason_code: output.handoff.reason || 'store_agent_handoff',
-      handoff_reason_label: 'Transferido da Loja',
-      handoff_transferred_at: new Date().toISOString(),
+      operational_status: 'awaiting_human',
+      handoff_reason: output.handoff.reason || 'store_agent_handoff',
       summary: `Cliente solicitou atendimento ou precisa de suporte comercial (Motivo: ${output.handoff.reason}).`,
     })
     .eq('id', conversation.id)
@@ -74,7 +85,7 @@ async function handlePaymentCreate(
 
   // 1. Fetch product price
   const { data: product, error: prodErr } = await supabase
-    .from('products')
+    .from('store_products')
     .select('name, price_amount')
     .eq('id', productId)
     .maybeSingle()
@@ -84,7 +95,7 @@ async function handlePaymentCreate(
     await handleHandoff(result, {
       reply: null,
       status_next: 'open',
-      labels_next: ['etapa_triagem'],
+      labels_next: ['price_requested'],
       handoff: { needs_human: true, reason: 'product_price_not_found' },
       actions: { payment_create: { should_create: false, product_id: null, quantity: 1 } },
       debug: { detected_intent: 'comprar', notes: 'product_missing_price' }
@@ -100,7 +111,7 @@ async function handlePaymentCreate(
     .from('store_orders')
     .insert({
       id: crypto.randomUUID(),
-      client_id: storeContext.clientId,
+      account_id: storeContext.clientId,
       store_id: storeContext.storeId,
       contact_id: contact.id,
       conversation_id: conversation.id,
@@ -145,7 +156,7 @@ async function handlePaymentCreate(
 
     // 4. Send checkout link to customer via WhatsApp
     const checkoutMessage = `Excelente escolha! Para concluir a compra do *${product.name}* no valor de *R$ ${totalAmount.toFixed(2)}*, basta efetuar o pagamento neste link seguro (Pix ou Cartão):\n\n${session.url}`
-    const identifier = contact.identifier ?? contact.phone_number
+    const identifier = contact.remote_jid ?? contact.phone_number
 
     if (identifier && whatsappConfig.evolution_instance_name) {
       await sendTextMessage(whatsappConfig.evolution_instance_name, identifier, checkoutMessage)
@@ -158,7 +169,7 @@ async function handlePaymentCreate(
     await handleHandoff(result, {
       reply: null,
       status_next: 'open',
-      labels_next: ['etapa_triagem'],
+      labels_next: ['quote_requested'],
       handoff: { needs_human: true, reason: 'checkout_generation_failed' },
       actions: { payment_create: { should_create: false, product_id: null, quantity: 1 } },
       debug: { detected_intent: 'comprar', notes: 'checkout_error' }
@@ -171,12 +182,41 @@ async function updateConversationRecord(
   output: StoreAgentOutput
 ): Promise<void> {
   const supabase = createAdminClient()
+  
+  // Map output.status_next to operational_status
+  let operationalStatus: string | undefined
+  if (output.status_next === 'resolved') {
+    operationalStatus = 'resolved'
+  } else if (output.status_next === 'open') {
+    operationalStatus = 'in_service'
+  } else if (output.status_next === 'pending') {
+    operationalStatus = 'bot_active'
+  }
+
+  // Map output.labels_next[0] to commercial_stage if it is one of the valid stages
+  const validStages = [
+    'new_lead',
+    'product_discovery',
+    'product_recommended',
+    'offer_formatting',
+    'price_requested',
+    'quote_requested',
+    'payment_link_sent',
+    'negotiation',
+    'won',
+    'lost'
+  ]
+  const targetStage = output.labels_next.find(l => validStages.includes(l))
+
   const updates: Record<string, any> = {
-    status: output.status_next,
-    labels: output.labels_next,
+    operational_status: operationalStatus,
+    commercial_stage: targetStage || undefined,
     last_outgoing_at: output.reply ? new Date().toISOString() : undefined,
-    last_outgoing_by: output.reply ? 'ai' : undefined,
     last_intent: output.debug.detected_intent || undefined,
+  }
+
+  if (targetStage === 'lost') {
+    updates.lost_reason = output.lost_reason || 'client_refused'
   }
 
   // Remove undefined fields
@@ -184,7 +224,9 @@ async function updateConversationRecord(
     if (updates[key] === undefined) delete updates[key]
   }
 
-  await supabase.from('conversations').update(updates).eq('id', conversationId)
+  if (Object.keys(updates).length > 0) {
+    await supabase.from('store_conversations').update(updates).eq('id', conversationId)
+  }
 }
 
 async function clearAiPause(conversationId: string): Promise<void> {
@@ -203,13 +245,27 @@ export async function dispatchStoreAgent(
   const { storeContext, contact, conversation } = result
   const { whatsappConfig } = storeContext
 
-  // 1. Text response if not handoff and no payment
+  // 1. Text or Media response if not handoff and no payment
   if (output.reply && !output.handoff.needs_human && !output.actions.payment_create.should_create) {
-    const identifier = contact.identifier ?? contact.phone_number
+    const identifier = contact.remote_jid ?? contact.phone_number
     if (identifier && whatsappConfig.evolution_instance_name) {
       try {
-        await sendTextMessage(whatsappConfig.evolution_instance_name, identifier, output.reply)
-        await saveAiMessage(conversation.id, storeContext.clientId, output.reply)
+        if (output.image_url) {
+          const ext = output.image_url.split('.').pop()?.toLowerCase() || 'jpg'
+          const mime = ext === 'png' ? 'image/png' : 'image/jpeg'
+          
+          await sendMediaByUrl(
+            whatsappConfig.evolution_instance_name,
+            identifier,
+            'image',
+            mime,
+            output.image_url,
+            output.reply
+          )
+        } else {
+          await sendTextMessage(whatsappConfig.evolution_instance_name, identifier, output.reply)
+        }
+        await saveAiMessage(conversation.id, storeContext.clientId, output.reply, output.image_url)
       } catch (err) {
         console.error('[Store-Dispatcher] Falha ao enviar WhatsApp:', err)
       }
@@ -226,7 +282,7 @@ export async function dispatchStoreAgent(
   }
 
   // 3. Handoff to human
-  if (output.handoff.needs_human && conversation.stage === 'bot_triage') {
+  if (output.handoff.needs_human && conversation.stage === 'bot_active') {
     await handleHandoff(result, output, output.reply)
   }
 

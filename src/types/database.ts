@@ -130,6 +130,8 @@ export interface StageLabelConfig {
   slug: string
   display_name: string
   followup_cadence?: 'lead' | 'atendimento' | 'agendado' | null
+  goal?: string
+  transition_trigger?: string
 }
 
 // --- Follow-up Step Config (JSONB fields in bot config) ---

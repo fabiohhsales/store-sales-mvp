@@ -1,9 +1,24 @@
 // GET /api/desk/conversations?stage=all|bot_triage|awaiting_human|in_service|resolved
-// Lista conversas do cliente com contato e última mensagem.
+// Lista conversas do cliente com contato e última mensagem para o Desk (Store Sales).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveDeskUser, applyRateLimit } from '@/lib/desk/auth'
+
+interface StoreConvRow {
+  id: string
+  operational_status: string | null
+  commercial_stage: string | null
+  summary: string | null
+  assigned_user_id: string | null
+  last_incoming_at: string | null
+  last_outgoing_at: string | null
+  contact: {
+    id: string
+    name: string | null
+    phone_number: string | null
+  } | null
+}
 
 export async function GET(request: NextRequest) {
   const blocked = applyRateLimit(request)
@@ -14,39 +29,36 @@ export async function GET(request: NextRequest) {
   if (!deskUser.clientId) return NextResponse.json({ error: 'client_id obrigatório' }, { status: 400 })
 
   const stage = request.nextUrl.searchParams.get('stage') ?? 'all'
-  const journeyStageFilter = request.nextUrl.searchParams.get('journey_stage') ?? null
-  const handoffReasonFilter = request.nextUrl.searchParams.get('handoff_reason_code') ?? null
-  console.log('[desk/conversations] clientId=%s stage=%s journey=%s reason=%s', deskUser.clientId, stage, journeyStageFilter, handoffReasonFilter)
+  console.log('[desk/conversations] accountId=%s stage=%s', deskUser.clientId, stage)
   const admin = createAdminClient()
 
   const baseSelect = `
-    id, stage, status, labels, summary, assigned_operator_id,
-    last_incoming_at, last_outgoing_at, last_outgoing_by, stage_changed_at,
-    journey_stage, handoff_reason_code,
-    contacts ( id, name, phone_number )
+    id,
+    operational_status,
+    commercial_stage,
+    summary,
+    assigned_user_id,
+    last_incoming_at,
+    last_outgoing_at,
+    contact:store_contacts ( id, name, phone_number )
   `
 
   let query = admin
-    .from('conversations')
+    .from('store_conversations')
     .select(baseSelect)
-    .eq('client_id', deskUser.clientId)
+    .eq('account_id', deskUser.clientId)
     .order('last_incoming_at', { ascending: false, nullsFirst: false })
 
   if (stage === 'resolved') {
-    query = query.eq('stage', 'resolved')
+    query = query.eq('operational_status', 'resolved')
   } else if (stage !== 'all') {
-    // filtro específico: bot_triage | awaiting_human | in_service
-    query = query.eq('stage', stage)
+    // filtro específico: bot_active | awaiting_human | in_service
+    // maps legacy bot_triage to bot_active
+    const operationalStage = stage === 'bot_triage' ? 'bot_active' : stage
+    query = query.eq('operational_status', operationalStage)
   } else {
-    // 'all' = tudo exceto resolved (inclui stage IS NULL para conversas legadas)
-    query = query.or('stage.neq.resolved,stage.is.null')
-  }
-
-  if (journeyStageFilter) {
-    query = query.eq('journey_stage', journeyStageFilter)
-  }
-  if (handoffReasonFilter) {
-    query = query.eq('handoff_reason_code', handoffReasonFilter)
+    // 'all' = tudo exceto resolved
+    query = query.neq('operational_status', 'resolved')
   }
 
   const { data, error } = await query.limit(100)
@@ -55,6 +67,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
 
-  console.log('[desk/conversations] returned %d conversations', (data ?? []).length)
-  return NextResponse.json(data ?? [])
+  const typedData = (data ?? []) as unknown as StoreConvRow[]
+
+  // Mapeia para o formato esperado pelo Desk frontend
+  const mapped = typedData.map((row) => ({
+    id: row.id,
+    stage: row.operational_status === 'bot_active' ? 'bot_triage' : row.operational_status,
+    status: row.operational_status === 'resolved' ? 'resolved' : 'open',
+    labels: row.commercial_stage ? [row.commercial_stage] : [],
+    summary: row.summary,
+    assigned_operator_id: row.assigned_user_id,
+    last_incoming_at: row.last_incoming_at,
+    last_outgoing_at: row.last_outgoing_at,
+    contacts: row.contact ? [row.contact] : [],
+  }))
+
+  console.log('[desk/conversations] returned %d conversations', mapped.length)
+  return NextResponse.json(mapped)
 }

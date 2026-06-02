@@ -18,7 +18,7 @@ import type { LayoutAudience } from './nav-config'
 interface HeaderProps {
   userEmail: string
   audience: LayoutAudience
-  clientRole?: 'admin' | 'agent' | null
+  clientRole?: string | null
 }
 
 export function Header({ userEmail, audience, clientRole }: HeaderProps) {

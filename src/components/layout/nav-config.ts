@@ -30,19 +30,32 @@ export const adminNavItems: NavItem[] = [
 export const clientNavItems: NavItem[] = [
   { href: '/desk', label: 'Desk', icon: MessageSquare },
   { href: '/pipeline', label: 'Pipeline', icon: Kanban },
-  { href: '/agenda', label: 'Agenda', icon: Calendar },
-  { href: '/followups', label: 'Follow Ups', icon: Send },
   { href: '/store/products', label: 'Loja Catálogo', icon: ShoppingBag },
+  { href: '/store/campaigns', label: 'Campanhas', icon: Send },
   { href: '/store/settings', label: 'Loja Config', icon: Settings },
   { href: '/account', label: 'Minha Conta', icon: UserCircle },
 ]
 
-export function getNavItems(audience: LayoutAudience, clientRole?: 'admin' | 'agent' | null) {
+export function getNavItems(audience: LayoutAudience, clientRole?: string | null) {
   if (audience === 'admin') return adminNavItems
 
-  if (clientRole === 'agent') {
+  const role = clientRole || 'agent'
+
+  // Restricted routes based on roles
+  if (role === 'agent' || role === 'viewer') {
     return clientNavItems.filter(
-      (item) => item.href !== '/store/settings' && item.href !== '/store/products'
+      (item) => 
+        item.href !== '/store/settings' && 
+        item.href !== '/store/products' && 
+        item.href !== '/store/campaigns'
+    )
+  }
+
+  if (role === 'seller') {
+    return clientNavItems.filter(
+      (item) => 
+        item.href !== '/store/settings' && 
+        item.href !== '/store/campaigns'
     )
   }
 

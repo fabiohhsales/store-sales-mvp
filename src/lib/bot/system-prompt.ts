@@ -207,7 +207,16 @@ export function buildSystemPrompt(
   const disengagementPolicyGuide = trimPromptBlock(config.disengagement_policy_guide)
   const stageLabels = sanitizeStageLabels(config.stage_labels)
   const stageLabelList = stageLabels
-    .map((item) => `- ${item.slug}: ${item.display_name}`)
+    .map((item) => {
+      let desc = `- ${item.slug}: ${item.display_name}`
+      const info: string[] = []
+      if (item.goal) info.push(`Goal: "${item.goal}"`)
+      if (item.transition_trigger) info.push(`Trigger criteria: "${item.transition_trigger}"`)
+      if (info.length > 0) {
+        desc += ` (${info.join(' | ')})`
+      }
+      return desc
+    })
     .join('\n')
 
   const stageCurrent = context?.stageCurrent ?? null
@@ -254,7 +263,7 @@ If the information is not in this prompt, say you don't have that detail and off
 ${intakeSection}
 COMMUNICATION TONE:
 ${tone}
-Maximum 1–4 lines per response. No markdown. Be direct and human.
+Maximum 1–4 lines per response. No markdown (except standard WhatsApp bold like *text* for emphasis or when formatting offers). Be direct and human.
 
 CONVERSATION BEST PRACTICES:
 - Always acknowledge what the patient said before moving to your point.

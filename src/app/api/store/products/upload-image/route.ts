@@ -1,31 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getPanelSession } from '@/lib/auth/panel-session'
+import { getStoreSession } from '@/lib/auth/store-session'
 
 export async function POST(req: NextRequest) {
-  const session = await getPanelSession()
+  const session = await getStoreSession()
   if (!session) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
 
-  if (session.role === 'operator' && session.clientRole === 'agent') {
+  if (session.role === 'seller' || session.role === 'viewer') {
     return NextResponse.json({ error: 'Acesso negado: apenas administradores do cliente podem realizar upload de imagens.' }, { status: 403 })
   }
 
-  const clientId = session.clientId
-  if (!clientId && session.role !== 'admin') {
-    return NextResponse.json({ error: 'Nenhum cliente associado' }, { status: 400 })
+  const accountId = session.accountId
+  if (!accountId && session.role !== 'system_admin') {
+    return NextResponse.json({ error: 'Nenhuma conta associada' }, { status: 400 })
   }
 
   try {
     const formData = await req.formData()
     const file = formData.get('file') as File | null
-    const paramClientId = formData.get('client_id') as string | null
+    const paramAccountId = formData.get('client_id') as string | null || formData.get('account_id') as string | null
 
-    const targetClientId = clientId || paramClientId
+    const targetAccountId = accountId || paramAccountId
 
-    if (!targetClientId) {
-      return NextResponse.json({ error: 'Parâmetro client_id é obrigatório' }, { status: 400 })
+    if (!targetAccountId) {
+      return NextResponse.json({ error: 'Parâmetro account_id ou client_id é obrigatório' }, { status: 400 })
     }
 
     if (!file) {
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     // Obter extensão
     const extension = file.name.split('.').pop() || 'png'
     const fileName = `${crypto.randomUUID()}.${extension}`
-    const filePath = `${targetClientId}/${fileName}`
+    const filePath = `${targetAccountId}/${fileName}`
 
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)

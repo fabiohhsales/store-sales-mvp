@@ -127,6 +127,17 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
     const targetColumnId = over.id as string
     if (targetColumnId === draggedConversation.stage_slug) return
 
+    let lostReason = ''
+    if (targetColumnId === 'lost') {
+      const reason = window.prompt('Por favor, informe o motivo da perda (ex: preço, desistiu, sem estoque):')
+      if (reason === null) return // Cancelado pelo usuário
+      if (!reason.trim()) {
+        toast.error('O motivo da perda é obrigatório para mover para esta etapa.')
+        return
+      }
+      lostReason = reason.trim()
+    }
+
     const previousStage = draggedConversation.stage_slug
     applyStageLocally(draggedConversation.id, targetColumnId)
 
@@ -141,6 +152,7 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
             : {}),
           from_stage: previousStage,
           to_stage: targetColumnId,
+          ...(lostReason ? { lost_reason: lostReason } : {}),
           ...(token ? { token } : { client_id: clientId }),
         }),
       })
@@ -169,6 +181,17 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
     fromStage: string,
     toStage: string
   ) {
+    let lostReason = ''
+    if (toStage === 'lost') {
+      const reason = window.prompt('Por favor, informe o motivo da perda (ex: preço, desistiu, sem estoque):')
+      if (reason === null) return // Cancelado
+      if (!reason.trim()) {
+        toast.error('O motivo da perda é obrigatório para mover para esta etapa.')
+        return
+      }
+      lostReason = reason.trim()
+    }
+
     applyStageLocally(conversationId, toStage)
 
     try {
@@ -180,6 +203,7 @@ export function KanbanBoard({ clientId, token, refreshToken = 0 }: KanbanBoardPr
           ...(typeof chatwootId === 'number' ? { chatwoot_conversation_id: chatwootId } : {}),
           from_stage: fromStage,
           to_stage: toStage,
+          ...(lostReason ? { lost_reason: lostReason } : {}),
           ...(token ? { token } : { client_id: clientId }),
         }),
       })
